@@ -1,6 +1,7 @@
 {
-  "functions": { "api/**/*.js": { "runtime": "nodejs20.x" } },
-  "crons": [
-    { "path": "/api/guardianv2", "schedule": "* * * * *" }
-  ]
+  "functions": {
+    "api/**/*.js": {
+      "runtime": "nodejs20.x"
+    }
+  }
 }
