@@ -2,12 +2,12 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Guardian • Admin (Secure)</title>
+  <title>Guardian • Admin / Trader (Read-only until password)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="color-scheme" content="dark light">
   <style>
     :root{
-      --bg:#0b0c10; --card:#12131a; --ink:#0d0f14; --line:#222432; --muted:#9aa3ad; --fg:#eef1f5;
+      --bg:#0b0c10; --card:#12131a; --line:#222432; --muted:#9aa3ad; --fg:#eef1f5;
       --accent:#3b82f6; --accent-2:#60a5fa; --accent-3:#93c5fd;
       --ok:#54d28a; --warn:#ffd166; --bad:#ff6b6b;
       --r-lg:14px; --r-md:12px; --shadow:0 8px 24px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.03);
@@ -23,7 +23,7 @@
     .muted{color:var(--muted)} .tiny{font-size:12px}
 
     /* header */
-    .header{display:flex;align-items:center;gap:12px;margin-bottom:18px}
+    .header{display:flex;align-items:center;gap:12px;margin-bottom:10px}
     .title{display:flex;align-items:center;gap:10px;font-weight:700;font-size:20px}
     .badge{display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid var(--line);
       border-radius:999px;background:linear-gradient(180deg,#12131a,#0f1117); box-shadow:0 6px 18px rgba(0,0,0,.25);font-size:12px;color:var(--muted)}
@@ -32,6 +32,16 @@
     .b-warn{color:var(--warn);border-color:#4a3a1a}
     .b-bad{color:var(--bad);border-color:#4a1a1a}
     .b-accent{color:var(--accent-3);border-color:#1b2a4a}
+
+    /* mode banner */
+    .banner{
+      display:flex;align-items:center;justify-content:space-between;gap:10px;
+      background:linear-gradient(180deg,#101218,#0f1117); border:1px solid var(--line); color:#dbe5f2;
+      border-radius:12px; padding:10px 14px; box-shadow:var(--shadow); margin-bottom:16px;
+      font-size:13px;
+    }
+    .banner.readonly{border-color:#3a2a1b}
+    .banner.admin{border-color:#1b2a4a}
 
     /* grid + card */
     .grid{display:grid;gap:var(--gap);grid-template-columns:repeat(12,minmax(0,1fr))}
@@ -71,66 +81,55 @@
     @media (max-width:760px){.action-row{grid-template-columns:1fr}}
     .action-bar{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
 
-    /* lock overlay */
-    .lock{position:fixed;inset:0;background:rgba(8,10,16,.85);backdrop-filter:blur(6px);
-      display:flex;align-items:center;justify-content:center;z-index:50}
-    .lock-card{width:min(92vw,420px);background:linear-gradient(180deg,#101218,#0f1117);border:1px solid #1c2030;
-      border-radius:16px;padding:20px;box-shadow:0 10px 30px rgba(0,0,0,.45)}
-    .lock-title{font-weight:700;margin-bottom:6px}
+    /* disabled look */
+    .disabled *[data-admin-only]{pointer-events:none; opacity:.55; filter:saturate(.75)}
+    .tip{color:#9aa3ad;font-size:12px}
   </style>
 </head>
 <body>
-  <!-- LOCK SCREEN -->
-  <div id="lock" class="lock" hidden>
-    <div class="lock-card">
-      <div class="lock-title">🔒 Admin Access</div>
-      <div class="muted tiny" style="margin-bottom:10px">Enter your ADMIN_TOKEN to view admin data.</div>
-      <label>Admin Token</label>
-      <input id="lock-token" type="password" placeholder="Paste ADMIN_TOKEN" />
-      <div class="action-row" style="margin-top:12px">
-        <button onclick="unlock()">Unlock</button>
-        <button class="btn-ghost" onclick="document.getElementById('lock').hidden=true">Cancel</button>
-      </div>
-      <div class="muted tiny" style="margin-top:8px">Stored locally in this browser (<span class="kbd">localStorage</span>).</div>
-    </div>
-  </div>
-
-  <!-- APP -->
-  <div class="wrap" id="app" hidden>
+  <div class="wrap" id="app">
     <div class="header">
-      <div class="title">🛡 Guardian Admin</div>
+      <div class="title">🛡 Guardian</div>
       <span id="kite-badge" class="badge"><span class="dot" style="background:#555"></span> Zerodha: —</span>
       <span id="engine-badge" class="badge b-accent"><span class="dot" style="background:#3b82f6"></span> Guardian: —</span>
       <div class="right muted tiny" id="now">—</div>
     </div>
 
-    <div class="grid">
-      <!-- Admin Auth -->
-      <section class="card span-6">
-        <div class="section-title"><h3>Admin Auth</h3></div>
+    <!-- MODE BANNER -->
+    <div id="modeBanner" class="banner readonly">
+      <div><b>Read-only</b> mode: Enter admin token to enable changes.</div>
+      <div class="action-row" style="max-width:520px">
+        <input id="token" type="password" placeholder="ADMIN_TOKEN" autocomplete="off">
+        <button onclick="saveToken()">Save Token</button>
+      </div>
+    </div>
+
+    <div id="content" class="grid disabled"><!-- disabled until admin -->
+      <!-- Auth / Login -->
+      <section class="card span-6" data-admin-only>
+        <div class="section-title"><h3>Admin / Session</h3></div>
         <div class="row">
           <div>
-            <label>Admin Token (stored locally)</label>
-            <input id="token" type="password" placeholder="Paste ADMIN_TOKEN once" />
+            <label>Saved Token (device local)</label>
+            <input id="tokenMirror" type="password" placeholder="—" disabled>
           </div>
           <div>
             <label>&nbsp;</label>
             <div class="action-row">
-              <button onclick="saveToken()">Save Token</button>
-              <button class="btn-ghost" onclick="clearToken()">Clear</button>
+              <button class="btn-ghost" onclick="clearToken()" data-admin-only>Clear Token</button>
+              <a href="/api/login"><button data-admin-only>Login to Zerodha</button></a>
             </div>
           </div>
         </div>
-        <div class="hr"></div>
-        <div class="action-row">
-          <a href="/api/login"><button>Login to Zerodha</button></a>
-          <span class="muted tiny" style="align-self:center;text-align:center">Keep this window open while you trade.</span>
-        </div>
+        <div class="tip" style="margin-top:8px">Trader can view; only Admin with token can log in or change rules.</div>
       </section>
 
       <!-- Live State -->
       <section class="card span-6">
-        <div class="section-title"><h3>Live State</h3><div class="action-bar"><button class="btn-ghost" onclick="refresh()">Refresh</button></div></div>
+        <div class="section-title">
+          <h3>Live State</h3>
+          <div class="action-bar"><button class="btn-ghost" onclick="refresh()">Refresh</button></div>
+        </div>
         <div class="row">
           <div><label>Capital @ 09:15</label><div id="cap" class="pill">—</div></div>
           <div><label>Realised / Unrealised / Total</label><div id="pnl" class="pill">—</div></div>
@@ -146,15 +145,15 @@
       </section>
 
       <!-- Daily Rules -->
-      <section class="card span-6">
+      <section class="card span-6" data-admin-only>
         <div class="section-title"><h3>Daily Rules</h3></div>
         <div class="row">
-          <div><label>Max Loss % (daily)</label><input id="max_loss_pct" type="number" step="0.1" placeholder="10" /></div>
-          <div><label>Trailing Step (₹)</label><input id="trail_step_profit" type="number" step="100" placeholder="5000" /></div>
+          <div><label>Max Loss % (daily)</label><input id="max_loss_pct" type="number" step="0.1" placeholder="10" ></div>
+          <div><label>Trailing Step (₹)</label><input id="trail_step_profit" type="number" step="100" placeholder="5000" ></div>
         </div>
         <div class="row" style="margin-top:var(--gap)">
-          <div><label>Cooldown (minutes)</label><input id="cooldown_min" type="number" step="1" placeholder="15" /></div>
-          <div><label>Max Consecutive Losses</label><input id="max_consecutive_losses" type="number" step="1" placeholder="3" /></div>
+          <div><label>Cooldown (minutes)</label><input id="cooldown_min" type="number" step="1" placeholder="15" ></div>
+          <div><label>Max Consecutive Losses</label><input id="max_consecutive_losses" type="number" step="1" placeholder="3" ></div>
         </div>
         <div class="row" style="margin-top:var(--gap)">
           <div>
@@ -169,17 +168,17 @@
       </section>
 
       <!-- Weekly / Monthly -->
-      <section class="card span-6">
+      <section class="card span-6" data-admin-only>
         <div class="section-title"><h3>Weekly / Monthly Caps</h3></div>
         <div class="row">
-          <div><label>Weekly Max Loss % (optional)</label><input id="week_max_loss_pct" type="number" step="0.1" placeholder="15" /></div>
-          <div><label>Monthly Max Loss % (optional)</label><input id="month_max_loss_pct" type="number" step="0.1" placeholder="25" /></div>
+          <div><label>Weekly Max Loss % (optional)</label><input id="week_max_loss_pct" type="number" step="0.1" placeholder="15" ></div>
+          <div><label>Monthly Max Loss % (optional)</label><input id="month_max_loss_pct" type="number" step="0.1" placeholder="25" ></div>
         </div>
-        <div class="muted tiny" style="margin-top:8px">Leave blank to keep existing values. (Phase 2 logic can be toggled later.)</div>
+        <div class="muted tiny" style="margin-top:8px">Leave blank to keep existing values.</div>
       </section>
 
       <!-- Actions -->
-      <section class="card span-12">
+      <section class="card span-12" data-admin-only>
         <div class="section-title"><h3>Actions</h3></div>
         <div class="action-row">
           <button class="btn-ok" onclick="saveRules()">Save Rules</button>
@@ -192,91 +191,107 @@
       </section>
     </div>
 
-    <div class="footer">Admin UI • v2.2 • Secure (dual-mode state)</div>
+    <div class="footer">Admin/Trader UI • v2.3 • Read-only until token</div>
   </div>
 
   <script>
     const $ = (id)=>document.getElementById(id);
     const readToken = ()=>localStorage.getItem('ADMIN_TOKEN')||'';
 
-    function saveToken(){ localStorage.setItem('ADMIN_TOKEN', $('token').value.trim()); alert('Token saved.'); }
-    function clearToken(){ localStorage.removeItem('ADMIN_TOKEN'); $('token').value=''; alert('Token cleared.'); }
+    // toggle UI for admin vs readonly
+    function setMode(isAdmin){
+      const banner = $('modeBanner');
+      const grid = $('content');
+      if(isAdmin){
+        banner.classList.remove('readonly'); banner.classList.add('admin');
+        banner.firstElementChild.innerHTML = '<b>Admin</b> mode: you can make changes.';
+        grid.classList.remove('disabled');
+      }else{
+        banner.classList.add('readonly'); banner.classList.remove('admin');
+        banner.firstElementChild.innerHTML = '<b>Read-only</b> mode: Enter admin token to enable changes.';
+        grid.classList.add('disabled');
+      }
+      $('tokenMirror').value = readToken() ? '••••••••' : '';
+    }
 
-    // lock
-    function showLock(){ $('lock').hidden=false; $('app').hidden=true; }
-    function showApp(){ $('lock').hidden=true;  $('app').hidden=false; }
-    function unlock(){
-      const v = $('lock-token').value.trim();
+    function saveToken(){
+      const v = $('token').value.trim();
       if(!v){ alert('Enter token'); return; }
       localStorage.setItem('ADMIN_TOKEN', v);
-      $('token').value = v;
-      showApp(); refresh();
+      $('tokenMirror').value = '••••••••';
+      verifyAdmin(); // checks token and flips to admin if valid
+    }
+    function clearToken(){
+      localStorage.removeItem('ADMIN_TOKEN');
+      $('token').value=''; $('tokenMirror').value='';
+      setMode(false);
     }
 
     function setIfEmpty(id,val){
       const el=$(id); if(!el) return;
-      if(el.value===''){ el.value=String(val); }
+      if(el.value===''){ el.value = String(val); }
+    }
+
+    async function fetchState(withAdminHeader){
+      const headers = withAdminHeader && readToken()
+        ? { 'Authorization': 'Bearer '+readToken() }
+        : {};
+      const r = await fetch('/api/state?t=' + Date.now(), { headers });
+      return r.json();
+    }
+
+    async function verifyAdmin(){
+      try{
+        const j = await fetchState(true);
+        setMode(!!j.admin);
+        paint(j);
+      }catch(e){ alert('Verify failed: '+e.message); }
     }
 
     async function refresh(){
       try{
-        const token = readToken();
-        if(!token){ showLock(); return; }
+        const j = await fetchState(true); // try admin first; backend returns admin:false if not matched
+        setMode(!!j.admin);
+        paint(j);
+      }catch(e){ alert('Failed to load state: ' + e.message); }
+    }
 
-        // DUAL-MODE STATE (admin if header is present & correct)
-        const r = await fetch('/api/state?t=' + Date.now(), {
-          headers: { 'Authorization': 'Bearer ' + token }
-        });
-        const j = await r.json();
+    function paint(j){
+      $('now').textContent = 'Time: ' + (j.time || '—');
 
-        // If backend says not admin, lock the UI.
-        if(!j.admin){
-          showLock();
-          return;
-        }
+      // badges
+      const kb = $('kite-badge'); const eb = $('engine-badge');
+      kb.className='badge';
+      if(j.kite_status === 'ok'){ kb.innerHTML='<span class="dot" style="background:#22c55e"></span> Zerodha: Connected'; kb.classList.add('b-ok'); }
+      else if(j.kite_status === 'invalid'){ kb.innerHTML='<span class="dot" style="background:#e11d48"></span> Zerodha: Token invalid'; kb.classList.add('b-bad'); }
+      else { kb.innerHTML='<span class="dot" style="background:#f59e0b"></span> Zerodha: Not logged in'; kb.classList.add('b-warn'); }
+      eb.innerHTML = j.ok ? '<span class="dot" style="background:#3b82f6"></span> Guardian: Online'
+                          : '<span class="dot" style="background:#e11d48"></span> Guardian: Error';
 
-        $('now').textContent = 'Time: ' + (j.time || '—');
+      if(!j.ok){ alert('State error: ' + (j.error||'unknown')); return; }
+      const s=j.state||{};
+      const total = Number((Number(s.realised||0)+Number(s.unrealised||0)).toFixed(2));
+      $('cap').textContent = Number(s.capital_day_915||0).toFixed(2);
+      $('pnl').textContent = `${Number(s.realised||0).toFixed(2)} / ${Number(s.unrealised||0).toFixed(2)} / ${total.toFixed(2)}`;
+      $('day').textContent = s.tripped_day ? 'TRIPPED' : 'ACTIVE';
+      $('block').textContent = s.block_new_orders ? 'BLOCKED' : 'ALLOWED';
+      $('losses').textContent = Number(s.consecutive_losses||0);
+      $('cool').textContent = s.cooldown_until ? new Date(s.cooldown_until).toLocaleTimeString() : '—';
 
-        // Badges (kite_status exists only for admin mode)
-        const kb = $('kite-badge'); const eb = $('engine-badge');
-        kb.className='badge';
-        if(j.kite_status === 'ok'){ kb.innerHTML='<span class="dot" style="background:#22c55e"></span> Zerodha: Connected'; kb.classList.add('b-ok'); }
-        else if(j.kite_status === 'invalid'){ kb.innerHTML='<span class="dot" style="background:#e11d48"></span> Zerodha: Token invalid'; kb.classList.add('b-bad'); }
-        else { kb.innerHTML='<span class="dot" style="background:#f59e0b"></span> Zerodha: Not logged in'; kb.classList.add('b-warn'); }
-        eb.innerHTML = j.ok ? '<span class="dot" style="background:#3b82f6"></span> Guardian: Online'
-                            : '<span class="dot" style="background:#e11d48"></span> Guardian: Error';
-
-        if(!j.ok){ alert('State error: ' + (j.error||'unknown')); return; }
-        const s=j.state||{};
-
-        // Pills
-        const total = Number((Number(s.realised||0)+Number(s.unrealised||0)).toFixed(2));
-        $('cap').textContent = Number(s.capital_day_915||0).toFixed(2);
-        $('pnl').textContent = `${Number(s.realised||0).toFixed(2)} / ${Number(s.unrealised||0).toFixed(2)} / ${total.toFixed(2)}`;
-        $('day').textContent = s.tripped_day ? 'TRIPPED' : 'ACTIVE';
-        $('block').textContent = s.block_new_orders ? 'BLOCKED' : 'ALLOWED';
-        $('losses').textContent = Number(s.consecutive_losses||0);
-        $('cool').textContent = s.cooldown_until ? new Date(s.cooldown_until).toLocaleTimeString() : '—';
-
-        // Defaults for admin knobs
-        setIfEmpty('max_loss_pct', s.max_loss_pct ?? 10);
-        setIfEmpty('trail_step_profit', s.trail_step_profit ?? 5000);
-        setIfEmpty('cooldown_min', s.cooldown_min ?? 15);
-        setIfEmpty('max_consecutive_losses', s.max_consecutive_losses ?? 3);
-        setIfEmpty('allow_new_after_lock10', String(!!s.allow_new_after_lock10));
-        setIfEmpty('expiry_flag', String(!!s.expiry_flag));
-        if(s.week_max_loss_pct !== undefined) setIfEmpty('week_max_loss_pct', s.week_max_loss_pct);
-        if(s.month_max_loss_pct !== undefined) setIfEmpty('month_max_loss_pct', s.month_max_loss_pct);
-
-        showApp();
-      }catch(e){
-        alert('Failed to load state: ' + e.message);
-      }
+      // Only present in admin mode; setIfEmpty will ignore if undefined
+      setIfEmpty('max_loss_pct', s.max_loss_pct ?? '');
+      setIfEmpty('trail_step_profit', s.trail_step_profit ?? '');
+      setIfEmpty('cooldown_min', s.cooldown_min ?? '');
+      setIfEmpty('max_consecutive_losses', s.max_consecutive_losses ?? '');
+      setIfEmpty('allow_new_after_lock10', String(s.allow_new_after_lock10 ?? ''));
+      setIfEmpty('expiry_flag', String(s.expiry_flag ?? ''));
+      if(s.week_max_loss_pct !== undefined) setIfEmpty('week_max_loss_pct', s.week_max_loss_pct);
+      if(s.month_max_loss_pct !== undefined) setIfEmpty('month_max_loss_pct', s.month_max_loss_pct);
     }
 
     async function saveRules(){
       const token = readToken();
-      if(!token){ showLock(); return; }
+      if(!token){ alert('Enter admin token first'); return; }
 
       const body = {};
       copyNumber('max_loss_pct', body);
@@ -297,11 +312,9 @@
       if(!j.ok){ alert('Save failed: ' + (j.error||'unknown')); return; }
       alert('Rules saved.'); refresh();
     }
-
     function copyNumber(id,out,optional=false){
       const el=$(id); if(!el) return;
-      const v=el.value.trim();
-      if(v===''){ if(!optional) out[id]=undefined; return; }
+      const v=el.value.trim(); if(v===''){ if(!optional) out[id]=undefined; return; }
       const n=Number(v); if(!Number.isNaN(n)) out[id]=n;
     }
     function copyBool(id,out){
@@ -309,10 +322,9 @@
       const v=el.value.trim();
       if(v==='true') out[id]=true; else if(v==='false') out[id]=false;
     }
-
     async function post(url){
       const token = readToken();
-      if(!token){ showLock(); return; }
+      if(!token){ alert('Enter admin token first'); return; }
       const r = await fetch(url, { method:'POST', headers:{ 'Authorization':'Bearer '+token } });
       const j = await r.json();
       if(!j.ok){ alert('Action failed: ' + (j.error||'unknown')); return; }
@@ -320,8 +332,9 @@
     }
 
     // init
-    $('token').value = readToken();
-    if(!readToken()) showLock(); else { showApp(); refresh(); }
+    $('token').value = readToken() || '';
+    $('tokenMirror').value = readToken() ? '••••••••' : '';
+    refresh();
     setInterval(refresh, 10000);
   </script>
 </body>
