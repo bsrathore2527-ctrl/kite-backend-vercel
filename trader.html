@@ -1,0 +1,51 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Guardian • Trader</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Arial,sans-serif;background:#0b0b0c;color:#eaeaea;margin:0;padding:24px}
+    h1{margin:0 0 16px}
+    .card{background:#141417;border:1px solid #2a2a2f;border-radius:12px;padding:16px;margin:12px 0}
+    .pill{display:inline-block;padding:6px 10px;border:1px solid #2a2a2f;border-radius:999px;margin-right:6px}
+    .muted{color:#9aa0a6}
+    .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+    @media (max-width:720px){.grid{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+  <h1>🛡 Guardian Trader</h1>
+
+  <div class="card">
+    <a href="/api/login"><button>Login to Zerodha</button></a>
+    <div class="muted" style="margin-top:8px">Login once after market open each day.</div>
+  </div>
+
+  <div class="card">
+    <div class="grid">
+      <div><div class="muted">Capital @09:15</div><div id="cap" class="pill">—</div></div>
+      <div><div class="muted">Realised / Unrealised / Total</div><div id="pnl" class="pill">—</div></div>
+      <div><div class="muted">Day Status</div><div id="day" class="pill">—</div></div>
+      <div><div class="muted">New Orders</div><div id="block" class="pill">—</div></div>
+    </div>
+    <button style="margin-top:12px" onclick="refresh()">Refresh</button>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    async function refresh(){
+      const r = await fetch('/api/state');
+      const j = await r.json();
+      if(!j.ok){ alert('State error: ' + (j.error||'unknown')); return; }
+      const s = j.state;
+      const total = (s.realised + s.unrealised).toFixed(2);
+      $('cap').textContent = s.capital_day_915.toFixed(2);
+      $('pnl').textContent = `${s.realised.toFixed(2)} / ${s.unrealised.toFixed(2)} / ${total}`;
+      $('day').textContent = s.tripped_day ? 'TRIPPED' : 'ACTIVE';
+      $('block').textContent = s.block_new_orders ? 'BLOCKED' : 'ALLOWED';
+    }
+    refresh(); setInterval(refresh, 10000);
+  </script>
+</body>
+</html>
