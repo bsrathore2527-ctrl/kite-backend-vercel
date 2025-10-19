@@ -1,9 +1,15 @@
-"dependencies": {
-     "cookie": "^0.6.0",
-     "cookie-signature": "1.0.6",
-     "kiteconnect": "^3.2.0",
-     "@upstash/redis": "^1.28.3"
-     "scripts": {
-     "prepare": "exit 1"
-     }
-   }
+{
+  "name": "kite-backend-vercel",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "cookie": "^0.6.0",
+    "cookie-signature": "1.0.6",
+    "kiteconnect": "^3.2.0",
+    "@upstash/redis": "^1.28.3"
+  },
+  "scripts": {
+    "prepare": "exit 1"
+  }
+}
