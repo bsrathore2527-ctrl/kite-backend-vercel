@@ -1,13 +1,3 @@
-{
-  "functions": {
-    "api/**/*.js": {
-      "runtime": "nodejs20.x"
-    }
-  },
-  "crons": [
-    {
-      "path": "/api/guardian",
-      "schedule": "* * * * *"
-    }
-  ]
+export default async function handler(req, res) {
+  res.json({ ok: true, guardian: "active" });
 }
