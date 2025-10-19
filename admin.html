@@ -1,0 +1,151 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Guardian • Admin</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Arial,sans-serif;background:#0b0b0c;color:#eaeaea;margin:0;padding:24px}
+    h1{margin:0 0 16px}
+    .card{background:#141417;border:1px solid #2a2a2f;border-radius:12px;padding:16px;margin:12px 0}
+    label{display:block;font-size:13px;margin:10px 0 4px;color:#a8a8b3}
+    input,select,button,textarea{width:100%;padding:10px;border-radius:10px;border:1px solid #2a2a2f;background:#0f0f12;color:#eaeaea}
+    button{cursor:pointer}
+    .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .ok{color:#6be675}.warn{color:#ffd166}.bad{color:#ff6b6b}
+    .muted{color:#9aa0a6}
+    .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+    @media (max-width:720px){.grid,.row{grid-template-columns:1fr}}
+    .pill{display:inline-block;padding:4px 8px;border:1px solid #2a2a2f;border-radius:999px;margin-right:6px}
+  </style>
+</head>
+<body>
+  <h1>🛡 Guardian Admin</h1>
+
+  <div class="card">
+    <label>Admin Token (stored locally)</label>
+    <input id="token" type="password" placeholder="Paste ADMIN_TOKEN once" />
+    <button onclick="saveToken()">Save Token</button>
+    <div class="muted">We store this in your browser <b>localStorage</b>; not sent anywhere unless you click Save or perform admin actions.</div>
+  </div>
+
+  <div class="card">
+    <div class="grid">
+      <div><div class="muted">Capital @09:15</div><div id="cap" class="pill">—</div></div>
+      <div><div class="muted">Realised / Unrealised / Total</div><div id="pnl" class="pill">—</div></div>
+      <div><div class="muted">Day</div><div id="day" class="pill">—</div></div>
+      <div><div class="muted">Block New</div><div id="block" class="pill">—</div></div>
+      <div><div class="muted">Losses</div><div id="losses" class="pill">—</div></div>
+      <div><div class="muted">Cooldown Until</div><div id="cool" class="pill">—</div></div>
+    </div>
+    <button style="margin-top:12px" onclick="refresh()">Refresh</button>
+    <a href="/api/login"><button style="margin-top:12px">Login to Zerodha</button></a>
+  </div>
+
+  <div class="card">
+    <h3>Set Rules</h3>
+    <div class="row">
+      <div>
+        <label>Max Loss % (daily)</label>
+        <input id="max_loss_pct" type="number" step="0.1" value="10" />
+      </div>
+      <div>
+        <label>Trailing Step (₹)</label>
+        <input id="trail_step_profit" type="number" step="100" value="5000" />
+      </div>
+    </div>
+    <div class="row">
+      <div>
+        <label>Cooldown (minutes)</label>
+        <input id="cooldown_min" type="number" step="1" value="15" />
+      </div>
+      <div>
+        <label>Max Consecutive Losses</label>
+        <input id="max_consecutive_losses" type="number" step="1" value="3" />
+      </div>
+    </div>
+    <div class="row">
+      <div>
+        <label>Allow New After 10% Profit?</label>
+        <select id="allow_new_after_lock10">
+          <option value="false">No (block)</option>
+          <option value="true">Yes (allow)</option>
+        </select>
+      </div>
+      <div>
+        <label>Expiry Day?</label>
+        <select id="expiry_flag">
+          <option value="false">No</option>
+          <option value="true">Yes</option>
+        </select>
+      </div>
+    </div>
+    <button style="margin-top:12px" onclick="saveRules()">Save Rules</button>
+  </div>
+
+  <div class="card">
+    <h3>Kill Switch</h3>
+    <div class="row">
+      <button class="bad" onclick="post('/api/kill')">Engage Kill (block + trip day)</button>
+      <button class="ok" onclick="post('/api/unlock')">Unlock (allow new)</button>
+    </div>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const readToken = () => localStorage.getItem('ADMIN_TOKEN') || '';
+    function saveToken(){ localStorage.setItem('ADMIN_TOKEN', $('token').value.trim()); alert('Token saved.'); }
+    async function refresh(){
+      const r = await fetch('/api/state');
+      const j = await r.json();
+      if(!j.ok){ alert('State error: ' + (j.error||'unknown')); return; }
+      const s = j.state;
+      $('cap').textContent = s.capital_day_915.toFixed(2);
+      const total = (s.realised + s.unrealised).toFixed(2);
+      $('pnl').textContent = `${s.realised.toFixed(2)} / ${s.unrealised.toFixed(2)} / ${total}`;
+      $('day').textContent = s.tripped_day ? 'TRIPPED' : 'ACTIVE';
+      $('block').textContent = s.block_new_orders ? 'BLOCKED' : 'ALLOWED';
+      $('losses').textContent = s.consecutive_losses;
+      $('cool').textContent = s.cooldown_until ? new Date(s.cooldown_until).toLocaleTimeString() : '—';
+      // fill form with current knobs
+      $('max_loss_pct').value = s.max_loss_pct;
+      $('trail_step_profit').value = s.trail_step_profit;
+      $('cooldown_min').value = s.cooldown_min;
+      $('max_consecutive_losses').value = s.max_consecutive_losses;
+      $('allow_new_after_lock10').value = String(!!s.allow_new_after_lock10);
+      $('expiry_flag').value = String(!!s.expiry_flag);
+    }
+    async function saveRules(){
+      const body = {
+        max_loss_pct: Number($('max_loss_pct').value),
+        trail_step_profit: Number($('trail_step_profit').value),
+        cooldown_min: Number($('cooldown_min').value),
+        max_consecutive_losses: Number($('max_consecutive_losses').value),
+        allow_new_after_lock10: $('allow_new_after_lock10').value === 'true',
+        expiry_flag: $('expiry_flag').value === 'true'
+      };
+      const token = readToken();
+      if(!token){ alert('Save token first.'); return; }
+      const r = await fetch('/api/rules-set', {
+        method:'POST',
+        headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer '+token },
+        body: JSON.stringify(body)
+      });
+      const j = await r.json();
+      if(!j.ok){ alert('Save failed: ' + (j.error||'unknown')); return; }
+      alert('Rules saved.'); refresh();
+    }
+    async function post(url){
+      const token = readToken();
+      if(!token){ alert('Save token first.'); return; }
+      const r = await fetch(url, { method:'POST', headers:{ 'Authorization':'Bearer '+token } });
+      const j = await r.json();
+      if(!j.ok){ alert('Action failed: '+(j.error||'unknown')); return; }
+      alert(j.message || 'OK'); refresh();
+    }
+    // init
+    $('token').value = readToken();
+    refresh(); setInterval(refresh, 10000);
+  </script>
+</body>
+</html>
