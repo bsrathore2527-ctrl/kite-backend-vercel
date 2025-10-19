@@ -1,6 +1,3 @@
 {
-  "functions": { "api/**/*.js": { "runtime": "nodejs18.x" } },
-  "crons": [
-    { "path": "/api/guardian", "schedule": "* * * * *" }
-  ]
+  "thisWillFail": "test"
 }
