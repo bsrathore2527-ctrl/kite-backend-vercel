@@ -26,4 +26,303 @@
     .header{display:flex;align-items:center;gap:12px;margin-bottom:18px}
     .title{display:flex;align-items:center;gap:10px;font-weight:700;font-size:20px}
     .badge{display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid var(--line);
-      border-radius:999px;background:linear-gradient(180deg,#12131a
+      border-radius:999px;background:linear-gradient(180deg,#12131a,#0f1117); box-shadow:0 6px 18px rgba(0,0,0,.25);font-size:12px;color:var(--muted)}
+    .dot{width:8px;height:8px;border-radius:50%}
+    .b-ok{color:var(--ok);border-color:#1e3a2a}
+    .b-warn{color:var(--warn);border-color:#4a3a1a}
+    .b-bad{color:var(--bad);border-color:#4a1a1a}
+    .b-accent{color:var(--accent-3);border-color:#1b2a4a}
+
+    /* grid + card */
+    .grid{display:grid;gap:var(--gap);grid-template-columns:repeat(12,minmax(0,1fr))}
+    .card{grid-column:span 12;background:linear-gradient(180deg,#0f1117,#0d0f15);border:1px solid var(--line);
+      border-radius:var(--r-lg);box-shadow:var(--shadow);padding:var(--pad)}
+    .card h3{margin:0 0 8px;font-size:14px;font-weight:700;letter-spacing:.2px}
+    @media (min-width:860px){.span-6{grid-column:span 6}.span-12{grid-column:span 12}}
+
+    /* forms */
+    label{display:block;font-size:12px;color:var(--muted);margin:8px 0 6px}
+    input,select,button{width:100%;padding:12px;border-radius:var(--r-md);border:1px solid var(--line);
+      background:linear-gradient(180deg,#0f1117,#0c0e13);color:var(--fg);outline:none;transition:border-color .15s,box-shadow .15s,transform .03s}
+    input:focus,select:focus{border-color:#2856b8;box-shadow:0 0 0 3px rgba(59,130,246,.2)}
+    .row{display:grid;grid-template-columns:1fr 1fr;gap:var(--gap)}
+    @media (max-width:760px){.row{grid-template-columns:1fr}}
+
+    /* buttons */
+    button{background:linear-gradient(180deg,#1e40af,#1b3a9a);border-color:#1f3b99;color:#fff;font-weight:600;cursor:pointer}
+    button:hover{filter:brightness(1.05)} button:active{transform:translateY(1px)}
+    .btn-ghost{background:linear-gradient(180deg,#0f1117,#0d0f15);color:var(--fg)}
+    .btn-warn{background:linear-gradient(180deg,#7c2d12,#6b2109);border-color:#5c1a07}
+    .btn-ok{background:linear-gradient(180deg,#166534,#115c2e);border-color:#0b4d25}
+
+    /* pills */
+    .pill{display:inline-flex;align-items:center;min-height:34px;padding:8px 12px;border:1px solid var(--line);
+      border-radius:999px;background:linear-gradient(180deg,#101219,#0e1016);box-shadow:0 6px 18px rgba(0,0,0,.25);font-size:13px;color:#dbe5f2}
+
+    .section-title{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+    .right{margin-left:auto}
+    .hr{height:1px;background:linear-gradient(90deg,transparent,#1b1d28,transparent);margin:12px 0}
+    .footer{margin-top:10px;color:var(--muted);font-size:12px;text-align:right}
+    .kbd{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px}
+
+    /* responsive action rows (no overlap) */
+    .action-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;align-items:stretch}
+    .action-row > *{width:100%}
+    @media (max-width:760px){.action-row{grid-template-columns:1fr}}
+    .action-bar{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+
+    /* lock overlay */
+    .lock{position:fixed;inset:0;background:rgba(8,10,16,.85);backdrop-filter:blur(6px);
+      display:flex;align-items:center;justify-content:center;z-index:50}
+    .lock-card{width:min(92vw,420px);background:linear-gradient(180deg,#101218,#0f1117);border:1px solid #1c2030;
+      border-radius:16px;padding:20px;box-shadow:0 10px 30px rgba(0,0,0,.45)}
+    .lock-title{font-weight:700;margin-bottom:6px}
+  </style>
+</head>
+<body>
+  <!-- LOCK SCREEN -->
+  <div id="lock" class="lock" hidden>
+    <div class="lock-card">
+      <div class="lock-title">🔒 Admin Access</div>
+      <div class="muted tiny" style="margin-bottom:10px">Enter your ADMIN_TOKEN to view admin data.</div>
+      <label>Admin Token</label>
+      <input id="lock-token" type="password" placeholder="Paste ADMIN_TOKEN" />
+      <div class="action-row" style="margin-top:12px">
+        <button onclick="unlock()">Unlock</button>
+        <button class="btn-ghost" onclick="document.getElementById('lock').hidden=true">Cancel</button>
+      </div>
+      <div class="muted tiny" style="margin-top:8px">Stored locally in this browser (<span class="kbd">localStorage</span>).</div>
+    </div>
+  </div>
+
+  <!-- APP -->
+  <div class="wrap" id="app" hidden>
+    <div class="header">
+      <div class="title">🛡 Guardian Admin</div>
+      <span id="kite-badge" class="badge"><span class="dot" style="background:#555"></span> Zerodha: —</span>
+      <span id="engine-badge" class="badge b-accent"><span class="dot" style="background:#3b82f6"></span> Guardian: —</span>
+      <div class="right muted tiny" id="now">—</div>
+    </div>
+
+    <div class="grid">
+      <!-- Admin Auth -->
+      <section class="card span-6">
+        <div class="section-title"><h3>Admin Auth</h3></div>
+        <div class="row">
+          <div>
+            <label>Admin Token (stored locally)</label>
+            <input id="token" type="password" placeholder="Paste ADMIN_TOKEN once" />
+          </div>
+          <div>
+            <label>&nbsp;</label>
+            <div class="action-row">
+              <button onclick="saveToken()">Save Token</button>
+              <button class="btn-ghost" onclick="clearToken()">Clear</button>
+            </div>
+          </div>
+        </div>
+        <div class="hr"></div>
+        <div class="action-row">
+          <a href="/api/login"><button>Login to Zerodha</button></a>
+          <span class="muted tiny" style="align-self:center;text-align:center">Keep this window open while you trade.</span>
+        </div>
+      </section>
+
+      <!-- Live State -->
+      <section class="card span-6">
+        <div class="section-title"><h3>Live State</h3><div class="action-bar"><button class="btn-ghost" onclick="refresh()">Refresh</button></div></div>
+        <div class="row">
+          <div><label>Capital @ 09:15</label><div id="cap" class="pill">—</div></div>
+          <div><label>Realised / Unrealised / Total</label><div id="pnl" class="pill">—</div></div>
+        </div>
+        <div class="row" style="margin-top:var(--gap)">
+          <div><label>Day Status</label><div id="day" class="pill">—</div></div>
+          <div><label>New Orders</label><div id="block" class="pill">—</div></div>
+        </div>
+        <div class="row" style="margin-top:var(--gap)">
+          <div><label>Consecutive Losses</label><div id="losses" class="pill">—</div></div>
+          <div><label>Cooldown Until</label><div id="cool" class="pill">—</div></div>
+        </div>
+      </section>
+
+      <!-- Daily Rules -->
+      <section class="card span-6">
+        <div class="section-title"><h3>Daily Rules</h3></div>
+        <div class="row">
+          <div><label>Max Loss % (daily)</label><input id="max_loss_pct" type="number" step="0.1" placeholder="10" /></div>
+          <div><label>Trailing Step (₹)</label><input id="trail_step_profit" type="number" step="100" placeholder="5000" /></div>
+        </div>
+        <div class="row" style="margin-top:var(--gap)">
+          <div><label>Cooldown (minutes)</label><input id="cooldown_min" type="number" step="1" placeholder="15" /></div>
+          <div><label>Max Consecutive Losses</label><input id="max_consecutive_losses" type="number" step="1" placeholder="3" /></div>
+        </div>
+        <div class="row" style="margin-top:var(--gap)">
+          <div>
+            <label>Allow New Positions After 10% Profit?</label>
+            <select id="allow_new_after_lock10"><option value="false">No (block new)</option><option value="true">Yes (allow)</option></select>
+          </div>
+          <div>
+            <label>Expiry Day?</label>
+            <select id="expiry_flag"><option value="false">No</option><option value="true">Yes</option></select>
+          </div>
+        </div>
+      </section>
+
+      <!-- Weekly / Monthly -->
+      <section class="card span-6">
+        <div class="section-title"><h3>Weekly / Monthly Caps</h3></div>
+        <div class="row">
+          <div><label>Weekly Max Loss % (optional)</label><input id="week_max_loss_pct" type="number" step="0.1" placeholder="15" /></div>
+          <div><label>Monthly Max Loss % (optional)</label><input id="month_max_loss_pct" type="number" step="0.1" placeholder="25" /></div>
+        </div>
+        <div class="muted tiny" style="margin-top:8px">Leave blank to keep existing values. (Phase 2 logic can be toggled later.)</div>
+      </section>
+
+      <!-- Actions -->
+      <section class="card span-12">
+        <div class="section-title"><h3>Actions</h3></div>
+        <div class="action-row">
+          <button class="btn-ok" onclick="saveRules()">Save Rules</button>
+          <button class="btn-warn" onclick="post('/api/kill')">Engage Kill (Block + Trip Day)</button>
+        </div>
+        <div class="action-row" style="margin-top:10px">
+          <button class="btn-ghost" onclick="post('/api/unlock')">Unlock (Allow New)</button>
+          <span class="muted tiny" style="align-self:center;text-align:center">Tip: append <span class="kbd">?t=123</span> to bypass cache while testing.</span>
+        </div>
+      </section>
+    </div>
+
+    <div class="footer">Admin UI • v2.2 • Secure (dual-mode state)</div>
+  </div>
+
+  <script>
+    const $ = (id)=>document.getElementById(id);
+    const readToken = ()=>localStorage.getItem('ADMIN_TOKEN')||'';
+
+    function saveToken(){ localStorage.setItem('ADMIN_TOKEN', $('token').value.trim()); alert('Token saved.'); }
+    function clearToken(){ localStorage.removeItem('ADMIN_TOKEN'); $('token').value=''; alert('Token cleared.'); }
+
+    // lock
+    function showLock(){ $('lock').hidden=false; $('app').hidden=true; }
+    function showApp(){ $('lock').hidden=true;  $('app').hidden=false; }
+    function unlock(){
+      const v = $('lock-token').value.trim();
+      if(!v){ alert('Enter token'); return; }
+      localStorage.setItem('ADMIN_TOKEN', v);
+      $('token').value = v;
+      showApp(); refresh();
+    }
+
+    function setIfEmpty(id,val){
+      const el=$(id); if(!el) return;
+      if(el.value===''){ el.value=String(val); }
+    }
+
+    async function refresh(){
+      try{
+        const token = readToken();
+        if(!token){ showLock(); return; }
+
+        // DUAL-MODE STATE (admin if header is present & correct)
+        const r = await fetch('/api/state?t=' + Date.now(), {
+          headers: { 'Authorization': 'Bearer ' + token }
+        });
+        const j = await r.json();
+
+        // If backend says not admin, lock the UI.
+        if(!j.admin){
+          showLock();
+          return;
+        }
+
+        $('now').textContent = 'Time: ' + (j.time || '—');
+
+        // Badges (kite_status exists only for admin mode)
+        const kb = $('kite-badge'); const eb = $('engine-badge');
+        kb.className='badge';
+        if(j.kite_status === 'ok'){ kb.innerHTML='<span class="dot" style="background:#22c55e"></span> Zerodha: Connected'; kb.classList.add('b-ok'); }
+        else if(j.kite_status === 'invalid'){ kb.innerHTML='<span class="dot" style="background:#e11d48"></span> Zerodha: Token invalid'; kb.classList.add('b-bad'); }
+        else { kb.innerHTML='<span class="dot" style="background:#f59e0b"></span> Zerodha: Not logged in'; kb.classList.add('b-warn'); }
+        eb.innerHTML = j.ok ? '<span class="dot" style="background:#3b82f6"></span> Guardian: Online'
+                            : '<span class="dot" style="background:#e11d48"></span> Guardian: Error';
+
+        if(!j.ok){ alert('State error: ' + (j.error||'unknown')); return; }
+        const s=j.state||{};
+
+        // Pills
+        const total = Number((Number(s.realised||0)+Number(s.unrealised||0)).toFixed(2));
+        $('cap').textContent = Number(s.capital_day_915||0).toFixed(2);
+        $('pnl').textContent = `${Number(s.realised||0).toFixed(2)} / ${Number(s.unrealised||0).toFixed(2)} / ${total.toFixed(2)}`;
+        $('day').textContent = s.tripped_day ? 'TRIPPED' : 'ACTIVE';
+        $('block').textContent = s.block_new_orders ? 'BLOCKED' : 'ALLOWED';
+        $('losses').textContent = Number(s.consecutive_losses||0);
+        $('cool').textContent = s.cooldown_until ? new Date(s.cooldown_until).toLocaleTimeString() : '—';
+
+        // Defaults for admin knobs
+        setIfEmpty('max_loss_pct', s.max_loss_pct ?? 10);
+        setIfEmpty('trail_step_profit', s.trail_step_profit ?? 5000);
+        setIfEmpty('cooldown_min', s.cooldown_min ?? 15);
+        setIfEmpty('max_consecutive_losses', s.max_consecutive_losses ?? 3);
+        setIfEmpty('allow_new_after_lock10', String(!!s.allow_new_after_lock10));
+        setIfEmpty('expiry_flag', String(!!s.expiry_flag));
+        if(s.week_max_loss_pct !== undefined) setIfEmpty('week_max_loss_pct', s.week_max_loss_pct);
+        if(s.month_max_loss_pct !== undefined) setIfEmpty('month_max_loss_pct', s.month_max_loss_pct);
+
+        showApp();
+      }catch(e){
+        alert('Failed to load state: ' + e.message);
+      }
+    }
+
+    async function saveRules(){
+      const token = readToken();
+      if(!token){ showLock(); return; }
+
+      const body = {};
+      copyNumber('max_loss_pct', body);
+      copyNumber('trail_step_profit', body);
+      copyNumber('cooldown_min', body);
+      copyNumber('max_consecutive_losses', body);
+      copyBool('allow_new_after_lock10', body);
+      copyBool('expiry_flag', body);
+      copyNumber('week_max_loss_pct', body, true);
+      copyNumber('month_max_loss_pct', body, true);
+
+      const r = await fetch('/api/rules-set', {
+        method:'POST',
+        headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer '+token },
+        body: JSON.stringify(body)
+      });
+      const j = await r.json();
+      if(!j.ok){ alert('Save failed: ' + (j.error||'unknown')); return; }
+      alert('Rules saved.'); refresh();
+    }
+
+    function copyNumber(id,out,optional=false){
+      const el=$(id); if(!el) return;
+      const v=el.value.trim();
+      if(v===''){ if(!optional) out[id]=undefined; return; }
+      const n=Number(v); if(!Number.isNaN(n)) out[id]=n;
+    }
+    function copyBool(id,out){
+      const el=$(id); if(!el) return;
+      const v=el.value.trim();
+      if(v==='true') out[id]=true; else if(v==='false') out[id]=false;
+    }
+
+    async function post(url){
+      const token = readToken();
+      if(!token){ showLock(); return; }
+      const r = await fetch(url, { method:'POST', headers:{ 'Authorization':'Bearer '+token } });
+      const j = await r.json();
+      if(!j.ok){ alert('Action failed: ' + (j.error||'unknown')); return; }
+      alert(j.message || 'OK'); refresh();
+    }
+
+    // init
+    $('token').value = readToken();
+    if(!readToken()) showLock(); else { showApp(); refresh(); }
+    setInterval(refresh, 10000);
+  </script>
+</body>
+</html>
