@@ -1,6 +1,13 @@
 {
-   "functions": { "api/**/*.js": { "runtime": "nodejs20.x" } },
-+  "crons": [
-+    { "path": "/api/cron-enforce", "schedule": "* * * * *" }
-+  ]
- }
+  "functions": {
+    "api/**/*.js": {
+      "runtime": "nodejs20.x"
+    }
+  },
+  "crons": [
+    {
+      "path": "/api/cron-enforce",
+      "schedule": "* * * * *"
+    }
+  ]
+}
