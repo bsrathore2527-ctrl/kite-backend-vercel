@@ -1,16 +1,41 @@
 // api/state.js
-// Lightweight state read for UI (no enforcement here).
+// Lightweight state read for UI + Kite health
 
 import { kv, todayKey, IST } from "./_lib/kv.js";
+import { KiteConnect } from "kiteconnect";
 
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+  const nowTime = new Date().toLocaleTimeString("en-IN", { timeZone: IST, hour12: false });
+
+  // Default status
+  let kite_status = "missing"; // "ok" | "invalid" | "missing"
+
   try {
+    // Read risk state
     const key = `risk:${todayKey()}`;
     const s = (await kv.get(key)) || {};
+
+    // Quick Kite token check
+    const at = await kv.get(`kite_at:${todayKey()}`);
+    if (!at) {
+      kite_status = "missing";
+    } else {
+      try {
+        const kc = new KiteConnect({ api_key: process.env.KITE_API_KEY });
+        kc.setAccessToken(at);
+        // use a very light call; profile is fine and cached by Kite
+        await kc.getProfile();
+        kite_status = "ok";
+      } catch {
+        kite_status = "invalid";
+      }
+    }
+
     return res.json({
       ok: true,
-      time: new Date().toLocaleTimeString("en-IN", { timeZone: IST, hour12: false }),
+      time: nowTime,
+      kite_status,
       state: {
         capital_day_915: Number(s.capital_day_915 || 0),
         realised: Number(s.realised || 0),
