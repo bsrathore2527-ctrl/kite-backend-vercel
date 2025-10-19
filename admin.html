@@ -1,74 +1,117 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <title>Guardian • Admin</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Arial,sans-serif;background:#0b0b0c;color:#eaeaea;margin:0;padding:24px}
-    h1{margin:0 0 16px}
-    .card{background:#141417;border:1px solid #2a2a2f;border-radius:12px;padding:16px;margin:12px 0}
-    label{display:block;font-size:13px;margin:10px 0 4px;color:#a8a8b3}
-    input,select,button,textarea{width:100%;padding:10px;border-radius:10px;border:1px solid #2a2a2f;background:#0f0f12;color:#eaeaea}
+    :root{
+      --bg:#0b0b0c;--card:#141417;--muted:#9aa0a6;--line:#2a2a2f;--fg:#eaeaea;
+      --ok:#6be675;--warn:#ffd166;--bad:#ff6b6b;--ink:#0f0f12
+    }
+    html,body{height:100%}
+    body{
+      font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Arial,sans-serif;
+      background:var(--bg); color:var(--fg); margin:0; padding:24px
+    }
+    h1,h2,h3{margin:0 0 12px}
+    .muted{color:var(--muted)}
+    .wrap{max-width:980px;margin:0 auto}
+    .card{
+      background:var(--card); border:1px solid var(--line); border-radius:14px;
+      padding:16px; margin:12px 0
+    }
+    .pill{
+      display:inline-block; padding:6px 10px; border:1px solid var(--line);
+      border-radius:999px; margin-left:8px
+    }
+    .ok{color:var(--ok)} .warn{color:var(--warn)} .bad{color:var(--bad)}
+    label{display:block; font-size:13px; color:var(--muted); margin:10px 0 6px}
+    input,select,button,textarea{
+      width:100%; padding:10px; border-radius:10px; border:1px solid var(--line);
+      background:var(--ink); color:var(--fg)
+    }
     button{cursor:pointer}
-    .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-    .ok{color:#6be675}.warn{color:#ffd166}.bad{color:#ff6b6b}
-    .muted{color:#9aa0a6}
-    .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
-    @media (max-width:720px){.grid,.row{grid-template-columns:1fr}}
-    .pill{display:inline-block;padding:4px 8px;border:1px solid #2a2a2f;border-radius:999px;margin-right:6px}
+    .row{display:grid; grid-template-columns:1fr 1fr; gap:12px}
+    .grid{display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px}
+    @media (max-width:760px){.row,.grid{grid-template-columns:1fr}}
+    .split{display:flex; gap:10px; flex-wrap:wrap; align-items:center}
+    .actions button{width:auto}
+    .tiny{font-size:12px}
+    .right{margin-left:auto}
+    .kbd{font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:12px}
   </style>
 </head>
 <body>
-  <h1>🛡 Guardian Admin</h1>
+<div class="wrap">
+  <h1>🛡 Guardian Admin
+    <span id="kite-badge" class="pill">Zerodha: —</span>
+    <span id="engine-badge" class="pill">Guardian: —</span>
+  </h1>
+  <div class="muted tiny" id="now">—</div>
 
+  <!-- Admin token -->
   <div class="card">
-    <label>Admin Token (stored locally)</label>
-    <input id="token" type="password" placeholder="Paste ADMIN_TOKEN once" />
-    <button onclick="saveToken()">Save Token</button>
-    <div class="muted">We store this in your browser <b>localStorage</b>; not sent anywhere unless you click Save or perform admin actions.</div>
+    <h3>Admin Auth</h3>
+    <div class="row">
+      <div>
+        <label>Admin Token (stored locally)</label>
+        <input id="token" type="password" placeholder="Paste ADMIN_TOKEN once" />
+      </div>
+      <div class="actions" style="display:flex;align-items:flex-end;gap:8px">
+        <button onclick="saveToken()">Save Token</button>
+        <button class="warn" onclick="clearToken()">Clear</button>
+        <a href="/api/login"><button class="right">Login to Zerodha</button></a>
+      </div>
+    </div>
+    <div class="muted tiny">Your token is saved in this browser’s <span class="kbd">localStorage</span>. It is only sent when performing admin actions.</div>
   </div>
 
+  <!-- Live state -->
   <div class="card">
+    <h3>Live State</h3>
     <div class="grid">
-      <div><div class="muted">Capital @09:15</div><div id="cap" class="pill">—</div></div>
+      <div><div class="muted">Capital @ 09:15</div><div id="cap" class="pill">—</div></div>
       <div><div class="muted">Realised / Unrealised / Total</div><div id="pnl" class="pill">—</div></div>
       <div><div class="muted">Day</div><div id="day" class="pill">—</div></div>
-      <div><div class="muted">Block New</div><div id="block" class="pill">—</div></div>
-      <div><div class="muted">Losses</div><div id="losses" class="pill">—</div></div>
+      <div><div class="muted">New Orders</div><div id="block" class="pill">—</div></div>
+      <div><div class="muted">Consecutive Losses</div><div id="losses" class="pill">—</div></div>
       <div><div class="muted">Cooldown Until</div><div id="cool" class="pill">—</div></div>
     </div>
-    <button style="margin-top:12px" onclick="refresh()">Refresh</button>
-    <a href="/api/login"><button style="margin-top:12px">Login to Zerodha</button></a>
+    <div class="split" style="margin-top:10px">
+      <button onclick="refresh()">Refresh Now</button>
+      <span class="muted tiny">Auto-refresh every 10s</span>
+    </div>
   </div>
 
+  <!-- Daily Rules -->
   <div class="card">
-    <h3>Set Rules</h3>
+    <h3>Daily Rules</h3>
     <div class="row">
       <div>
         <label>Max Loss % (daily)</label>
-        <input id="max_loss_pct" type="number" step="0.1" value="10" />
+        <input id="max_loss_pct" type="number" step="0.1" placeholder="10" />
       </div>
       <div>
         <label>Trailing Step (₹)</label>
-        <input id="trail_step_profit" type="number" step="100" value="5000" />
+        <input id="trail_step_profit" type="number" step="100" placeholder="5000" />
       </div>
     </div>
     <div class="row">
       <div>
         <label>Cooldown (minutes)</label>
-        <input id="cooldown_min" type="number" step="1" value="15" />
+        <input id="cooldown_min" type="number" step="1" placeholder="15" />
       </div>
       <div>
         <label>Max Consecutive Losses</label>
-        <input id="max_consecutive_losses" type="number" step="1" value="3" />
+        <input id="max_consecutive_losses" type="number" step="1" placeholder="3" />
       </div>
     </div>
     <div class="row">
       <div>
-        <label>Allow New After 10% Profit?</label>
+        <label>Allow New Positions After 10% Profit?</label>
         <select id="allow_new_after_lock10">
-          <option value="false">No (block)</option>
+          <option value="false">No (block new)</option>
           <option value="true">Yes (allow)</option>
         </select>
       </div>
@@ -80,72 +123,162 @@
         </select>
       </div>
     </div>
-    <button style="margin-top:12px" onclick="saveRules()">Save Rules</button>
   </div>
 
+  <!-- Weekly / Monthly (visible, optional to set) -->
   <div class="card">
-    <h3>Kill Switch</h3>
+    <h3>Weekly / Monthly Caps</h3>
     <div class="row">
-      <button class="bad" onclick="post('/api/kill')">Engage Kill (block + trip day)</button>
-      <button class="ok" onclick="post('/api/unlock')">Unlock (allow new)</button>
+      <div>
+        <label>Weekly Max Loss % (optional)</label>
+        <input id="week_max_loss_pct" type="number" step="0.1" placeholder="15" />
+      </div>
+      <div>
+        <label>Monthly Max Loss % (optional)</label>
+        <input id="month_max_loss_pct" type="number" step="0.1" placeholder="25" />
+      </div>
+    </div>
+    <div class="muted tiny">Leave blank to keep existing values. (Phase 2 logic can be toggled later.)</div>
+  </div>
+
+  <!-- Actions -->
+  <div class="card">
+    <h3>Actions</h3>
+    <div class="split">
+      <button class="ok" onclick="saveRules()">Save Rules</button>
+      <button class="bad" onclick="post('/api/kill')">Engage Kill (Block + Trip Day)</button>
+      <button onclick="post('/api/unlock')">Unlock (Allow New)</button>
+      <span class="right muted tiny">Tip: test endpoints with <span class="kbd">?t=123</span> to bypass cache.</span>
     </div>
   </div>
 
-  <script>
-    const $ = (id) => document.getElementById(id);
-    const readToken = () => localStorage.getItem('ADMIN_TOKEN') || '';
-    function saveToken(){ localStorage.setItem('ADMIN_TOKEN', $('token').value.trim()); alert('Token saved.'); }
-    async function refresh(){
-      const r = await fetch('/api/state');
+  <div class="muted tiny">Build: Admin UI v1.2</div>
+</div>
+
+<script>
+  const $ = (id)=>document.getElementById(id);
+  const readToken = ()=>localStorage.getItem('ADMIN_TOKEN')||'';
+  function saveToken(){
+    localStorage.setItem('ADMIN_TOKEN', $('token').value.trim());
+    alert('Token saved.'); 
+  }
+  function clearToken(){
+    localStorage.removeItem('ADMIN_TOKEN');
+    $('token').value='';
+    alert('Token cleared.');
+  }
+
+  async function refresh(){
+    try{
+      const r = await fetch('/api/state?t=' + Date.now());
       const j = await r.json();
+      $('now').textContent = 'Time: ' + (j.time || '—');
+
+      // Zerodha badge
+      const kb = $('kite-badge');
+      if(j.kite_status === 'ok'){ kb.textContent='Zerodha: Connected'; kb.style.color='#6be675'; kb.style.borderColor='#2e7d32'; }
+      else if(j.kite_status === 'invalid'){ kb.textContent='Zerodha: Token invalid'; kb.style.color='#ff6b6b'; kb.style.borderColor='#8b0000'; }
+      else { kb.textContent='Zerodha: Not logged in'; kb.style.color='#ffd166'; kb.style.borderColor='#8b6f00'; }
+
+      // Engine heartbeat badge (simple: if ok + state present)
+      const eb = $('engine-badge');
+      if(j.ok){ eb.textContent='Guardian: Online'; eb.style.color='#6be675'; eb.style.borderColor='#2e7d32'; }
+      else { eb.textContent='Guardian: Error'; eb.style.color='#ff6b6b'; eb.style.borderColor='#8b0000'; }
+
       if(!j.ok){ alert('State error: ' + (j.error||'unknown')); return; }
-      const s = j.state;
-      $('cap').textContent = s.capital_day_915.toFixed(2);
-      const total = (s.realised + s.unrealised).toFixed(2);
-      $('pnl').textContent = `${s.realised.toFixed(2)} / ${s.unrealised.toFixed(2)} / ${total}`;
+
+      const s = j.state || {};
+      // State pills
+      const total = Number((Number(s.realised||0) + Number(s.unrealised||0)).toFixed(2));
+      $('cap').textContent = Number(s.capital_day_915||0).toFixed(2);
+      $('pnl').textContent = `${Number(s.realised||0).toFixed(2)} / ${Number(s.unrealised||0).toFixed(2)} / ${total.toFixed(2)}`;
       $('day').textContent = s.tripped_day ? 'TRIPPED' : 'ACTIVE';
+      $('day').style.color = s.tripped_day ? '#ff6b6b' : '#6be675';
       $('block').textContent = s.block_new_orders ? 'BLOCKED' : 'ALLOWED';
-      $('losses').textContent = s.consecutive_losses;
+      $('block').style.color = s.block_new_orders ? '#ff6b6b' : '#6be675';
+      $('losses').textContent = Number(s.consecutive_losses||0);
       $('cool').textContent = s.cooldown_until ? new Date(s.cooldown_until).toLocaleTimeString() : '—';
-      // fill form with current knobs
-      $('max_loss_pct').value = s.max_loss_pct;
-      $('trail_step_profit').value = s.trail_step_profit;
-      $('cooldown_min').value = s.cooldown_min;
-      $('max_consecutive_losses').value = s.max_consecutive_losses;
-      $('allow_new_after_lock10').value = String(!!s.allow_new_after_lock10);
-      $('expiry_flag').value = String(!!s.expiry_flag);
+
+      // Fill form with current knobs (only if empty to avoid fighting user typing)
+      setIfEmpty('max_loss_pct', s.max_loss_pct ?? 10);
+      setIfEmpty('trail_step_profit', s.trail_step_profit ?? 5000);
+      setIfEmpty('cooldown_min', s.cooldown_min ?? 15);
+      setIfEmpty('max_consecutive_losses', s.max_consecutive_losses ?? 3);
+      setIfEmpty('allow_new_after_lock10', String(!!s.allow_new_after_lock10));
+      setIfEmpty('expiry_flag', String(!!s.expiry_flag));
+
+      // Weekly / monthly (optional fields)
+      if(s.week_max_loss_pct !== undefined) setIfEmpty('week_max_loss_pct', s.week_max_loss_pct);
+      if(s.month_max_loss_pct !== undefined) setIfEmpty('month_max_loss_pct', s.month_max_loss_pct);
+
+    }catch(e){
+      alert('Failed to load state: ' + e.message);
     }
-    async function saveRules(){
-      const body = {
-        max_loss_pct: Number($('max_loss_pct').value),
-        trail_step_profit: Number($('trail_step_profit').value),
-        cooldown_min: Number($('cooldown_min').value),
-        max_consecutive_losses: Number($('max_consecutive_losses').value),
-        allow_new_after_lock10: $('allow_new_after_lock10').value === 'true',
-        expiry_flag: $('expiry_flag').value === 'true'
-      };
-      const token = readToken();
-      if(!token){ alert('Save token first.'); return; }
-      const r = await fetch('/api/rules-set', {
-        method:'POST',
-        headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer '+token },
-        body: JSON.stringify(body)
-      });
-      const j = await r.json();
-      if(!j.ok){ alert('Save failed: ' + (j.error||'unknown')); return; }
-      alert('Rules saved.'); refresh();
+  }
+
+  function setIfEmpty(id, val){
+    const el = $(id); if(!el) return;
+    if((el.tagName === 'INPUT' && el.value==='') || (el.tagName==='SELECT' && !el.value)){
+      el.value = typeof val === 'boolean' ? String(val) : String(val);
     }
-    async function post(url){
-      const token = readToken();
-      if(!token){ alert('Save token first.'); return; }
-      const r = await fetch(url, { method:'POST', headers:{ 'Authorization':'Bearer '+token } });
-      const j = await r.json();
-      if(!j.ok){ alert('Action failed: '+(j.error||'unknown')); return; }
-      alert(j.message || 'OK'); refresh();
-    }
-    // init
-    $('token').value = readToken();
-    refresh(); setInterval(refresh, 10000);
-  </script>
+  }
+
+  async function saveRules(){
+    const token = readToken();
+    if(!token){ alert('Save token first.'); return; }
+
+    // Build payload; only include fields user has filled (so we don't stomp others)
+    const body = {};
+    copyNumber('max_loss_pct', body);
+    copyNumber('trail_step_profit', body);
+    copyNumber('cooldown_min', body);
+    copyNumber('max_consecutive_losses', body);
+    copyBool('allow_new_after_lock10', body);
+    copyBool('expiry_flag', body);
+    // Weekly / monthly (optional)
+    copyNumber('week_max_loss_pct', body, true);
+    copyNumber('month_max_loss_pct', body, true);
+
+    const r = await fetch('/api/rules-set', {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer '+token },
+      body: JSON.stringify(body)
+    });
+    const j = await r.json();
+    if(!j.ok){ alert('Save failed: ' + (j.error||'unknown')); return; }
+    alert('Rules saved.');
+    // Clear placeholders so refresh can refill with canonical values
+    // (Do not clear if you prefer to keep typed numbers)
+    refresh();
+  }
+
+  function copyNumber(id, out, optional=false){
+    const el = $(id); if(!el) return;
+    const v = el.value.trim();
+    if(v === '') { if(!optional) out[id] = undefined; return; }
+    const n = Number(v);
+    if(!Number.isNaN(n)) out[id] = n;
+  }
+  function copyBool(id, out){
+    const el = $(id); if(!el) return;
+    const v = el.value.trim();
+    if(v==='true') out[id]=true; else if(v==='false') out[id]=false;
+  }
+
+  async function post(url){
+    const token = readToken();
+    if(!token){ alert('Save token first.'); return; }
+    const r = await fetch(url, { method:'POST', headers:{ 'Authorization':'Bearer '+token } });
+    const j = await r.json();
+    if(!j.ok){ alert('Action failed: ' + (j.error||'unknown')); return; }
+    alert(j.message || 'OK');
+    refresh();
+  }
+
+  // init
+  $('token').value = readToken();
+  refresh();
+  setInterval(refresh, 10000);
+</script>
 </body>
 </html>
