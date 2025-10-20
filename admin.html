@@ -237,9 +237,13 @@ async function refresh(){
       const funds = await r.json();
       if (funds.ok) {
         const av = Number(
-          (funds.funds?.available && (funds.funds.available.cash ?? funds.funds.available.live_balance)) ||
-          funds.balance || funds.funds?.cash || 0
-        );
+   (funds.balance ??
+   funds.funds?.available?.live_balance ??
+   funds.funds?.net ??
+   funds.funds?.available?.cash ??
+   funds.funds?.cash ??
+   0)
+);
         if (!Number.isNaN(av)) {
           liveFundsVal = av;
           const txt = inr(av);
