@@ -168,7 +168,7 @@
     </section>
   </div>
 
-  <div class="footer">Guardian UI • v3.3 • Auto capital, cached balance fallback</div>
+  <div class="footer">Guardian UI • v3.4 • Auto capital, cached balance fallback, live MTM merges</div>
 </div>
 
 <script>
@@ -190,23 +190,64 @@ function inr(n){ try{ return new Intl.NumberFormat('en-IN',{style:'currency',cur
 function fmtR(n){ return inr(n); }
 function setIfEmpty(id,val){ const el=$(id); if(el && el.value==='') el.value=String(val); }
 
+function renderDerivedUsing(state, overrides = {}) {
+  const s = { ...state, ...overrides };
+  const cap = n2(s.capital_day_915), r = n2(s.realised), u = n2(s.unrealised);
+  const ttl = r + u;
+  const maxPct = s.max_loss_pct ?? 10, step = s.trail_step_profit ?? 5000;
+  const baseFloor = -(cap * (maxPct/100));
+  const steps = Math.max(0, Math.floor(Math.max(0, r) / step));
+  const trailFloor = -(steps * step);
+  const activeFloor = Math.max(baseFloor, trailFloor);
+  const remaining = activeFloor - ttl;
+  const l10 = cap * 0.10, l20 = cap * 0.20, nextTrail = steps * step + step;
+
+  // KPI area
+  setText('k_cap', fmtR(cap));
+  setText('k_pnl', `${fmtR(r)} / ${fmtR(u)} / ${fmtR(ttl)}`);
+  setText('k_pnl_sub', ttl >= 0 ? 'In profit' : 'In loss');
+  setText('k_maxloss_amt', fmtR(-baseFloor));
+  setText('k_maxloss_pct', `Max Loss %: ${(+maxPct).toFixed(2)}%`);
+  setText('k_active_floor', fmtR(activeFloor));
+  setText('k_next_trail', `Next trail at realised ≥ ${fmtR(nextTrail)} (step ₹${step})`);
+  setText('k_remaining', fmtR(Math.max(0, remaining)));
+  setText('k_remaining_note', remaining <= 0 ? 'Floor breached' : 'Room left before floor');
+  setText('k_trail_step', '₹' + (step || 0));
+  setText('k_lock10_amt', fmtR(l10));
+  setText('k_lock20_amt', fmtR(l20));
+
+  // mini pill PnL row
+  setText('cap', n2(s.capital_day_915).toFixed(2));
+  setText('pnl', `${n2(s.realised).toFixed(2)} / ${n2(s.unrealised).toFixed(2)} / ${ttl.toFixed(2)}`);
+}
+
 async function refresh(){
   try{
     const headers = readToken()? { 'Authorization':'Bearer '+readToken() } : {};
     const j = await fetch('/api/state?t='+Date.now(), { headers }).then(r=>r.json());
     paint(j);
 
-    // Live funds snapshot with fallback to cached
+    // track live values for override
+    let liveMtmVal = null;
+    let liveFundsVal = null;
+
+    // Live funds (with fallback to cached)
     try {
       const r = await fetch('/api/kite/funds?t='+Date.now());
       const funds = await r.json();
-      if (funds.ok && funds.funds) {
+      if (funds.ok) {
         const av = Number(
-          (funds.funds.available && (funds.funds.available.cash ?? funds.funds.available.live_balance)) ||
-          funds.funds.cash || 0
+          (funds.funds?.available && (funds.funds.available.cash ?? funds.funds.available.live_balance)) ||
+          funds.balance || funds.funds?.cash || 0
         );
-        const txt = isNaN(av) ? '—' : inr(av);
-        setText('live_funds', txt); setText('k_live_balance', txt);
+        if (!Number.isNaN(av)) {
+          liveFundsVal = av;
+          const txt = inr(av);
+          setText('live_funds', txt); setText('k_live_balance', txt);
+        } else {
+          const cached = (j.state && j.state.current_balance) ? inr(j.state.current_balance) : '—';
+          setText('live_funds', cached); setText('k_live_balance', cached);
+        }
       } else {
         const cached = (j.state && j.state.current_balance) ? inr(j.state.current_balance) : '—';
         setText('live_funds', cached); setText('k_live_balance', cached);
@@ -216,12 +257,13 @@ async function refresh(){
       setText('live_funds', cached); setText('k_live_balance', cached);
     }
 
-    // Live MTM snapshot with fallback to cached unrealised
+    // Live MTM (with fallback to cached unrealised)
     try {
       const r2 = await fetch('/api/kite/positions?t='+Date.now());
       const pos = await r2.json();
       if (pos.ok && pos.positions?.net) {
         const mtm = pos.positions.net.reduce((a,p)=> a + Number(p.pnl||0), 0);
+        liveMtmVal = mtm;
         const txt = inr(mtm);
         setText('live_mtm', txt); setText('k_live_mtm', txt);
       } else {
@@ -231,6 +273,11 @@ async function refresh(){
     } catch {
       const cachedU = (j.state && typeof j.state.unrealised === 'number') ? inr(j.state.unrealised) : '—';
       setText('live_mtm', cachedU); setText('k_live_mtm', cachedU);
+    }
+
+    // Re-render derived KPIs using live MTM when available
+    if (liveMtmVal !== null) {
+      renderDerivedUsing(j.state, { unrealised: liveMtmVal });
     }
 
   }catch(e){
@@ -249,14 +296,7 @@ function paint(j){
 
   if(!j.ok){ alert('State error: '+(j.error||'unknown')); return; }
 
-  const s=j.state||{}, total=n2(s.realised)+n2(s.unrealised);
-  setText('cap', n2(s.capital_day_915).toFixed(2));
-  setText('pnl', `${n2(s.realised).toFixed(2)} / ${n2(s.unrealised).toFixed(2)} / ${total.toFixed(2)}`);
-  setText('day', s.tripped_day?'TRIPPED':'ACTIVE');
-  setText('block', s.block_new_orders?'BLOCKED':'ALLOWED');
-  setText('losses', n2(s.consecutive_losses));
-  setText('cool', s.cooldown_until?new Date(s.cooldown_until).toLocaleTimeString():'—');
-
+  const s=j.state||{};
   setIfEmpty('max_loss_pct', s.max_loss_pct ?? '');
   setIfEmpty('trail_step_profit', s.trail_step_profit ?? '');
   setIfEmpty('cooldown_min', s.cooldown_min ?? '');
@@ -264,30 +304,15 @@ function paint(j){
   setIfEmpty('allow_new_after_lock10', String(s.allow_new_after_lock10 ?? ''));
   setIfEmpty('expiry_flag', String(s.expiry_flag ?? ''));
 
-  // Derived metrics
-  const cap=n2(s.capital_day_915), r=n2(s.realised), u=n2(s.unrealised), ttl=r+u;
-  const maxPct = s.max_loss_pct ?? 10, step = s.trail_step_profit ?? 5000;
-  const baseFloor = -(cap * (maxPct/100));
-  const steps=Math.max(0,Math.floor(Math.max(0,r)/step));
-  const trailFloor = -(steps*step);
-  const activeFloor = Math.max(baseFloor,trailFloor);
-  const remaining = activeFloor - ttl;
-  const l10=cap*0.10, l20=cap*0.20, nextTrail=steps*step+step;
-
-  setText('k_cap', fmtR(cap));
-  setText('k_pnl', `${fmtR(r)} / ${fmtR(u)} / ${fmtR(ttl)}`);
-  setText('k_pnl_sub', ttl>=0?'In profit':'In loss');
-  setText('k_maxloss_amt', fmtR(-baseFloor));
-  setText('k_maxloss_pct', `Max Loss %: ${(+maxPct).toFixed(2)}%`);
-  setText('k_active_floor', fmtR(activeFloor));
-  setText('k_next_trail', `Next trail at realised ≥ ${fmtR(nextTrail)} (step ₹${step})`);
-  setText('k_remaining', fmtR(Math.max(0,remaining)));
-  setText('k_remaining_note', remaining<=0?'Floor breached':'Room left before floor');
-  setText('k_trail_step', '₹'+(step||0));
-  setText('k_lock10_amt', fmtR(l10));
-  setText('k_lock20_amt', fmtR(l20));
+  setText('day', s.tripped_day?'TRIPPED':'ACTIVE');
+  setText('block', s.block_new_orders?'BLOCKED':'ALLOWED');
+  setText('losses', n2(s.consecutive_losses));
+  setText('cool', s.cooldown_until?new Date(s.cooldown_until).toLocaleTimeString():'—');
 
   setMode(!!j.admin);
+
+  // First render with cached values; refresh() will override with live MTM if available
+  renderDerivedUsing(s);
 }
 
 async function saveRules(){
