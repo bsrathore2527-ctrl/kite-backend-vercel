@@ -1,295 +1,287 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <title>Guardian • Admin / Trader (Compact 2-col)</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="color-scheme" content="dark light">
-  <style>
-    :root{
-      --bg:#0b0c10; --bg2:#0d1018; --card:#131725; --line:#212636; --muted:#9aa3ad; --fg:#eef1f5;
-      --accent:#3b82f6; --accent-2:#60a5fa; --accent-3:#93c5fd;
-      --ok:#54d28a; --warn:#ffd166; --bad:#ff6b6b;
-      --r-lg:12px; --r-md:10px;
-      --shadow:0 8px 24px rgba(0,0,0,.30), inset 0 1px 0 rgba(255,255,255,.03);
-      --gap:12px; --pad:12px;
-    }
-    html,body{height:100%}
-    body{
-      margin:0;
-      background:
-        radial-gradient(900px 560px at 15% -10%, rgba(59,130,246,.18), transparent 60%),
-        radial-gradient(700px 420px at 95% 10%, rgba(20,184,166,.12), transparent 60%),
-        linear-gradient(180deg, var(--bg2) 0%, var(--bg) 100%);
-      color:var(--fg);
-      font-family: ui-rounded, system-ui, "SF Pro Rounded", Segoe UI, Roboto, Ubuntu, Arial, sans-serif;
-      -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale;
-      letter-spacing:.1px;
-    }
-    .wrap{max-width:1080px;margin:0 auto;padding:16px}
-    .muted{color:var(--muted)} .tiny{font-size:12px}
-    .header{display:flex;align-items:center;gap:10px;margin-bottom:8px}
-    .title{display:flex;align-items:center;gap:8px;font-weight:800;font-size:18px}
-    .badge{
-      display:inline-flex;align-items:center;gap:6px;padding:5px 9px;border:1px solid var(--line);
-      border-radius:999px;background:linear-gradient(180deg,#141a2b,#101628); box-shadow:0 6px 16px rgba(0,0,0,.22);
-      font-size:12px;color:var(--muted)
-    }
-    .dot{width:8px;height:8px;border-radius:50%}
-    .b-ok{color:var(--ok);border-color:#1b3729}
-    .b-warn{color:var(--warn);border-color:#423417}
-    .b-bad{color:var(--bad);border-color:#432025}
-    .b-accent{color:var(--accent-3);border-color:#1a2746}
-    .right{margin-left:auto}
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Guardian • Admin / Trader</title>
+<meta name="color-scheme" content="dark light" />
+<style>
+  :root{
+    --bg:#0b0d14; --bg2:#0d111a; --card:#121a2d; --line:#20283a; --fg:#eef3ff; --muted:#98a3b3;
+    --accent:#3b82f6; --ok:#22c55e; --warn:#f59e0b; --bad:#ef4444;
+    --r:12px; --pad:12px; --gap:12px;
+  }
+  html,body{height:100%}
+  body{
+    margin:0;color:var(--fg);font-family: ui-rounded,system-ui,"SF Pro Rounded",Segoe UI,Roboto,Ubuntu,Arial,sans-serif;
+    background:
+      radial-gradient(900px 560px at 12% -10%, rgba(59,130,246,.18), transparent 60%),
+      radial-gradient(700px 420px at 95% 8%, rgba(34,197,94,.10), transparent 60%),
+      linear-gradient(180deg, var(--bg2) 0%, var(--bg) 100%);
+    -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale;
+  }
+  .wrap{max-width:1080px;margin:0 auto;padding:14px}
+  .muted{color:var(--muted)}
+  .tiny{font-size:12px}
 
-    /* compact banner (token + actions inline) */
-    .banner{
-      display:grid;grid-template-columns:1fr auto auto auto auto;gap:10px;align-items:center;
-      background:linear-gradient(180deg,#12192d,#0f1525);
-      border:1px solid var(--line); border-radius:12px; padding:10px; box-shadow:var(--shadow); margin-bottom:10px;
-    }
-    .banner .mode{font-size:12px;color:#dbe5f2;grid-column:1/-1}
-    .banner input, .banner button{
-      padding:10px;border-radius:10px;border:1px solid var(--line);
-      background:linear-gradient(180deg,#0f1523,#0d111a);color:var(--fg)
-    }
-    .banner input{min-width:220px}
-    .btn{background:linear-gradient(180deg,#1e40af,#1b3a9a);border-color:#1f3b99;font-weight:700;cursor:pointer}
-    .ghost{background:linear-gradient(180deg,#0f1523,#0d111a)}
-    @media (max-width:760px){
-      .banner{grid-template-columns:1fr 1fr 1fr; }
-      .banner input{grid-column:1/-1}
-    }
+  .header{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+  .title{font-weight:800;font-size:18px;display:flex;align-items:center;gap:8px}
+  .badge{display:inline-flex;align-items:center;gap:6px;padding:5px 9px;border-radius:999px;border:1px solid var(--line);
+    background:linear-gradient(180deg,#141a2b,#0f1524);color:#cfe3ff;font-size:12px}
+  .dot{width:8px;height:8px;border-radius:50%}
+  .b-ok{border-color:#1d2f24}.b-warn{border-color:#3d2e10}.b-bad{border-color:#3a1616}
 
-    .grid{display:grid;gap:var(--gap);grid-template-columns:repeat(12,minmax(0,1fr))}
-    .card{
-      grid-column:span 12;background:linear-gradient(180deg,#12192d,#0f1525);
-      border:1px solid var(--line); border-radius:var(--r-lg); box-shadow:var(--shadow); padding:var(--pad)
-    }
-    .card h3{margin:0 0 8px;font-size:13px;font-weight:800;letter-spacing:.2px}
-    @media (min-width:900px){.span-6{grid-column:span 6}.span-12{grid-column:span 12}}
+  /* Inline token + actions */
+  .banner{
+    display:grid;grid-template-columns:1fr auto auto auto auto;gap:10px;align-items:center;
+    background:linear-gradient(180deg,#131a2d,#0f1525);border:1px solid var(--line);border-radius:12px;padding:10px;margin-bottom:10px
+  }
+  .banner .mode{grid-column:1/-1;font-size:12px;color:#dbe5f2}
+  .banner input,.banner button{
+    padding:10px;border-radius:10px;border:1px solid var(--line);
+    background:linear-gradient(180deg,#0f1523,#0d111a);color:var(--fg)
+  }
+  .btn{background:linear-gradient(180deg,#1e40af,#19399b);font-weight:700;border-color:#1c3692;cursor:pointer}
+  .ghost{background:linear-gradient(180deg,#0f1523,#0d111a)}
+  @media (max-width:760px){.banner{grid-template-columns:1fr 1fr 1fr}.banner input{grid-column:1/-1}}
 
-    /* KPI tiles (2-col on phones, 3 on wide) */
-    .kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
-    @media (max-width:720px){ .kpis{grid-template-columns:repeat(2,minmax(0,1fr));} }
-    @media (max-width:380px){ .kpis{grid-template-columns:1fr;} }
-    .kpi{background:linear-gradient(180deg,#111a33,#0e1527);border:1px solid #1a2236;border-radius:10px;padding:8px}
-    .kpi .hd{font-size:11px;color:#9aa3ad;margin-bottom:3px}
-    .kpi .vl{font-size:16px;font-weight:800}
-    .kpi .sub{font-size:11px;color:#9aa3ad;margin-top:2px}
+  /* Cards & grid */
+  .grid{display:grid;gap:var(--gap);grid-template-columns:repeat(12,minmax(0,1fr))}
+  .card{grid-column:span 12;background:linear-gradient(180deg,#131a2d,#0f1525);border:1px solid var(--line);
+    border-radius:12px;padding:var(--pad);box-shadow:0 10px 28px rgba(0,0,0,.28)}
+  .card h3{margin:0 0 8px;font-size:13px;font-weight:800}
+  @media (min-width:900px){.span-6{grid-column:span 6}}
 
-    /* controls / forms */
-    label{display:block;font-size:11px;color:var(--muted);margin:6px 0 5px}
-    input,select,button{width:100%;padding:11px;border-radius:10px;border:1px solid var(--line);
-      background:linear-gradient(180deg,#101523,#0d111a);color:var(--fg);outline:none;transition:border-color .15s,box-shadow .15s,transform .03s}
-    input:focus,select:focus{border-color:#2856b8;box-shadow:0 0 0 3px rgba(59,130,246,.18)}
-    .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-    @media (max-width:760px){.row{grid-template-columns:1fr}}
+  /* KPI tiles */
+  .kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+  @media (max-width:720px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+  @media (max-width:380px){.kpis{grid-template-columns:1fr}}
+  .kpi{background:linear-gradient(180deg,#111a33,#0e1527);border:1px solid #1a2236;border-radius:10px;padding:8px}
+  .kpi .hd{font-size:11px;color:#9aa3ad;margin-bottom:3px}
+  .kpi .vl{font-size:16px;font-weight:800}
+  .kpi .sub{font-size:11px;color:#9aa3ad;margin-top:2px}
 
-    .pill{display:inline-flex;align-items:center;min-height:30px;padding:7px 10px;border:1px solid var(--line);
-      border-radius:10px;background:linear-gradient(180deg,#0f1524,#0e1421);font-size:12px;color:#dbe5f2}
+  label{display:block;font-size:11px;color:var(--muted);margin:6px 0 5px}
+  input,select,button{width:100%;padding:11px;border-radius:10px;border:1px solid var(--line);
+    background:linear-gradient(180deg,#101523,#0d111a);color:var(--fg);outline:none}
+  input:focus,select:focus{border-color:#2856b8;box-shadow:0 0 0 3px rgba(59,130,246,.18)}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  @media (max-width:760px){.row{grid-template-columns:1fr}}
 
-    .action-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
-    @media (max-width:760px){.action-row{grid-template-columns:1fr 1fr}}
-    @media (max-width:520px){.action-row{grid-template-columns:1fr}}
+  .pill{display:inline-flex;align-items:center;min-height:30px;padding:7px 10px;border:1px solid var(--line);
+    border-radius:10px;background:linear-gradient(180deg,#0f1524,#0e1421);font-size:12px;color:#dbe5f2}
 
-    .btn-ok{background:linear-gradient(180deg,#166534,#115c2e);border-color:#0b4d25;color:#fff;font-weight:700}
-    .btn-warn{background:linear-gradient(180deg,#7c2d12,#6b2109);border-color:#5c1a07;color:#fff;font-weight:700}
-    .btn-ghost{background:linear-gradient(180deg,#101523,#0d111a);color:#fff}
+  .actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+  @media (max-width:760px){.actions{grid-template-columns:1fr 1fr}}
+  @media (max-width:520px){.actions{grid-template-columns:1fr}}
+  .btn-ok{background:linear-gradient(180deg,#166534,#115c2e);border-color:#0b4d25;color:#fff;font-weight:700}
+  .btn-warn{background:linear-gradient(180deg,#7c2d12,#6b2109);border-color:#5c1a07;color:#fff;font-weight:700}
+  .btn-ghost{background:linear-gradient(180deg,#101523,#0d111a);color:#fff}
 
-    .disabled *[data-admin-only]{pointer-events:none; opacity:.55; filter:saturate(.75)}
-    .footer{margin-top:8px;color:var(--muted);font-size:11px;text-align:right}
-  </style>
+  .disabled *[data-admin-only]{pointer-events:none;opacity:.55;filter:saturate(.75)}
+  .footer{margin-top:8px;color:var(--muted);font-size:11px;text-align:right}
+</style>
 </head>
 <body>
-  <div class="wrap">
-    <!-- Header -->
-    <div class="header">
-      <div class="title">🛡 Guardian</div>
-      <span id="kite-badge" class="badge"><span class="dot" style="background:#555"></span> Zerodha: —</span>
-      <span id="engine-badge" class="badge b-accent"><span class="dot" style="background:#3b82f6"></span> Guardian: —</span>
-      <div class="right muted tiny" id="now">—</div>
+<div class="wrap">
+  <!-- Header -->
+  <div class="header">
+    <div class="title">🛡 Guardian</div>
+    <span id="kite-badge" class="badge"><span class="dot" style="background:#555"></span> Zerodha: —</span>
+    <span id="engine-badge" class="badge"><span class="dot" style="background:#555"></span> Guardian: —</span>
+    <div class="muted tiny" id="now" style="margin-left:auto">—</div>
+  </div>
+
+  <!-- Token + quick actions -->
+  <div class="banner">
+    <div class="mode" id="modeText"><b>Read-only</b> mode. Enter token to enable changes.</div>
+    <input id="token" type="password" placeholder="ADMIN_TOKEN" autocomplete="off">
+    <button class="btn" onclick="saveToken()">Save</button>
+    <a href="/api/login"><button class="btn">Login Zerodha</button></a>
+    <button class="ghost" onclick="clearToken()">Clear</button>
+    <button class="ghost" onclick="refresh()">Refresh</button>
+  </div>
+
+  <!-- KPIs -->
+  <section class="card" style="padding-top:10px;padding-bottom:10px">
+    <div class="kpis">
+      <div class="kpi"><div class="hd">Capital @ 09:15</div><div class="vl" id="k_cap">—</div><div class="sub">Base for limits</div></div>
+      <div class="kpi"><div class="hd">PnL (R/UR/Total)</div><div class="vl" id="k_pnl">—</div><div class="sub" id="k_pnl_sub">—</div></div>
+      <div class="kpi"><div class="hd">New Orders</div><div class="vl" id="k_orders">—</div><div class="sub" id="k_day">—</div></div>
+
+      <div class="kpi"><div class="hd">Max Loss (₹)</div><div class="vl" id="k_maxloss_amt">—</div><div class="sub" id="k_maxloss_pct">—</div></div>
+      <div class="kpi"><div class="hd">Active Loss Floor (₹)</div><div class="vl" id="k_active_floor">—</div><div class="sub" id="k_next_trail">—</div></div>
+      <div class="kpi"><div class="hd">Remaining to Max Loss</div><div class="vl" id="k_remaining">—</div><div class="sub" id="k_remaining_note">—</div></div>
+
+      <div class="kpi"><div class="hd">10% Profit Lock</div><div class="vl" id="k_lock10_amt">—</div><div class="sub" id="k_lock10_state">—</div></div>
+      <div class="kpi"><div class="hd">20% Profit Lock</div><div class="vl" id="k_lock20_amt">—</div><div class="sub" id="k_lock20_state">—</div></div>
+      <div class="kpi"><div class="hd">Trailing Step (₹)</div><div class="vl" id="k_trail_step">—</div><div class="sub">Loss floor trails by step</div></div>
     </div>
+  </section>
 
-    <!-- Top banner: token + actions inline -->
-    <div class="banner">
-      <div class="mode" id="modeText"><b>Read-only</b> mode. Enter token to enable changes.</div>
-      <input id="token" type="password" placeholder="ADMIN_TOKEN" autocomplete="off">
-      <button class="btn" onclick="saveToken()">Save</button>
-      <a href="/api/login"><button class="btn">Login Zerodha</button></a>
-      <button class="ghost" onclick="clearToken()">Clear</button>
-      <button class="ghost" onclick="refresh()">Refresh</button>
-    </div>
-
-    <!-- KPI grid -->
-    <section class="card span-12" style="padding-top:10px;padding-bottom:10px">
-      <div class="kpis">
-        <div class="kpi"><div class="hd">Capital @ 09:15</div><div class="vl" id="k_cap">—</div><div class="sub">Base for daily limits</div></div>
-        <div class="kpi"><div class="hd">PnL (R/UR/Total)</div><div class="vl" id="k_pnl">—</div><div class="sub" id="k_pnl_sub">—</div></div>
-        <div class="kpi"><div class="hd">New Orders</div><div class="vl" id="k_orders">—</div><div class="sub" id="k_day">—</div></div>
-
-        <div class="kpi"><div class="hd">Max Loss (₹)</div><div class="vl" id="k_maxloss_amt">—</div><div class="sub" id="k_maxloss_pct">—</div></div>
-        <div class="kpi"><div class="hd">Active Loss Floor (₹)</div><div class="vl" id="k_active_floor">—</div><div class="sub" id="k_next_trail">—</div></div>
-        <div class="kpi"><div class="hd">Remaining to Max Loss (₹)</div><div class="vl" id="k_remaining">—</div><div class="sub" id="k_remaining_note">—</div></div>
-
-        <div class="kpi"><div class="hd">10% Profit Lock (₹)</div><div class="vl" id="k_lock10_amt">—</div><div class="sub" id="k_lock10_state">—</div></div>
-        <div class="kpi"><div class="hd">20% Profit Lock (₹)</div><div class="vl" id="k_lock20_amt">—</div><div class="sub" id="k_lock20_state">—</div></div>
-        <div class="kpi"><div class="hd">Trailing Step (₹)</div><div class="vl" id="k_trail_step">—</div><div class="sub">Floor trails by step</div></div>
+  <!-- Main -->
+  <div id="content" class="grid disabled" style="margin-top:10px">
+    <section class="card span-6">
+      <h3>Live State</h3>
+      <div class="row">
+        <div><label>Capital</label><div id="cap" class="pill">—</div></div>
+        <div><label>PnL</label><div id="pnl" class="pill">—</div></div>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <div><label>Day Status</label><div id="day" class="pill">—</div></div>
+        <div><label>New Orders</label><div id="block" class="pill">—</div></div>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <div><label>Consecutive Losses</label><div id="losses" class="pill">—</div></div>
+        <div><label>Cooldown Until</label><div id="cool" class="pill">—</div></div>
       </div>
     </section>
 
-    <!-- Live + Rules -->
-    <div id="content" class="grid disabled" style="margin-top:10px">
-      <section class="card span-6">
-        <h3>Live State</h3>
-        <div class="row">
-          <div><label>Capital</label><div id="cap" class="pill">—</div></div>
-          <div><label>PnL</label><div id="pnl" class="pill">—</div></div>
+    <section class="card span-6" data-admin-only>
+      <h3>Daily Rules</h3>
+      <div class="row">
+        <div><label>Max Loss %</label><input id="max_loss_pct" type="number" step="0.1" placeholder="10"></div>
+        <div><label>Trailing Step (₹)</label><input id="trail_step_profit" type="number" step="100" placeholder="5000"></div>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <div><label>Cooldown (min)</label><input id="cooldown_min" type="number" step="1" placeholder="15"></div>
+        <div><label>Max Consecutive Losses</label><input id="max_consecutive_losses" type="number" step="1" placeholder="3"></div>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <div><label>Allow New After 10%?</label>
+          <select id="allow_new_after_lock10"><option value="false">No</option><option value="true">Yes</option></select>
         </div>
-        <div class="row" style="margin-top:10px">
-          <div><label>Day Status</label><div id="day" class="pill">—</div></div>
-          <div><label>New Orders</label><div id="block" class="pill">—</div></div>
+        <div><label>Expiry Day?</label>
+          <select id="expiry_flag"><option value="false">No</option><option value="true">Yes</option></select>
         </div>
-        <div class="row" style="margin-top:10px">
-          <div><label>Consecutive Losses</label><div id="losses" class="pill">—</div></div>
-          <div><label>Cooldown Until</label><div id="cool" class="pill">—</div></div>
-        </div>
-      </section>
+      </div>
+    </section>
 
-      <section class="card span-6" data-admin-only>
-        <h3>Daily Rules</h3>
-        <div class="row">
-          <div><label>Max Loss %</label><input id="max_loss_pct" type="number" step="0.1" placeholder="10"></div>
-          <div><label>Trailing Step (₹)</label><input id="trail_step_profit" type="number" step="100" placeholder="5000"></div>
-        </div>
-        <div class="row" style="margin-top:10px">
-          <div><label>Cooldown (min)</label><input id="cooldown_min" type="number" step="1" placeholder="15"></div>
-          <div><label>Max Consecutive Losses</label><input id="max_consecutive_losses" type="number" step="1" placeholder="3"></div>
-        </div>
-        <div class="row" style="margin-top:10px">
-          <div><label>Allow New After 10%?</label>
-            <select id="allow_new_after_lock10">
-              <option value="false">No (block new)</option>
-              <option value="true">Yes (allow)</option>
-            </select>
-          </div>
-          <div><label>Expiry Day?</label>
-            <select id="expiry_flag"><option value="false">No</option><option value="true">Yes</option></select>
-          </div>
-        </div>
-      </section>
-
-      <section class="card span-12" data-admin-only>
-        <h3>Actions</h3>
-        <div class="action-row">
-          <button class="btn-ok" onclick="saveRules()">Save Rules</button>
-          <button class="btn-warn" onclick="post('/api/kill')">Kill (Block + Trip Day)</button>
-          <button class="btn-ghost" onclick="post('/api/unlock')">Unlock (Allow New)</button>
-        </div>
-      </section>
-    </div>
-
-    <div class="footer">Admin/Trader UI • v2.6 • Compact two-column mobile layout</div>
+    <section class="card span-12" data-admin-only>
+      <h3>Actions</h3>
+      <div class="actions">
+        <button class="btn-ok"   onclick="saveRules()">Save Rules</button>
+        <button class="btn-warn" onclick="postAction('/api/admin/kill')">Kill (Block + Trip)</button>
+        <button class="btn-ghost"onclick="postAction('/api/admin/unlock')">Unlock (Allow New)</button>
+        <button class="btn-ghost"onclick="postAction('/api/kite/cancel-all')">Cancel All Pending</button>
+        <button class="btn-ghost"onclick="postAction('/api/kite/exit-all')">Exit All Positions</button>
+      </div>
+    </section>
   </div>
 
-  <script>
-    const $ = (id)=>document.getElementById(id);
-    const readToken = ()=>localStorage.getItem('ADMIN_TOKEN')||'';
+  <div class="footer">Guardian UI • v3.0 • compact 2-col mobile</div>
+</div>
 
-    function setMode(isAdmin){
-      const grid = document.getElementById('content');
-      const modeText = document.getElementById('modeText');
-      if(isAdmin){ grid.classList.remove('disabled'); modeText.innerHTML = '<b>Admin</b> mode. You can make changes.'; }
-      else { grid.classList.add('disabled'); modeText.innerHTML = '<b>Read-only</b> mode. Enter token to enable changes.'; }
-    }
-    function saveToken(){ const v=$('token').value.trim(); if(!v){alert('Enter token');return;} localStorage.setItem('ADMIN_TOKEN',v); $('token').value=''; refresh(); }
-    function clearToken(){ localStorage.removeItem('ADMIN_TOKEN'); refresh(); }
+<script>
+const $ = id => document.getElementById(id);
+const readToken = () => localStorage.getItem('ADMIN_TOKEN') || '';
 
-    function n2(v){ return Number(v||0); }
-    function fmtR(n){ try{return new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:0}).format(n);}catch{return '₹'+Math.round(n);} }
+function setMode(isAdmin){
+  const wrap = document.getElementById('content');
+  const mode = document.getElementById('modeText');
+  if(isAdmin){ wrap.classList.remove('disabled'); mode.innerHTML = '<b>Admin</b> mode enabled.'; }
+  else { wrap.classList.add('disabled'); mode.innerHTML = '<b>Read-only</b> mode. Enter token to enable changes.'; }
+}
+function saveToken(){ const v=$('token').value.trim(); if(!v){alert('Enter token');return;} localStorage.setItem('ADMIN_TOKEN',v); $('token').value=''; refresh(); }
+function clearToken(){ localStorage.removeItem('ADMIN_TOKEN'); refresh(); }
 
-    function computeRiskAmounts(s){
-      const cap=n2(s.capital_day_915), realised=n2(s.realised), unrealised=n2(s.unrealised), total=realised+unrealised;
-      const maxLossPct = s.max_loss_pct ?? 10;
-      const trailStep = s.trail_step_profit ?? 5000;
-      const baseFloor = -(cap * (maxLossPct/100));
-      const steps=Math.max(0,Math.floor(Math.max(0,realised)/trailStep));
-      const trailFloor = -(steps*trailStep);
-      const activeFloor = Math.max(baseFloor,trailFloor);
-      const remainingToFloor = activeFloor - total;
-      const lock10Amt=cap*0.10, lock20Amt=cap*0.20;
-      const nextTrailTrigger=steps*trailStep+trailStep;
-      return {cap,realised,unrealised,total,maxLossPct,trailStep,baseFloor,trailFloor,activeFloor,remainingToFloor,lock10Amt,lock20Amt,nextTrailTrigger};
-    }
+function n2(v){ return Number(v||0); }
+function fmtR(n){ try{ return new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:0}).format(n);}catch{ return '₹'+Math.round(n);} }
 
-    function setIfEmpty(id,val){ const el=$(id); if(el && el.value==='') el.value=String(val); }
+function riskMath(s){
+  const cap=n2(s.capital_day_915), r=n2(s.realised), u=n2(s.unrealised), total=r+u;
+  const maxPct = s.max_loss_pct ?? 10, step = s.trail_step_profit ?? 5000;
+  const baseFloor = -(cap * (maxPct/100));
+  const steps=Math.max(0,Math.floor(Math.max(0,r)/step));
+  const trailFloor = -(steps*step);
+  const activeFloor = Math.max(baseFloor,trailFloor);
+  const remaining = activeFloor - total;
+  const l10=cap*0.10, l20=cap*0.20;
+  const nextTrail=steps*step+step;
+  return {cap,r,u,total,maxPct,step,baseFloor,trailFloor,activeFloor,remaining,l10,l20,nextTrail};
+}
 
-    async function fetchState(){
-      const headers = readToken()?{'Authorization':'Bearer '+readToken()}:{}; 
-      const r = await fetch('/api/state?t='+Date.now(),{headers});
-      return r.json();
-    }
+function setIfEmpty(id,val){ const el=$(id); if(el && el.value==='') el.value=String(val); }
 
-    function paint(j){
-      $('now').textContent = 'Time: '+(j.time||'—');
-      const kb=$('kite-badge'), eb=$('engine-badge'); kb.className='badge';
-      if(j.kite_status==='ok'){ kb.innerHTML='<span class="dot" style="background:#22c55e"></span> Zerodha: Connected'; kb.classList.add('b-ok'); }
-      else if(j.kite_status==='invalid'){ kb.innerHTML='<span class="dot" style="background:#e11d48"></span> Zerodha: Token invalid'; kb.classList.add('b-bad'); }
-      else { kb.innerHTML='<span class="dot" style="background:#f59e0b"></span> Zerodha: Not logged in'; kb.classList.add('b-warn'); }
-      eb.innerHTML = j.ok ? '<span class="dot" style="background:#3b82f6"></span> Guardian: Online' : '<span class="dot" style="background:#e11d48"></span> Guardian: Error';
-      if(!j.ok){ alert('State error: '+(j.error||'unknown')); return; }
+async function fetchState(){
+  const headers = readToken()?{'Authorization':'Bearer '+readToken()}:{}; 
+  const r = await fetch('/api/state?t='+Date.now(),{headers});
+  return r.json();
+}
 
-      const s=j.state||{}, total=n2(s.realised)+n2(s.unrealised);
-      $('cap').textContent=n2(s.capital_day_915).toFixed(2);
-      $('pnl').textContent=`${n2(s.realised).toFixed(2)} / ${n2(s.unrealised).toFixed(2)} / ${total.toFixed(2)}`;
-      $('day').textContent=s.tripped_day?'TRIPPED':'ACTIVE';
-      $('block').textContent=s.block_new_orders?'BLOCKED':'ALLOWED';
-      $('losses').textContent=n2(s.consecutive_losses);
-      $('cool').textContent=s.cooldown_until?new Date(s.cooldown_until).toLocaleTimeString():'—';
+function paint(j){
+  $('now').textContent = 'Time: ' + (j.time||'—');
 
-      setIfEmpty('max_loss_pct', s.max_loss_pct ?? '');
-      setIfEmpty('trail_step_profit', s.trail_step_profit ?? '');
-      setIfEmpty('cooldown_min', s.cooldown_min ?? '');
-      setIfEmpty('max_consecutive_losses', s.max_consecutive_losses ?? '');
-      setIfEmpty('allow_new_after_lock10', String(s.allow_new_after_lock10 ?? ''));
-      setIfEmpty('expiry_flag', String(s.expiry_flag ?? ''));
+  // badges
+  const kb=$('kite-badge'), eb=$('engine-badge'); kb.className='badge'; eb.className='badge';
+  if(j.kite_status==='ok'){ kb.innerHTML='<span class="dot" style="background:#22c55e"></span> Zerodha: Connected'; kb.classList.add('b-ok'); }
+  else if(j.kite_status==='invalid'){ kb.innerHTML='<span class="dot" style="background:#ef4444"></span> Zerodha: Token invalid'; kb.classList.add('b-bad'); }
+  else { kb.innerHTML='<span class="dot" style="background:#f59e0b"></span> Zerodha: Not logged in'; kb.classList.add('b-warn'); }
+  eb.innerHTML = j.ok ? '<span class="dot" style="background:#3b82f6"></span> Guardian: Online' :
+                        '<span class="dot" style="background:#ef4444"></span> Guardian: Error';
 
-      const R=computeRiskAmounts(s);
-      $('k_cap').textContent=fmtR(R.cap);
-      $('k_pnl').textContent=`${fmtR(R.realised)} / ${fmtR(R.unrealised)} / ${fmtR(R.total)}`;
-      $('k_pnl_sub').textContent=R.total>=0?'In profit':'In loss';
-      $('k_orders').textContent=s.block_new_orders?'BLOCKED':'ALLOWED';
-      $('k_day').textContent=s.tripped_day?'Day: TRIPPED':'Day: ACTIVE';
-      $('k_maxloss_amt').textContent=fmtR(-R.baseFloor);
-      $('k_maxloss_pct').textContent=`Max Loss %: ${(+R.maxLossPct).toFixed(2)}%`;
-      $('k_active_floor').textContent=fmtR(R.activeFloor);
-      $('k_next_trail').textContent=`Next trail at realised ≥ ${fmtR(R.nextTrailTrigger)} (step ₹${R.trailStep})`;
-      $('k_remaining').textContent=fmtR(Math.max(0,R.remainingToFloor));
-      $('k_remaining_note').textContent=R.remainingToFloor<=0?'Floor breached':'Room left before floor';
-      $('k_lock10_amt').textContent=fmtR(R.lock10Amt);
-      $('k_lock20_amt').textContent=fmtR(R.lock20Amt);
-      const l10=R.realised>=R.lock10Amt, l20=R.realised>=R.lock20Amt;
-      $('k_lock10_state').textContent=l10?'Hit (10% lock active)':`Remaining: ${fmtR(R.lock10Amt-R.realised)}`;
-      $('k_lock20_state').textContent=l20?'Hit (20% lock active)':`Remaining: ${fmtR(R.lock20Amt-R.realised)}`;
+  if(!j.ok){ alert('State error: '+(j.error||'unknown')); return; }
 
-      setMode(!!j.admin);
-    }
+  const s=j.state||{}, total=n2(s.realised)+n2(s.unrealised);
+  $('cap').textContent=n2(s.capital_day_915).toFixed(2);
+  $('pnl').textContent=`${n2(s.realised).toFixed(2)} / ${n2(s.unrealised).toFixed(2)} / ${total.toFixed(2)}`;
+  $('day').textContent=s.tripped_day?'TRIPPED':'ACTIVE';
+  $('block').textContent=s.block_new_orders?'BLOCKED':'ALLOWED';
+  $('losses').textContent=n2(s.consecutive_losses);
+  $('cool').textContent=s.cooldown_until?new Date(s.cooldown_until).toLocaleTimeString():'—';
 
-    async function refresh(){ try{ const j=await fetchState(); paint(j);}catch(e){ alert('Failed to load state: '+e.message); } }
+  setIfEmpty('max_loss_pct', s.max_loss_pct ?? '');
+  setIfEmpty('trail_step_profit', s.trail_step_profit ?? '');
+  setIfEmpty('cooldown_min', s.cooldown_min ?? '');
+  setIfEmpty('max_consecutive_losses', s.max_consecutive_losses ?? '');
+  setIfEmpty('allow_new_after_lock10', String(s.allow_new_after_lock10 ?? ''));
+  setIfEmpty('expiry_flag', String(s.expiry_flag ?? ''));
 
-    async function saveRules(){
-      const token=readToken(); if(!token){alert('Enter admin token first');return;}
-      const body={}; copyNum('max_loss_pct',body); copyNum('trail_step_profit',body);
-      copyNum('cooldown_min',body); copyNum('max_consecutive_losses',body);
-      copyBool('allow_new_after_lock10',body); copyBool('expiry_flag',body);
-      const r=await fetch('/api/rules-set',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},body:JSON.stringify(body)});
-      const j=await r.json(); if(!j.ok){alert('Save failed: '+(j.error||'unknown'));return;} alert('Rules saved.'); refresh();
-    }
-    function copyNum(id,out){const el=$(id);if(!el)return;const v=el.value.trim();if(v===''){out[id]=undefined;return;}const n=Number(v);if(!Number.isNaN(n))out[id]=n;}
-    function copyBool(id,out){const el=$(id);if(!el)return;const v=el.value.trim(); if(v==='true')out[id]=true; else if(v==='false')out[id]=false;}
-    async function post(url){const t=readToken(); if(!t){alert('Enter admin token first');return;} const r=await fetch(url,{method:'POST',headers:{'Authorization':'Bearer '+t}}); const j=await r.json(); if(!j.ok){alert('Action failed: '+(j.error||'unknown'));return;} alert(j.message||'OK'); refresh();}
+  // KPIs
+  const R=riskMath(s);
+  $('k_cap').textContent=fmtR(R.cap);
+  $('k_pnl').textContent=`${fmtR(R.r)} / ${fmtR(R.u)} / ${fmtR(R.total)}`;
+  $('k_pnl_sub').textContent=R.total>=0?'In profit':'In loss';
+  $('k_orders').textContent=s.block_new_orders?'BLOCKED':'ALLOWED';
+  $('k_day').textContent=s.tripped_day?'Day: TRIPPED':'Day: ACTIVE';
+  $('k_maxloss_amt').textContent=fmtR(-R.baseFloor);
+  $('k_maxloss_pct').textContent=`Max Loss %: ${(+R.maxPct).toFixed(2)}%`;
+  $('k_active_floor').textContent=fmtR(R.activeFloor);
+  $('k_next_trail').textContent=`Next trail at realised ≥ ${fmtR(R.nextTrail)} (step ₹${R.step})`;
+  $('k_remaining').textContent=fmtR(Math.max(0,R.remaining));
+  $('k_remaining_note').textContent=R.remaining<=0?'Floor breached':'Room left before floor';
+  $('k_lock10_amt').textContent=fmtR(R.l10);
+  $('k_lock20_amt').textContent=fmtR(R.l20);
+  $('k_lock10_state').textContent=R.r>=R.l10?'Hit (10% lock)':'Remaining: '+fmtR(R.l10-R.r);
+  $('k_lock20_state').textContent=R.r>=R.l20?'Hit (20% lock)':'Remaining: '+fmtR(R.l20-R.r);
+  $('k_trail_step').textContent = '₹'+(R.step||0);
 
-    refresh(); setInterval(refresh, 10000);
-  </script>
+  setMode(!!j.admin);
+}
+
+async function refresh(){ try{ const j=await fetchState(); paint(j);}catch(e){ alert('Failed to load state: '+e.message); } }
+
+async function saveRules(){
+  const t=readToken(); if(!t){alert('Enter admin token first');return;}
+  const body={}; copyNum('max_loss_pct',body); copyNum('trail_step_profit',body);
+  copyNum('cooldown_min',body); copyNum('max_consecutive_losses',body);
+  copyBool('allow_new_after_lock10',body); copyBool('expiry_flag',body);
+  const r=await fetch('/api/admin/rules-set',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+t},body:JSON.stringify(body)});
+  const j=await r.json(); if(!j.ok){alert('Save failed: '+(j.error||'unknown'));return;} alert('Rules saved.'); refresh();
+}
+function copyNum(id,out){const el=$(id);if(!el)return;const v=el.value.trim();if(v==='')return;const n=Number(v);if(!Number.isNaN(n))out[id]=n;}
+function copyBool(id,out){const el=$(id);if(!el)return;const v=el.value.trim(); if(v==='true')out[id]=true; else if(v==='false')out[id]=false;}
+
+async function postAction(url){
+  const t=readToken(); if(!t){alert('Enter admin token first');return;}
+  const r=await fetch(url,{method:'POST',headers:{'Authorization':'Bearer '+t}});
+  const j=await r.json();
+  if(!j.ok){alert('Action failed: '+(j.error||'unknown'));return;}
+  alert(j.message || 'OK');
+  refresh();
+}
+
+refresh(); setInterval(refresh, 10000);
+</script>
 </body>
 </html>
