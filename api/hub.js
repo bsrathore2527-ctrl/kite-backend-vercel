@@ -25,9 +25,9 @@ function pickEquityFunds(margins) {
   const eq = margins?.equity ?? margins ?? {};
   const avail = eq.available ?? {};
   const balance = Number(
-    avail.cash ??
     avail.live_balance ??
     eq.net ??
+    avail.cash ??
     eq.cash ??
     eq.balance ??
     0
