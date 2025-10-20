@@ -96,7 +96,7 @@
     <div class="mode" id="modeText"><b>Read-only</b> mode. Enter token to enable changes.</div>
     <input id="token" type="password" placeholder="ADMIN_TOKEN" autocomplete="off">
     <button class="btn" onclick="saveToken()">Save</button>
-    <a href="/api/login"><button class="btn">Login Zerodha</button></a>
+    <a href="/api/login"><button class="btn" type="button">Login Zerodha</button></a>
     <button class="ghost" onclick="clearToken()">Clear</button>
     <button class="ghost" onclick="refresh()">Refresh</button>
   </div>
@@ -107,6 +107,8 @@
       <div class="kpi"><div class="hd">Capital @ 09:15</div><div class="vl" id="k_cap">—</div><div class="sub">Base for limits</div></div>
       <div class="kpi"><div class="hd">Current Balance (live)</div><div class="vl" id="k_live_balance">—</div><div class="sub">From Zerodha funds</div></div>
       <div class="kpi"><div class="hd">Live MTM</div><div class="vl" id="k_live_mtm">—</div><div class="sub">Sum of position PnL</div></div>
+
+      <div class="kpi"><div class="hd">PnL (R/UR/Total)</div><div class="vl" id="k_pnl">—</div><div class="sub" id="k_pnl_sub">—</div></div>
 
       <div class="kpi"><div class="hd">Max Loss (₹)</div><div class="vl" id="k_maxloss_amt">—</div><div class="sub" id="k_maxloss_pct">—</div></div>
       <div class="kpi"><div class="hd">Active Loss Floor (₹)</div><div class="vl" id="k_active_floor">—</div><div class="sub" id="k_next_trail">—</div></div>
@@ -174,7 +176,7 @@
       </div>
     </section>
 
-    <!-- NEW: Manual Capital Setter (since “No Auto”) -->
+    <!-- Manual Capital Setter -->
     <section class="card span-12" data-admin-only>
       <h3>Set Capital @ 09:15 (Manual)</h3>
       <div class="row">
@@ -187,11 +189,11 @@
           <button class="btn" onclick="saveCapital()">Save Capital</button>
         </div>
       </div>
-      <div class="tiny muted" style="margin-top:6px">This does not auto-fetch. Enter your opening funds manually each day after 09:15.</div>
+      <div class="tiny muted" style="margin-top:6px">Enter opening funds manually each day after 09:15.</div>
     </section>
   </div>
 
-  <div class="footer">Guardian UI • v3.2 • Manual capital + live funds/MTM</div>
+  <div class="footer">Guardian UI • v3.2.1 • Fixed KPI IDs + live funds/MTM</div>
 </div>
 
 <script>
@@ -199,8 +201,8 @@ const $ = id => document.getElementById(id);
 const readToken = () => localStorage.getItem('ADMIN_TOKEN') || '';
 
 function setMode(isAdmin){
-  const wrap = document.getElementById('content');
-  const mode = document.getElementById('modeText');
+  const wrap = $('content');
+  const mode = $('modeText');
   if(isAdmin){ wrap.classList.remove('disabled'); mode.innerHTML = '<b>Admin</b> mode enabled.'; }
   else { wrap.classList.add('disabled'); mode.innerHTML = '<b>Read-only</b> mode. Enter token to enable changes.'; }
 }
@@ -211,29 +213,16 @@ function n2(v){ return Number(v||0); }
 function inr(n){ try{ return new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:0}).format(n);}catch{ return '₹'+Math.round(n);} }
 function fmtR(n){ return inr(n); }
 
-function riskMath(s){
-  const cap=n2(s.capital_day_915), r=n2(s.realised), u=n2(s.unrealised), total=r+u;
-  const maxPct = s.max_loss_pct ?? 10, step = s.trail_step_profit ?? 5000;
-  const baseFloor = -(cap * (maxPct/100));
-  const steps=Math.max(0,Math.floor(Math.max(0,r)/step));
-  const trailFloor = -(steps*step);
-  const activeFloor = Math.max(baseFloor,trailFloor);
-  const remaining = activeFloor - total;
-  const l10=cap*0.10, l20=cap*0.20;
-  const nextTrail=steps*step+step;
-  return {cap,r,u,total,maxPct,step,baseFloor,trailFloor,activeFloor,remaining,l10,l20,nextTrail};
-}
-
 function setIfEmpty(id,val){ const el=$(id); if(el && el.value==='') el.value=String(val); }
+function setText(id, text){ const el=$(id); if(el) el.textContent = text; } // null-safe setter
 
 async function refresh(){
   try{
-    // 1) state for UI
     const headers = readToken()? { 'Authorization':'Bearer '+readToken() } : {};
     const j = await fetch('/api/state?t='+Date.now(), { headers }).then(r=>r.json());
     paint(j);
 
-    // 2) live funds snapshot
+    // live funds snapshot
     try {
       const r = await fetch('/api/kite/funds?t='+Date.now());
       const funds = await r.json();
@@ -243,35 +232,35 @@ async function refresh(){
           funds.funds.cash || 0
         );
         const txt = isNaN(av) ? '—' : inr(av);
-        $('live_funds').textContent = txt;
-        const kbal = $('k_live_balance'); if (kbal) kbal.textContent = txt;
+        setText('live_funds', txt);
+        setText('k_live_balance', txt);
       } else {
         const msg = (funds && funds.error) ? ('ERR: ' + funds.error) : '—';
-        $('live_funds').textContent = msg;
-        const kbal = $('k_live_balance'); if (kbal) kbal.textContent = '—';
+        setText('live_funds', msg);
+        setText('k_live_balance', '—');
       }
     } catch (e) {
-      $('live_funds').textContent = 'ERR: ' + (e.message || e);
-      const kbal = $('k_live_balance'); if (kbal) kbal.textContent = '—';
+      setText('live_funds', 'ERR: ' + (e.message || e));
+      setText('k_live_balance', '—');
     }
 
-    // 3) live MTM snapshot
+    // live MTM snapshot
     try {
       const r2 = await fetch('/api/kite/positions?t='+Date.now());
       const pos = await r2.json();
       if (pos.ok && pos.positions?.net) {
         const mtm = pos.positions.net.reduce((a,p)=> a + Number(p.pnl||0), 0);
         const txt = inr(mtm);
-        $('live_mtm').textContent = txt;
-        const kmtm = $('k_live_mtm'); if (kmtm) kmtm.textContent = txt;
+        setText('live_mtm', txt);
+        setText('k_live_mtm', txt);
       } else {
         const msg = (pos && pos.error) ? ('ERR: ' + pos.error) : '—';
-        $('live_mtm').textContent = msg;
-        const kmtm = $('k_live_mtm'); if (kmtm) kmtm.textContent = '—';
+        setText('live_mtm', msg);
+        setText('k_live_mtm', '—');
       }
     } catch (e) {
-      $('live_mtm').textContent = 'ERR: ' + (e.message || e);
-      const kmtm = $('k_live_mtm'); if (kmtm) kmtm.textContent = '—';
+      setText('live_mtm', 'ERR: ' + (e.message || e));
+      setText('k_live_mtm', '—');
     }
 
   }catch(e){
@@ -280,23 +269,28 @@ async function refresh(){
 }
 
 function paint(j){
-  $('now').textContent = 'Time: ' + (j.time||'—');
-  const kb=$('kite-badge'), eb=$('engine-badge'); kb.className='badge'; eb.className='badge';
-  if(j.kite_status==='ok'){ kb.innerHTML='<span class="dot" style="background:#22c55e"></span> Zerodha: Connected'; kb.classList.add('b-ok'); }
-  else if(j.kite_status==='invalid'){ kb.innerHTML='<span class="dot" style="background:#ef4444"></span> Zerodha: Token invalid'; kb.classList.add('b-bad'); }
-  else { kb.innerHTML='<span class="dot" style="background:#f59e0b"></span> Zerodha: Not logged in'; kb.classList.add('b-warn'); }
-  eb.innerHTML = j.ok ? '<span class="dot" style="background:#3b82f6"></span> Guardian: Online'
-                      : '<span class="dot" style="background:#ef4444"></span> Guardian: Error';
+  setText('now', 'Time: ' + (j.time||'—'));
+
+  const kb=$('kite-badge'), eb=$('engine-badge');
+  if(kb){ kb.className='badge'; }
+  if(eb){ eb.className='badge'; }
+
+  if(j.kite_status==='ok'){ if(kb){ kb.innerHTML='<span class="dot" style="background:#22c55e"></span> Zerodha: Connected'; kb.classList.add('b-ok'); } }
+  else if(j.kite_status==='invalid'){ if(kb){ kb.innerHTML='<span class="dot" style="background:#ef4444"></span> Zerodha: Token invalid'; kb.classList.add('b-bad'); } }
+  else { if(kb){ kb.innerHTML='<span class="dot" style="background:#f59e0b"></span> Zerodha: Not logged in'; kb.classList.add('b-warn'); } }
+  if(eb){ eb.innerHTML = j.ok ? '<span class="dot" style="background:#3b82f6"></span> Guardian: Online'
+                              : '<span class="dot" style="background:#ef4444"></span> Guardian: Error'; }
 
   if(!j.ok){ alert('State error: '+(j.error||'unknown')); return; }
 
   const s=j.state||{}, total=n2(s.realised)+n2(s.unrealised);
-  $('cap').textContent=n2(s.capital_day_915).toFixed(2);
-  $('pnl').textContent=`${n2(s.realised).toFixed(2)} / ${n2(s.unrealised).toFixed(2)} / ${total.toFixed(2)}`;
-  $('day').textContent=s.tripped_day?'TRIPPED':'ACTIVE';
-  $('block').textContent=s.block_new_orders?'BLOCKED':'ALLOWED';
-  $('losses').textContent=n2(s.consecutive_losses);
-  $('cool').textContent=s.cooldown_until?new Date(s.cooldown_until).toLocaleTimeString():'—';
+
+  setText('cap', n2(s.capital_day_915).toFixed(2));
+  setText('pnl', `${n2(s.realised).toFixed(2)} / ${n2(s.unrealised).toFixed(2)} / ${total.toFixed(2)}`);
+  setText('day', s.tripped_day?'TRIPPED':'ACTIVE');
+  setText('block', s.block_new_orders?'BLOCKED':'ALLOWED');
+  setText('losses', String(n2(s.consecutive_losses)));
+  setText('cool', s.cooldown_until?new Date(s.cooldown_until).toLocaleTimeString():'—');
 
   setIfEmpty('max_loss_pct', s.max_loss_pct ?? '');
   setIfEmpty('trail_step_profit', s.trail_step_profit ?? '');
@@ -305,32 +299,28 @@ function paint(j){
   setIfEmpty('allow_new_after_lock10', String(s.allow_new_after_lock10 ?? ''));
   setIfEmpty('expiry_flag', String(s.expiry_flag ?? ''));
 
-  const R=(function(){
-    const cap=n2(s.capital_day_915), r=n2(s.realised), u=n2(s.unrealised), total=r+u;
-    const maxPct = s.max_loss_pct ?? 10, step = s.trail_step_profit ?? 5000;
-    const baseFloor = -(cap * (maxPct/100));
-    const steps=Math.max(0,Math.floor(Math.max(0,r)/step));
-    const trailFloor = -(steps*step);
-    const activeFloor = Math.max(baseFloor,trailFloor);
-    const remaining = activeFloor - total;
-    const l10=cap*0.10, l20=cap*0.20;
-    const nextTrail=steps*step+step;
-    return {cap,r,u,total,maxPct,step,baseFloor,trailFloor,activeFloor,remaining,l10,l20,nextTrail};
-  })();
+  const cap=n2(s.capital_day_915), r=n2(s.realised), u=n2(s.unrealised), ttl=r+u;
+  const maxPct = s.max_loss_pct ?? 10, step = s.trail_step_profit ?? 5000;
+  const baseFloor = -(cap * (maxPct/100));
+  const steps=Math.max(0,Math.floor(Math.max(0,r)/step));
+  const trailFloor = -(steps*step);
+  const activeFloor = Math.max(baseFloor,trailFloor);
+  const remaining = activeFloor - ttl;
+  const l10=cap*0.10, l20=cap*0.20;
+  const nextTrail=steps*step+step;
 
-  $('k_cap').textContent=fmtR(R.cap);
-  $('k_maxloss_amt').textContent=fmtR(-R.baseFloor);
-  $('k_maxloss_pct').textContent=`Max Loss %: ${(+R.maxPct).toFixed(2)}%`;
-  $('k_active_floor').textContent=fmtR(R.activeFloor);
-  $('k_next_trail').textContent=`Next trail at realised ≥ ${fmtR(R.nextTrail)} (step ₹${R.step})`;
-  $('k_remaining').textContent=fmtR(Math.max(0,R.remaining));
-  $('k_remaining_note').textContent=R.remaining<=0?'Floor breached':'Room left before floor';
-  $('k_trail_step').textContent = '₹'+(R.step||0);
-  $('k_lock10_amt').textContent=fmtR(R.l10);
-  $('k_lock20_amt').textContent=fmtR(R.l20);
-  // PnL
-  $('k_pnl').textContent=`${fmtR(R.r)} / ${fmtR(R.u)} / ${fmtR(R.total)}`;
-  $('k_pnl_sub').textContent=R.total>=0?'In profit':'In loss';
+  setText('k_cap', fmtR(cap));
+  setText('k_maxloss_amt', fmtR(-baseFloor));
+  setText('k_maxloss_pct', `Max Loss %: ${(+maxPct).toFixed(2)}%`);
+  setText('k_active_floor', fmtR(activeFloor));
+  setText('k_next_trail', `Next trail at realised ≥ ${fmtR(nextTrail)} (step ₹${step})`);
+  setText('k_remaining', fmtR(Math.max(0,remaining)));
+  setText('k_remaining_note', remaining<=0?'Floor breached':'Room left before floor');
+  setText('k_trail_step', '₹'+(step||0));
+  setText('k_lock10_amt', fmtR(l10));
+  setText('k_lock20_amt', fmtR(l20));
+  setText('k_pnl', `${fmtR(r)} / ${fmtR(u)} / ${fmtR(ttl)}`);
+  setText('k_pnl_sub', ttl>=0?'In profit':'In loss');
 
   setMode(!!j.admin);
 }
