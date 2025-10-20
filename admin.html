@@ -105,8 +105,8 @@
   <section class="card" style="padding-top:10px;padding-bottom:10px">
     <div class="kpis">
       <div class="kpi"><div class="hd">Capital @ 09:15</div><div class="vl" id="k_cap">—</div><div class="sub">Base for limits</div></div>
-      <div class="kpi"><div class="hd">PnL (R/UR/Total)</div><div class="vl" id="k_pnl">—</div><div class="sub" id="k_pnl_sub">—</div></div>
-      <div class="kpi"><div class="hd">New Orders</div><div class="vl" id="k_orders">—</div><div class="sub" id="k_day">—</div></div>
+      <div class="kpi"><div class="hd">Current Balance (live)</div><div class="vl" id="k_live_balance">—</div><div class="sub">From Zerodha funds</div></div>
+      <div class="kpi"><div class="hd">Live MTM</div><div class="vl" id="k_live_mtm">—</div><div class="sub">Sum of position PnL</div></div>
 
       <div class="kpi"><div class="hd">Max Loss (₹)</div><div class="vl" id="k_maxloss_amt">—</div><div class="sub" id="k_maxloss_pct">—</div></div>
       <div class="kpi"><div class="hd">Active Loss Floor (₹)</div><div class="vl" id="k_active_floor">—</div><div class="sub" id="k_next_trail">—</div></div>
@@ -134,9 +134,10 @@
         <div><label>Consecutive Losses</label><div id="losses" class="pill">—</div></div>
         <div><label>Cooldown Until</label><div id="cool" class="pill">—</div></div>
       </div>
-      <!-- NEW: Live snapshots from Zerodha on Refresh -->
+
+      <!-- Live snapshots from Zerodha on Refresh -->
       <div class="row" style="margin-top:10px">
-        <div><label>Live Funds (snapshot)</label><div id="live_funds" class="pill">—</div></div>
+        <div><label>Broker Balance (live)</label><div id="live_funds" class="pill">—</div></div>
         <div><label>Live Positions MTM</label><div id="live_mtm" class="pill">—</div></div>
       </div>
     </section>
@@ -161,6 +162,7 @@
       </div>
     </section>
 
+    <!-- Admin Actions -->
     <section class="card span-12" data-admin-only>
       <h3>Actions</h3>
       <div class="actions">
@@ -171,9 +173,25 @@
         <button class="btn-ghost"onclick="postAction('/api/kite/exit-all')">Exit All Positions</button>
       </div>
     </section>
+
+    <!-- NEW: Manual Capital Setter (since “No Auto”) -->
+    <section class="card span-12" data-admin-only>
+      <h3>Set Capital @ 09:15 (Manual)</h3>
+      <div class="row">
+        <div>
+          <label>Capital Amount (₹)</label>
+          <input id="capital_input" type="number" step="1" placeholder="e.g. 250000">
+        </div>
+        <div>
+          <label>&nbsp;</label>
+          <button class="btn" onclick="saveCapital()">Save Capital</button>
+        </div>
+      </div>
+      <div class="tiny muted" style="margin-top:6px">This does not auto-fetch. Enter your opening funds manually each day after 09:15.</div>
+    </section>
   </div>
 
-  <div class="footer">Guardian UI • v3.1 • compact 2-col + live snapshot</div>
+  <div class="footer">Guardian UI • v3.2 • Manual capital + live funds/MTM</div>
 </div>
 
 <script>
@@ -190,7 +208,8 @@ function saveToken(){ const v=$('token').value.trim(); if(!v){alert('Enter token
 function clearToken(){ localStorage.removeItem('ADMIN_TOKEN'); refresh(); }
 
 function n2(v){ return Number(v||0); }
-function fmtR(n){ try{ return new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:0}).format(n);}catch{ return '₹'+Math.round(n);} }
+function inr(n){ try{ return new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:0}).format(n);}catch{ return '₹'+Math.round(n);} }
+function fmtR(n){ return inr(n); }
 
 function riskMath(s){
   const cap=n2(s.capital_day_915), r=n2(s.realised), u=n2(s.unrealised), total=r+u;
@@ -214,26 +233,46 @@ async function refresh(){
     const j = await fetch('/api/state?t='+Date.now(), { headers }).then(r=>r.json());
     paint(j);
 
-    // 2) live snapshot (best-effort)
+    // 2) live funds snapshot
     try {
-      const funds = await fetch('/api/kite/funds?t='+Date.now()).then(r=>r.json());
-      if (funds && funds.ok && funds.funds) {
+      const r = await fetch('/api/kite/funds?t='+Date.now());
+      const funds = await r.json();
+      if (funds.ok && funds.funds) {
         const av = Number(
           (funds.funds.available && (funds.funds.available.cash ?? funds.funds.available.live_balance)) ||
           funds.funds.cash || 0
         );
-        $('live_funds').textContent = isNaN(av) ? '—' :
-          new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:0}).format(av);
-      } else { $('live_funds').textContent = '—'; }
-    } catch { $('live_funds').textContent = '—'; }
+        const txt = isNaN(av) ? '—' : inr(av);
+        $('live_funds').textContent = txt;
+        const kbal = $('k_live_balance'); if (kbal) kbal.textContent = txt;
+      } else {
+        const msg = (funds && funds.error) ? ('ERR: ' + funds.error) : '—';
+        $('live_funds').textContent = msg;
+        const kbal = $('k_live_balance'); if (kbal) kbal.textContent = '—';
+      }
+    } catch (e) {
+      $('live_funds').textContent = 'ERR: ' + (e.message || e);
+      const kbal = $('k_live_balance'); if (kbal) kbal.textContent = '—';
+    }
 
+    // 3) live MTM snapshot
     try {
-      const pos = await fetch('/api/kite/positions?t='+Date.now()).then(r=>r.json());
-      if (pos && pos.ok && pos.positions?.net) {
+      const r2 = await fetch('/api/kite/positions?t='+Date.now());
+      const pos = await r2.json();
+      if (pos.ok && pos.positions?.net) {
         const mtm = pos.positions.net.reduce((a,p)=> a + Number(p.pnl||0), 0);
-        $('live_mtm').textContent = new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:0}).format(mtm);
-      } else { $('live_mtm').textContent = '—'; }
-    } catch { $('live_mtm').textContent = '—'; }
+        const txt = inr(mtm);
+        $('live_mtm').textContent = txt;
+        const kmtm = $('k_live_mtm'); if (kmtm) kmtm.textContent = txt;
+      } else {
+        const msg = (pos && pos.error) ? ('ERR: ' + pos.error) : '—';
+        $('live_mtm').textContent = msg;
+        const kmtm = $('k_live_mtm'); if (kmtm) kmtm.textContent = '—';
+      }
+    } catch (e) {
+      $('live_mtm').textContent = 'ERR: ' + (e.message || e);
+      const kmtm = $('k_live_mtm'); if (kmtm) kmtm.textContent = '—';
+    }
 
   }catch(e){
     alert('Failed to load state: ' + e.message);
@@ -266,21 +305,32 @@ function paint(j){
   setIfEmpty('allow_new_after_lock10', String(s.allow_new_after_lock10 ?? ''));
   setIfEmpty('expiry_flag', String(s.expiry_flag ?? ''));
 
-  const R=riskMath(s);
+  const R=(function(){
+    const cap=n2(s.capital_day_915), r=n2(s.realised), u=n2(s.unrealised), total=r+u;
+    const maxPct = s.max_loss_pct ?? 10, step = s.trail_step_profit ?? 5000;
+    const baseFloor = -(cap * (maxPct/100));
+    const steps=Math.max(0,Math.floor(Math.max(0,r)/step));
+    const trailFloor = -(steps*step);
+    const activeFloor = Math.max(baseFloor,trailFloor);
+    const remaining = activeFloor - total;
+    const l10=cap*0.10, l20=cap*0.20;
+    const nextTrail=steps*step+step;
+    return {cap,r,u,total,maxPct,step,baseFloor,trailFloor,activeFloor,remaining,l10,l20,nextTrail};
+  })();
+
   $('k_cap').textContent=fmtR(R.cap);
-  $('k_pnl').textContent=`${fmtR(R.r)} / ${fmtR(R.u)} / ${fmtR(R.total)}`;
-  $('k_pnl_sub').textContent=R.total>=0?'In profit':'In loss';
-  $('k_orders').textContent=s.block_new_orders?'BLOCKED':'ALLOWED';
-  $('k_day').textContent=s.tripped_day?'Day: TRIPPED':'Day: ACTIVE';
   $('k_maxloss_amt').textContent=fmtR(-R.baseFloor);
   $('k_maxloss_pct').textContent=`Max Loss %: ${(+R.maxPct).toFixed(2)}%`;
   $('k_active_floor').textContent=fmtR(R.activeFloor);
   $('k_next_trail').textContent=`Next trail at realised ≥ ${fmtR(R.nextTrail)} (step ₹${R.step})`;
   $('k_remaining').textContent=fmtR(Math.max(0,R.remaining));
   $('k_remaining_note').textContent=R.remaining<=0?'Floor breached':'Room left before floor';
+  $('k_trail_step').textContent = '₹'+(R.step||0);
   $('k_lock10_amt').textContent=fmtR(R.l10);
   $('k_lock20_amt').textContent=fmtR(R.l20);
-  $('k_trail_step').textContent = '₹'+(R.step||0);
+  // PnL
+  $('k_pnl').textContent=`${fmtR(R.r)} / ${fmtR(R.u)} / ${fmtR(R.total)}`;
+  $('k_pnl_sub').textContent=R.total>=0?'In profit':'In loss';
 
   setMode(!!j.admin);
 }
@@ -295,6 +345,17 @@ async function saveRules(){
 }
 function copyNum(id,out){const el=$(id);if(!el)return;const v=el.value.trim();if(v==='')return;const n=Number(v);if(!Number.isNaN(n))out[id]=n;}
 function copyBool(id,out){const el=$(id);if(!el)return;const v=el.value.trim(); if(v==='true')out[id]=true; else if(v==='false')out[id]=false;}
+
+async function saveCapital(){
+  const t=readToken(); if(!t){alert('Enter admin token first');return;}
+  const v = Number(($('capital_input').value || '').trim());
+  if(!v || v<=0){ alert('Enter a valid capital amount'); return; }
+  const r=await fetch('/api/admin/set-capital',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+t},body:JSON.stringify({ capital_day_915: v })});
+  const j=await r.json();
+  if(!j.ok){ alert('Save capital failed: '+(j.error||'unknown')); return; }
+  alert('Capital saved: ₹'+v.toFixed(0));
+  refresh();
+}
 
 async function postAction(url){
   const t=readToken(); if(!t){alert('Enter admin token first');return;}
