@@ -3,8 +3,8 @@ import { instance } from "./_lib/kite.js";
 import { kv, todayKey, getState, setState, IST } from "./_lib/kv.js";
 
 function send(res, code, body) { res.status(code).setHeader("Cache-Control","no-store").json(body); }
-const ok = (res, body={}) => send(res, 200, { ok: true, ...body });
-const bad = (res, msg="Bad request") => send(res, 400, { ok:false, error: msg });
+const ok   = (res, body={}) => send(res, 200, { ok: true, ...body });
+const bad  = (res, msg="Bad request") => send(res, 400, { ok:false, error: msg });
 const unauth = (res) => send(res, 401, { ok:false, error:"Unauthorized" });
 const nope = (res) => send(res, 405, { ok:false, error:"Method not allowed" });
 
@@ -15,6 +15,25 @@ function isAdmin(req) {
 }
 
 async function kite() { return await instance(); }
+function istNow() {
+  return new Date(new Date().toLocaleString("en-US", { timeZone: IST }));
+}
+
+// ---- Robust funds parser (works across Zerodha payload variants)
+function pickEquityFunds(margins) {
+  // Zerodha returns { equity: { available: { cash, live_balance, ... }, net, cash, balance, ... } }
+  const eq = margins?.equity ?? margins ?? {};
+  const avail = eq.available ?? {};
+  const balance = Number(
+    avail.cash ??
+    avail.live_balance ??
+    eq.net ??
+    eq.cash ??
+    eq.balance ??
+    0
+  );
+  return { raw: margins, equity: eq, balance };
+}
 
 // ---------- helpers ----------
 async function getOrdersSafe(kc){ try{ return await kc.getOrders(); }catch{ return []; } }
@@ -98,10 +117,6 @@ async function enforceShutdown(kc, reason = "limit"){
   }
 }
 
-function istNow() {
-  return new Date(new Date().toLocaleString("en-US", { timeZone: IST }));
-}
-
 // ---------- handler ----------
 export default async function handler(req, res) {
   try {
@@ -116,7 +131,8 @@ export default async function handler(req, res) {
       if (req.method === "GET" && seg === "funds") {
         try {
           const m = await (kc.getMargins?.() ?? kc.margins?.());
-          return ok(res, { funds: m?.equity || m });
+          const { balance, equity } = pickEquityFunds(m);
+          return ok(res, { funds: equity, balance });
         } catch (e) { return bad(res, e.message || "Funds fetch failed"); }
       }
 
@@ -191,7 +207,7 @@ export default async function handler(req, res) {
       const s = await getState();
       const now = istNow();
 
-      // 1) Keep canceling any pendings if blocked, to police revenge orders
+      // 1) Police revenge orders if blocked
       try {
         if (s.block_new_orders) {
           const kc = await kite();
@@ -202,17 +218,13 @@ export default async function handler(req, res) {
       try {
         const kc = await kite();
 
-        // 2) Cache current balance for UI fallback
+        // 2) Cache current balance + auto set capital at first valid tick ≥ 09:15
         try {
           const m = await (kc.getMargins?.() ?? kc.margins?.());
-          const funds = m?.equity || m || {};
-          const balance =
-            Number((funds.available && (funds.available.cash ?? funds.available.live_balance)) ||
-                   funds.cash || 0);
+          const { balance } = pickEquityFunds(m);
           if (balance > 0) {
             await setState({ current_balance: balance });
           }
-          // 3) Auto set capital @ first valid tick after 09:15 if not set yet
           if (!s.capital_day_915) {
             const hour = now.getHours(), min = now.getMinutes();
             const after915 = (hour > 9) || (hour === 9 && min >= 15);
@@ -222,9 +234,9 @@ export default async function handler(req, res) {
           }
         } catch {}
 
-        // 4) Daily loss enforcement (No profit-lock enforcement)
+        // 3) Daily loss enforcement (no profit-lock enforcement)
         const unreal = await getLiveMtm(kc);
-        const realised = Number((await getState()).realised || 0); // re-read in case it changed
+        const realised = Number((await getState()).realised || 0); // re-read
         const totalPnL = realised + unreal;
         const floor = computeActiveFloor(await getState());
 
@@ -236,7 +248,7 @@ export default async function handler(req, res) {
         await setState({ unrealised: unreal });
         return ok(res, { tick: now.toISOString(), breached:false, floor, totalPnL });
       } catch (e) {
-        // Not logged in: still return tick; UI will fallback to cached current_balance/unrealised
+        // Not logged in: still tick; UI will use cached current_balance/unrealised
         return ok(res, { tick: now.toISOString(), note:"kite not connected or error", error: e.message });
       }
     }
