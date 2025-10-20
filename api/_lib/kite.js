@@ -1,32 +1,38 @@
+// api/_lib/kite.js
 import { KiteConnect } from "kiteconnect";
-import cookie from "cookie";
-import sig from "cookie-signature";
+import { kv } from "./kv.js";
 
-const COOKIE_NAME = "kite_at";
-const COOKIE_SECRET = process.env.COOKIE_SECRET;
+export async function getAccessToken() {
+  return (await kv.get("kite:access_token")) || "";
+}
+export async function setAccessToken(token) {
+  await kv.set("kite:access_token", token);
+  return token;
+}
 
-export function instance(access_token) {
-  const kc = new KiteConnect({ api_key: process.env.KITE_API_KEY });
-  if (access_token) kc.setAccessToken(access_token);
+export async function instance() {
+  const apiKey = process.env.KITE_API_KEY;
+  if (!apiKey) throw new Error("Missing KITE_API_KEY");
+  const kc = new KiteConnect({ api_key: apiKey });
+  const token = await getAccessToken();
+  if (!token) throw new Error("Kite not logged in");
+  kc.setAccessToken(token);
   return kc;
 }
 
-export function readAccessToken(req) {
-  const cookies = cookie.parse(req.headers.cookie || "");
-  const raw = cookies[COOKIE_NAME];
-  if (!raw) return null;
-  if (!COOKIE_SECRET || !raw.startsWith("s:")) return null;
-  const unsigned = sig.unsign(raw.slice(2), COOKIE_SECRET);
-  return unsigned || null;
+export function loginUrl() {
+  const apiKey = process.env.KITE_API_KEY;
+  const kc = new KiteConnect({ api_key: apiKey });
+  // Must match Zerodha console redirect
+  return kc.getLoginURL();
 }
 
-export function setAccessTokenCookie(res, token) {
-  const value = "s:" + sig.sign(token, COOKIE_SECRET);
-  res.setHeader("Set-Cookie", cookie.serialize(COOKIE_NAME, value, {
-    httpOnly: true,
-    secure: true,
-    sameSite: "lax",
-    path: "/",
-    maxAge: 60 * 60 * 6 // 6 hours (access token validity)
-  }));
+export async function exchangeRequestToken(request_token) {
+  const apiKey = process.env.KITE_API_KEY;
+  const apiSecret = process.env.KITE_API_SECRET;
+  if (!apiKey || !apiSecret) throw new Error("Missing KITE_API_KEY/SECRET");
+  const kc = new KiteConnect({ api_key: apiKey });
+  const data = await kc.generateSession(request_token, apiSecret);
+  await setAccessToken(data.access_token);
+  return data;
 }
