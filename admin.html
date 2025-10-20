@@ -21,8 +21,7 @@
     -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale;
   }
   .wrap{max-width:1080px;margin:0 auto;padding:14px}
-  .muted{color:var(--muted)}
-  .tiny{font-size:12px}
+  .muted{color:var(--muted)} .tiny{font-size:12px}
 
   .header{display:flex;align-items:center;gap:10px;margin-bottom:10px}
   .title{font-weight:800;font-size:18px;display:flex;align-items:center;gap:8px}
@@ -31,7 +30,7 @@
   .dot{width:8px;height:8px;border-radius:50%}
   .b-ok{border-color:#1d2f24}.b-warn{border-color:#3d2e10}.b-bad{border-color:#3a1616}
 
-  /* Inline token + actions */
+  /* inline token + actions */
   .banner{
     display:grid;grid-template-columns:1fr auto auto auto auto;gap:10px;align-items:center;
     background:linear-gradient(180deg,#131a2d,#0f1525);border:1px solid var(--line);border-radius:12px;padding:10px;margin-bottom:10px
@@ -45,14 +44,14 @@
   .ghost{background:linear-gradient(180deg,#0f1523,#0d111a)}
   @media (max-width:760px){.banner{grid-template-columns:1fr 1fr 1fr}.banner input{grid-column:1/-1}}
 
-  /* Cards & grid */
+  /* grid + cards */
   .grid{display:grid;gap:var(--gap);grid-template-columns:repeat(12,minmax(0,1fr))}
   .card{grid-column:span 12;background:linear-gradient(180deg,#131a2d,#0f1525);border:1px solid var(--line);
     border-radius:12px;padding:var(--pad);box-shadow:0 10px 28px rgba(0,0,0,.28)}
   .card h3{margin:0 0 8px;font-size:13px;font-weight:800}
   @media (min-width:900px){.span-6{grid-column:span 6}}
 
-  /* KPI tiles */
+  /* KPI tiles: 3 on wide, 2 on phones */
   .kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
   @media (max-width:720px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
   @media (max-width:380px){.kpis{grid-template-columns:1fr}}
@@ -135,6 +134,11 @@
         <div><label>Consecutive Losses</label><div id="losses" class="pill">—</div></div>
         <div><label>Cooldown Until</label><div id="cool" class="pill">—</div></div>
       </div>
+      <!-- NEW: Live snapshots from Zerodha on Refresh -->
+      <div class="row" style="margin-top:10px">
+        <div><label>Live Funds (snapshot)</label><div id="live_funds" class="pill">—</div></div>
+        <div><label>Live Positions MTM</label><div id="live_mtm" class="pill">—</div></div>
+      </div>
     </section>
 
     <section class="card span-6" data-admin-only>
@@ -169,7 +173,7 @@
     </section>
   </div>
 
-  <div class="footer">Guardian UI • v3.0 • compact 2-col mobile</div>
+  <div class="footer">Guardian UI • v3.1 • compact 2-col + live snapshot</div>
 </div>
 
 <script>
@@ -203,22 +207,47 @@ function riskMath(s){
 
 function setIfEmpty(id,val){ const el=$(id); if(el && el.value==='') el.value=String(val); }
 
-async function fetchState(){
-  const headers = readToken()?{'Authorization':'Bearer '+readToken()}:{}; 
-  const r = await fetch('/api/state?t='+Date.now(),{headers});
-  return r.json();
+async function refresh(){
+  try{
+    // 1) state for UI
+    const headers = readToken()? { 'Authorization':'Bearer '+readToken() } : {};
+    const j = await fetch('/api/state?t='+Date.now(), { headers }).then(r=>r.json());
+    paint(j);
+
+    // 2) live snapshot (best-effort)
+    try {
+      const funds = await fetch('/api/kite/funds?t='+Date.now()).then(r=>r.json());
+      if (funds && funds.ok && funds.funds) {
+        const av = Number(
+          (funds.funds.available && (funds.funds.available.cash ?? funds.funds.available.live_balance)) ||
+          funds.funds.cash || 0
+        );
+        $('live_funds').textContent = isNaN(av) ? '—' :
+          new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:0}).format(av);
+      } else { $('live_funds').textContent = '—'; }
+    } catch { $('live_funds').textContent = '—'; }
+
+    try {
+      const pos = await fetch('/api/kite/positions?t='+Date.now()).then(r=>r.json());
+      if (pos && pos.ok && pos.positions?.net) {
+        const mtm = pos.positions.net.reduce((a,p)=> a + Number(p.pnl||0), 0);
+        $('live_mtm').textContent = new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:0}).format(mtm);
+      } else { $('live_mtm').textContent = '—'; }
+    } catch { $('live_mtm').textContent = '—'; }
+
+  }catch(e){
+    alert('Failed to load state: ' + e.message);
+  }
 }
 
 function paint(j){
   $('now').textContent = 'Time: ' + (j.time||'—');
-
-  // badges
   const kb=$('kite-badge'), eb=$('engine-badge'); kb.className='badge'; eb.className='badge';
   if(j.kite_status==='ok'){ kb.innerHTML='<span class="dot" style="background:#22c55e"></span> Zerodha: Connected'; kb.classList.add('b-ok'); }
   else if(j.kite_status==='invalid'){ kb.innerHTML='<span class="dot" style="background:#ef4444"></span> Zerodha: Token invalid'; kb.classList.add('b-bad'); }
   else { kb.innerHTML='<span class="dot" style="background:#f59e0b"></span> Zerodha: Not logged in'; kb.classList.add('b-warn'); }
-  eb.innerHTML = j.ok ? '<span class="dot" style="background:#3b82f6"></span> Guardian: Online' :
-                        '<span class="dot" style="background:#ef4444"></span> Guardian: Error';
+  eb.innerHTML = j.ok ? '<span class="dot" style="background:#3b82f6"></span> Guardian: Online'
+                      : '<span class="dot" style="background:#ef4444"></span> Guardian: Error';
 
   if(!j.ok){ alert('State error: '+(j.error||'unknown')); return; }
 
@@ -237,7 +266,6 @@ function paint(j){
   setIfEmpty('allow_new_after_lock10', String(s.allow_new_after_lock10 ?? ''));
   setIfEmpty('expiry_flag', String(s.expiry_flag ?? ''));
 
-  // KPIs
   const R=riskMath(s);
   $('k_cap').textContent=fmtR(R.cap);
   $('k_pnl').textContent=`${fmtR(R.r)} / ${fmtR(R.u)} / ${fmtR(R.total)}`;
@@ -252,14 +280,10 @@ function paint(j){
   $('k_remaining_note').textContent=R.remaining<=0?'Floor breached':'Room left before floor';
   $('k_lock10_amt').textContent=fmtR(R.l10);
   $('k_lock20_amt').textContent=fmtR(R.l20);
-  $('k_lock10_state').textContent=R.r>=R.l10?'Hit (10% lock)':'Remaining: '+fmtR(R.l10-R.r);
-  $('k_lock20_state').textContent=R.r>=R.l20?'Hit (20% lock)':'Remaining: '+fmtR(R.l20-R.r);
   $('k_trail_step').textContent = '₹'+(R.step||0);
 
   setMode(!!j.admin);
 }
-
-async function refresh(){ try{ const j=await fetchState(); paint(j);}catch(e){ alert('Failed to load state: '+e.message); } }
 
 async function saveRules(){
   const t=readToken(); if(!t){alert('Enter admin token first');return;}
