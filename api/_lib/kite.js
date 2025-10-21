@@ -1,34 +1,36 @@
 // api/_lib/kite.js
-// Kite helpers + safe kv handling
+// Kite helpers + tolerant kv handling
 import { KiteConnect } from "kiteconnect";
-import * as kvModule from "./kv.js"; // robust import
+import * as kvModule from "./kv.js";
 import { Redis } from "@upstash/redis";
 
-// Resolve a kv client in a tolerant way
+/*
+  Tolerant import for kv.
+  Accepts:
+   - named export: export const kv = ...
+   - default export: export default { kv }
+   - fallback: build a Redis client from env
+*/
 let kv = null;
 try {
-  // 1) prefer named export
   if (kvModule && kvModule.kv) kv = kvModule.kv;
-  // 2) or default that contains kv
   else if (kvModule && kvModule.default && kvModule.default.kv) kv = kvModule.default.kv;
 } catch (e) {
-  // ignore - we'll try to construct below
+  // ignore
 }
 
 if (!kv) {
-  // If kv isn't available from imported module, create a light-upstash client
   if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
     kv = new Redis({
       url: process.env.UPSTASH_REDIS_REST_URL,
       token: process.env.UPSTASH_REDIS_REST_TOKEN
     });
   } else {
-    // leave kv null but we handle it gracefully where needed
-    kv = null;
+    kv = null; // still ok; functions using kv should guard
   }
 }
 
-// Kite connect instance factory
+// Create KiteConnect instance
 export function instance() {
   if (!process.env.KITE_API_KEY) {
     throw new Error("Missing KITE_API_KEY env var");
@@ -36,28 +38,35 @@ export function instance() {
   return new KiteConnect({ api_key: process.env.KITE_API_KEY });
 }
 
-// Convenience: store / read access token in kv (if kv exists)
+// loginUrl: construct Zerodha login URL for redirecting users
+// Uses KITE_REDIRECT env var if present, else expects caller to provide redirect
+export function loginUrl({ redirect } = {}) {
+  const apiKey = process.env.KITE_API_KEY;
+  if (!apiKey) throw new Error("Missing KITE_API_KEY env var");
+
+  const redirectTo = redirect || process.env.KITE_REDIRECT || "/";
+  const encoded = encodeURIComponent(redirectTo);
+  // Standard Zerodha connect login url pattern
+  return `https://kite.zerodha.com/connect/login?v=3&api_key=${apiKey}&redirect_uri=${encoded}`;
+}
+
+// set access token cookie + store in kv (best-effort)
 export async function setAccessTokenCookie(res, token) {
-  // this helper used previously to set cookie during login flow - preserve original behaviour
-  // If you used cookies previously, keep same shape; else keep no-op
   try {
     if (res && typeof res.setHeader === "function") {
-      // set a cookie for frontend (example) - adjust as before
+      // HttpOnly cookie example
       res.setHeader("Set-Cookie", `access_token=${token}; Path=/; HttpOnly; SameSite=Lax`);
     }
-    if (kv && token) {
-      // store latest access token in kv for functions that read it
+    if (kv && typeof kv.set === "function" && token) {
       await kv.set("kite_access_token", token);
     }
   } catch (e) {
-    // don't break the request flow on cookie failures
     console.warn("setAccessTokenCookie error:", e && e.message);
   }
 }
 
-// Read stored access token (tries kv, then env)
+// get stored access token (tries kv then env)
 export async function getAccessToken() {
-  // Prefer runtime kv store
   try {
     if (kv && typeof kv.get === "function") {
       const t = await kv.get("kite_access_token");
@@ -66,13 +75,24 @@ export async function getAccessToken() {
   } catch (e) {
     console.warn("kv.get error:", e && e.message);
   }
-  // fallback to environment (not recommend for production, but useful for dev)
   return process.env.KITE_ACCESS_TOKEN || null;
 }
 
-// Helper to generate session using kite connect SDK
+// generateSession wrapper (uses kiteconnect SDK)
 export async function generateSession(request_token, secret) {
   const kc = instance();
-  // KiteConnect API uses generateSession on server side; adapt to your kiteconnect version
+  // depending on kiteconnect version this may return tokens object
   return kc.generateSession(request_token, secret);
+}
+
+// Helper: save refreshable token structure if you want
+export async function saveTokens(tokens) {
+  try {
+    if (!tokens) return;
+    if (kv && typeof kv.set === "function") {
+      await kv.set("kite_tokens", tokens);
+    }
+  } catch (e) {
+    console.warn("saveTokens error:", e && e.message);
+  }
 }
