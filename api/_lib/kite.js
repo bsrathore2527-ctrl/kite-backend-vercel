@@ -1,7 +1,7 @@
 // api/_lib/kite.js
 import crypto from "crypto";
 
-// robust import helper: try to load kv from same folder, tolerate default or named exports
+// robust import helper: tolerate named/default exports from kv.js
 import * as kvMod from "./kv.js";
 const kv = kvMod.kv || kvMod.default || null;
 
@@ -71,7 +71,7 @@ export async function exchangeRequestToken(request_token) {
   });
 
   const json = await res.json().catch(() => ({}));
-  if (!res.ok || !json.data || !json.data.access_token) {
+  if (!res.ok || !(json.data && json.data.access_token)) {
     throw new Error(JSON.stringify(json || { status: res.status }));
   }
   await setAccessToken(json.data.access_token);
@@ -86,32 +86,89 @@ function kiteHeader(token) {
 
 export async function kiteGet(path) {
   const token = await getAccessToken();
-  if (!token) {
-    return { ok: false, error: "Missing access_token" };
-  }
+  if (!token) return { ok: false, error: "Missing access_token" };
   const url = `${KITE_API}${path}`;
   const res = await fetch(url, { headers: kiteHeader(token) });
   const json = await res.json().catch(() => ({ ok: false, error: "Invalid JSON from kite" }));
-  if (!res.ok) {
-    return { ok: false, status: res.status, ...json };
-  }
+  if (!res.ok) return { ok: false, status: res.status, ...json };
+  return { ok: true, ...json };
+}
+
+export async function kitePost(path, bodyObj = {}) {
+  const token = await getAccessToken();
+  if (!token) return { ok: false, error: "Missing access_token" };
+  const url = `${KITE_API}${path}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { ...kiteHeader(token), "Content-Type": "application/json" },
+    body: JSON.stringify(bodyObj),
+  });
+  const json = await res.json().catch(() => ({ ok: false, error: "Invalid JSON from kite" }));
+  if (!res.ok) return { ok: false, status: res.status, ...json };
   return { ok: true, ...json };
 }
 
 export async function kitePositions() {
-  try {
-    return await kiteGet("/positions");
-  } catch (e) {
-    return { ok: false, error: String(e) };
-  }
+  // returns kite positions response
+  return await kiteGet("/positions");
 }
 
 export async function kiteFunds() {
-  try {
-    const r = await kiteGet("/user/funds");
-    if (r.ok) return r;
-    return await kiteGet("/funds");
-  } catch (e) {
-    return { ok: false, error: String(e) };
-  }
+  // primary endpoint for funds; older projects used /user/funds or /funds
+  const r = await kiteGet("/user/funds");
+  if (r.ok) return r;
+  return await kiteGet("/funds");
 }
+
+export async function kiteProfile() {
+  return await kiteGet("/user/profile");
+}
+
+export async function kiteOrders() {
+  return await kiteGet("/orders");
+}
+
+export async function kitePlaceOrder(payload) {
+  // payload should follow Kite API shape — this is a thin wrapper
+  return await kitePost("/orders/regular", payload);
+}
+
+export async function kiteCancelOrder(orderId) {
+  if (!orderId) return { ok: false, error: "Missing order id" };
+  // cancellation endpoint path depends on order type — this is a best-effort example
+  return await kitePost(`/orders/${orderId}/cancel`, {});
+}
+
+/**
+ * Backwards compatibility export: `instance`
+ * Many older modules import `instance` and call methods like instance.orders(), instance.positions(), etc.
+ * Provide a simple object that proxies common operations to the helper functions above.
+ */
+export const instance = {
+  positions: async () => {
+    const r = await kitePositions();
+    return r;
+  },
+  funds: async () => {
+    const r = await kiteFunds();
+    return r;
+  },
+  profile: async () => {
+    const r = await kiteProfile();
+    return r;
+  },
+  orders: async () => {
+    const r = await kiteOrders();
+    return r;
+  },
+  placeOrder: async (payload) => {
+    return await kitePlaceOrder(payload);
+  },
+  cancelOrder: async (orderId) => {
+    return await kiteCancelOrder(orderId);
+  },
+  getAccessToken,
+  setAccessToken,
+  kiteGet,
+  kitePost,
+};
