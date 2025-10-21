@@ -1,5 +1,6 @@
 // api/state.js — public/admin state (read-only unless admin uses /api/admin/*)
-import { getState, todayKey } from "./_lib/kv.js";
+import { getState } from "./_lib/state.js";
+import { todayKey } from "./_lib/kv.js";
 import { getAccessToken } from "./_lib/kite.js";
 
 function isAdmin(req) {
