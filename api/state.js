@@ -50,7 +50,8 @@ export default async function handler(req, res) {
       key: todayKey()
     });
   } catch (e) {
-    // TEMP DEBUG: return full error stack so we can see what's crashing
+    // === TEMP DEBUG: return full error stack so we can see what's crashing ===
+    // Remove this block after we diagnose the issue.
     console.error("STATE API ERROR:", e);
     res.status(500).setHeader("Content-Type", "text/plain; charset=utf-8");
     res.send(String(e.stack || e.message || e));
