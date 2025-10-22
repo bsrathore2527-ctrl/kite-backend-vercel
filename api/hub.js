@@ -40,9 +40,8 @@ async function cancelAllPendings(kc){
     let canceled = 0;
     for (const o of pend) {
       try {
-        // KiteConnect cancelOrder signature varies — try common usages
         if (o.order_id) await kc.cancelOrder(o.variety || "regular", o.order_id);
-        else await kc.cancelOrder(o.order_id);
+        else if (o.order_id) await kc.cancelOrder(o.order_id);
         canceled++;
       } catch (e) {}
     }
@@ -88,7 +87,6 @@ function computeActiveFloor(s) {
   return Math.max(baseFloor, trailFloor);
 }
 
-// single handler
 export default async function handler(req, res) {
   try {
     const url = new URL(req.url, "http://x");
@@ -107,13 +105,25 @@ export default async function handler(req, res) {
     // ---------- KITE callback ----------
     if (path === "/api/callback" && req.method === "GET") {
       try {
-        const { request_token } = req.query || {};
-        if (!request_token) return bad(res, "Missing request_token");
-        await generateSession(request_token);
+        const params = url.searchParams;
+        const request_token = params.get("request_token");
+        console.log("CALLBACK HIT:", { request_token, search: url.search });
+        if (!request_token) {
+          console.warn("Missing request_token in callback:", url.href);
+          const redirectTo = (process.env.POST_LOGIN_REDIRECT || "/admin.html") + "?kite=missing_request_token";
+          res.writeHead(302, { Location: redirectTo });
+          res.end();
+          return;
+        }
+        const data = await generateSession(request_token);
+        console.log("GENERATE SESSION:", { ok: !!data?.access_token });
         const redirectTo = process.env.POST_LOGIN_REDIRECT || "/admin.html";
         res.writeHead(302, { Location: redirectTo });
         res.end();
-      } catch (e) { return bad(res, e.message || "Auth failed"); }
+      } catch (e) {
+        console.error("CALLBACK ERROR:", e);
+        return bad(res, e.message || "Auth failed");
+      }
       return;
     }
 
@@ -122,7 +132,6 @@ export default async function handler(req, res) {
       try {
         const admin = isAdmin(req);
         const s = await getState();
-        // safe projection
         const safe = {
           capital_day_915: s.capital_day_915 || 0,
           realised: s.realised || 0,
@@ -146,22 +155,31 @@ export default async function handler(req, res) {
           month_max_loss_pct: s.month_max_loss_pct ?? null
         };
         const now = new Date().toLocaleTimeString("en-IN", { timeZone: IST, hour12: false });
-        return ok(res, { time: now, admin, kite_status: (await (async () => { try { const kc = await instance(); return "ok"; } catch { return ""; }})()), state: safe, key: todayKey() });
+        // check kite connectivity
+        let kite_ok = "";
+        try {
+          const kc = await instance();
+          kite_ok = "ok";
+        } catch (e) {
+          kite_ok = "";
+        }
+        return ok(res, { time: now, admin, kite_status: kite_ok, state: safe, key: todayKey() });
       } catch (e) {
         console.error("STATE ERR", e); return bad(res, e.message || String(e));
       }
     }
 
-    // ---------- KITE routes (proxy live kite calls) ----------
+    // ---------- KITE proxy routes ----------
     if (path.startsWith("/api/kite/")) {
       const seg = path.replace("/api/kite/", "");
-      const kc = await instance();
+      let kc;
+      try { kc = await instance(); } catch (e) { return bad(res, "Invalid api_key or access_token."); }
 
       if (req.method === "GET" && seg === "funds") {
         try {
           const m = await (kc.getMargins?.() ?? kc.margins?.());
-          const { balance, equity } = (function pick(m){ const r = pickEquityFunds(m||{}); return { balance: r.balance, funds: r.equity }; })(m);
-          return ok(res, { funds: equity, balance });
+          const picked = pickEquityFunds(m || {});
+          return ok(res, { funds: picked.equity, balance: picked.balance });
         } catch (e) { return bad(res, e.message || "Funds fetch failed"); }
       }
 
@@ -185,8 +203,14 @@ export default async function handler(req, res) {
 
       if (req.method === "POST" && seg === "exit-all") {
         if (!isAdmin(req)) return unauth(res);
-        const resu = await (async function(){ await setState({ tripped_day:true, block_new_orders:true }); return await (async ()=>{ try{ const c = await cancelAllPendings(kc); const s = await exitAllNetPositions(kc); return { canceled:c, squared_off:s }; }catch(e){return { canceled:0, squared_off:0 }; } })(); })();
-        return ok(res, resu);
+        await setState({ tripped_day:true, block_new_orders:true });
+        try {
+          const c = await cancelAllPendings(kc);
+          const sres = await exitAllNetPositions(kc);
+          return ok(res, { canceled: c, squared_off: sres });
+        } catch (e) {
+          return ok(res, { message: "Day killed flag set. Could not reach kite to enforce." });
+        }
       }
 
       return nope(res);
@@ -227,41 +251,32 @@ export default async function handler(req, res) {
       return nope(res);
     }
 
-    // ---------- GUARDIAN cron (hit by QStash) ----------
+    // ---------- GUARDIAN cron ----------
     if (path === "/api/guardian") {
       try {
         const s = await getState();
-        // If blocked, try to cancel pendings whenever guardian runs
         try {
           if (s.block_new_orders) {
             try { const kc = await instance(); await cancelAllPendings(kc); } catch {}
           }
         } catch {}
-
-        // try to fetch funds & positions to persist fallback info
         try {
           const kc = await instance();
           const m = await (kc.getMargins?.() ?? kc.margins?.());
           const { balance } = pickEquityFunds(m || {});
-          if (balance > 0) {
-            await setState({ current_balance: balance });
-          }
-          // auto set capital at first tick after 09:15 IST
+          if (balance > 0) { await setState({ current_balance: balance }); }
           if (!s.capital_day_915) {
             const now = istNow();
             const h = now.getHours(), min = now.getMinutes();
             const after915 = (h > 9) || (h === 9 && min >= 15);
-            if (after915 && balance > 0) {
-              await setState({ capital_day_915: balance });
-            }
+            if (after915 && balance > 0) { await setState({ capital_day_915: balance }); }
           }
-          const unreal = await (async ()=>{ try{ return await (async function(){ const p = await kc.getPositions(); const net = p?.net || []; return net.reduce((a,x)=>a + Number(x.pnl||0),0); })(); }catch{return 0;} })();
+          const unreal = await (async ()=>{ try{ const p = await kc.getPositions(); const net = p?.net || []; return net.reduce((a,x)=>a + Number(x.pnl||0),0); }catch{return 0;} })();
           const curState = await getState();
           const realised = Number(curState.realised || 0);
           const totalPnL = realised + Number(unreal || 0);
           const floor = computeActiveFloor(curState);
           if (totalPnL <= floor) {
-            // enforce kill
             try {
               await setState({ tripped_day:true, block_new_orders:true });
               await cancelAllPendings(kc);
@@ -272,19 +287,17 @@ export default async function handler(req, res) {
           await setState({ unrealised: unreal });
           return ok(res, { tick: new Date().toISOString(), breached:false, floor, totalPnL });
         } catch (e) {
-          // not logged in — return tick and note
           return ok(res, { tick: new Date().toISOString(), note:"kite not connected", error: e.message });
         }
       } catch (e) { return bad(res, e.message || String(e)); }
     }
 
-    // ---------- ENFORCE (manual or scheduled) ----------
+    // ---------- ENFORCE ----------
     if (path === "/api/enforce") {
       try {
         const state = await getState();
         const kc = await instance();
         let canceled=0, squared=0;
-        // cancel new open orders
         try {
           const orders = await kc.getOrders();
           const open = (orders||[]).filter(o => ["OPEN","TRIGGER PENDING","TRIGGERPENDING"].includes((o.status||"").toUpperCase()));
@@ -292,7 +305,6 @@ export default async function handler(req, res) {
             try { if (o.order_id) { await kc.cancelOrder(o.variety || "regular", o.order_id); canceled++; } } catch {}
           }
         } catch {}
-        // square positions if blocked
         if (state.block_new_orders || state.tripped_day) {
           try {
             const pos = await kc.getPositions();
@@ -316,7 +328,6 @@ export default async function handler(req, res) {
             }
           } catch(e){}
         }
-        // cooldown logic (simple): if realised < 0 and no cooldown start it
         const cur = await getState();
         const realised = Number(cur.realised || 0);
         const now = Date.now();
@@ -332,10 +343,10 @@ export default async function handler(req, res) {
       } catch (e) { return bad(res, e.message || String(e)); }
     }
 
-    // unknown route -> 404
+    // unknown
     return send(res, 404, { ok:false, error:"Unknown route" });
   } catch (e) {
     console.error("HUB ERR", e);
     return send(res, 500, { ok:false, error: e.message || String(e) });
   }
-        }
+    }
