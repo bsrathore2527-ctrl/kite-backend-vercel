@@ -1,11 +1,11 @@
 // api/hub.js
-import { instance } from "./_lib/kite.js";
+import { loginUrl, generateSession, instance } from "./_lib/kite.js";
 import { getState, setState } from "./_lib/state.js";
 import { todayKey, IST } from "./_lib/kv.js";
 
 function send(res, code, body) { res.status(code).setHeader("Cache-Control","no-store").json(body); }
-const ok   = (res, body={}) => send(res, 200, { ok: true, ...body });
-const bad  = (res, msg="Bad request") => send(res, 400, { ok:false, error: msg });
+const ok = (res, body={}) => send(res, 200, { ok: true, ...body });
+const bad = (res, msg="Bad request") => send(res, 400, { ok:false, error: msg });
 const unauth = (res) => send(res, 401, { ok:false, error:"Unauthorized" });
 const nope = (res) => send(res, 405, { ok:false, error:"Method not allowed" });
 
@@ -15,14 +15,11 @@ function isAdmin(req) {
   return !!process.env.ADMIN_TOKEN && token === process.env.ADMIN_TOKEN;
 }
 
-async function kite() { return await instance(); }
 function istNow() {
   return new Date(new Date().toLocaleString("en-US", { timeZone: IST }));
 }
 
-// ---- Robust funds parser (works across Zerodha payload variants)
 function pickEquityFunds(margins) {
-  // Zerodha returns { equity: { available: { cash, live_balance, ... }, net, cash, balance, ... } }
   const eq = margins?.equity ?? margins ?? {};
   const avail = eq.available ?? {};
   const balance = Number(
@@ -36,57 +33,51 @@ function pickEquityFunds(margins) {
   return { raw: margins, equity: eq, balance };
 }
 
-// ---------- helpers ----------
-async function getOrdersSafe(kc){ try{ return await kc.getOrders(); }catch{ return []; } }
-
 async function cancelAllPendings(kc){
-  const orders = await getOrdersSafe(kc);
-  const pend = orders.filter(o => ["OPEN","TRIGGER PENDING"].includes(o.status));
-  let canceled = 0;
-  for (const o of pend) {
-    try {
-      try { await kc.cancelOrder(o.variety || "regular", o.order_id); }
-      catch { await kc.cancelOrder(o.order_id, o.variety || "regular"); }
-      canceled++;
-    } catch {}
-  }
-  return canceled;
+  try {
+    const orders = await kc.getOrders();
+    const pend = (orders || []).filter(o => ["OPEN","TRIGGER PENDING","TRIGGERPENDING"].includes((o.status||"").toUpperCase()));
+    let canceled = 0;
+    for (const o of pend) {
+      try {
+        // KiteConnect cancelOrder signature varies — try common usages
+        if (o.order_id) await kc.cancelOrder(o.variety || "regular", o.order_id);
+        else await kc.cancelOrder(o.order_id);
+        canceled++;
+      } catch (e) {}
+    }
+    return canceled;
+  } catch (e) { return 0; }
 }
 
 async function exitAllNetPositions(kc){
-  const pos = await kc.getPositions(); // {net:[]}
-  const net = pos?.net || [];
-  let squared = 0;
-  for (const p of net) {
-    const qty = Number(p.quantity ?? p.net_quantity ?? 0);
-    if (!qty) continue;
-    const side = qty > 0 ? "SELL" : "BUY";
-    const absQty = Math.abs(qty);
-    try {
-      await kc.placeOrder("regular", {
-        exchange: p.exchange || "NSE",
-        tradingsymbol: p.tradingsymbol,
-        transaction_type: side,
-        quantity: absQty,
-        product: p.product || "MIS",
-        order_type: "MARKET",
-        validity: "DAY"
-      });
-      squared++;
-    } catch {}
-  }
-  return squared;
-}
-
-async function getLiveMtm(kc){
   try {
     const pos = await kc.getPositions();
     const net = pos?.net || [];
-    return net.reduce((a,p)=> a + Number(p.pnl || 0), 0);
-  } catch { return 0; }
+    let squared = 0;
+    for (const p of net) {
+      const qty = Number(p.net_quantity ?? p.quantity ?? 0);
+      if (!qty) continue;
+      const side = qty > 0 ? "SELL" : "BUY";
+      const abs = Math.abs(qty);
+      try {
+        await kc.placeOrder("regular", {
+          exchange: p.exchange || "NSE",
+          tradingsymbol: p.tradingsymbol || p.trading_symbol || p.instrument_token,
+          transaction_type: side,
+          quantity: abs,
+          product: p.product || "MIS",
+          order_type: "MARKET",
+          validity: "DAY"
+        });
+        squared++;
+      } catch (e) {}
+    }
+    return squared;
+  } catch (e) { return 0; }
 }
 
-function computeActiveFloor(s){
+function computeActiveFloor(s) {
   const cap = Number(s.capital_day_915 || 0);
   const maxPct = s.max_loss_pct ?? 10;
   const step = s.trail_step_profit ?? 5000;
@@ -94,64 +85,96 @@ function computeActiveFloor(s){
   const baseFloor = -(cap * (maxPct/100));
   const steps = Math.max(0, Math.floor(Math.max(0, realised) / step));
   const trailFloor = -(steps * step);
-  return Math.max(baseFloor, trailFloor); // negative
+  return Math.max(baseFloor, trailFloor);
 }
 
-async function enforceShutdown(kc, reason = "limit"){
-  const key = `risk:${todayKey()}`;
-  const guardKey = `${key}:enforcing`;
-  if (await kv.get(guardKey)) return { skipped:true, reason:"in_progress" };
-  await kv.set(guardKey, Date.now(), { ex: 60 }); // 60s guard
-
-  try {
-    const canceled = await cancelAllPendings(kc);
-    const squared_off = await exitAllNetPositions(kc);
-    const s = await getState();
-    s.tripped_day = true;
-    s.block_new_orders = true;
-    s.last_enforce_at = Date.now();
-    s.last_enforce_reason = reason;
-    await setState(s);
-    return { canceled, squared_off };
-  } finally {
-    // guard auto-expires
-  }
-}
-
-// ---------- handler ----------
+// single handler
 export default async function handler(req, res) {
   try {
     const url = new URL(req.url, "http://x");
     const path = url.pathname;
 
-    // KITE group (live calls)
+    // ---------- KITE login start ----------
+    if (path === "/api/login" && req.method === "GET") {
+      try {
+        const url = loginUrl();
+        res.writeHead(302, { Location: url });
+        res.end();
+      } catch (e) { return bad(res, e.message || "Login init failed"); }
+      return;
+    }
+
+    // ---------- KITE callback ----------
+    if (path === "/api/callback" && req.method === "GET") {
+      try {
+        const { request_token } = req.query || {};
+        if (!request_token) return bad(res, "Missing request_token");
+        await generateSession(request_token);
+        const redirectTo = process.env.POST_LOGIN_REDIRECT || "/admin.html";
+        res.writeHead(302, { Location: redirectTo });
+        res.end();
+      } catch (e) { return bad(res, e.message || "Auth failed"); }
+      return;
+    }
+
+    // ---------- STATE (public) ----------
+    if (path === "/api/state" && req.method === "GET") {
+      try {
+        const admin = isAdmin(req);
+        const s = await getState();
+        // safe projection
+        const safe = {
+          capital_day_915: s.capital_day_915 || 0,
+          realised: s.realised || 0,
+          unrealised: s.unrealised || 0,
+          current_balance: s.current_balance || 0,
+          tripped_day: !!s.tripped_day,
+          tripped_week: !!s.tripped_week,
+          tripped_month: !!s.tripped_month,
+          block_new_orders: !!s.block_new_orders,
+          consecutive_losses: s.consecutive_losses || 0,
+          cooldown_until: s.cooldown_until || 0,
+          profit_lock_10: !!s.profit_lock_10,
+          profit_lock_20: !!s.profit_lock_20,
+          expiry_flag: !!s.expiry_flag,
+          max_loss_pct: s.max_loss_pct ?? 10,
+          trail_step_profit: s.trail_step_profit ?? 5000,
+          cooldown_min: s.cooldown_min ?? 15,
+          max_consecutive_losses: s.max_consecutive_losses ?? 3,
+          allow_new_after_lock10: s.allow_new_after_lock10 ?? false,
+          week_max_loss_pct: s.week_max_loss_pct ?? null,
+          month_max_loss_pct: s.month_max_loss_pct ?? null
+        };
+        const now = new Date().toLocaleTimeString("en-IN", { timeZone: IST, hour12: false });
+        return ok(res, { time: now, admin, kite_status: (await (async () => { try { const kc = await instance(); return "ok"; } catch { return ""; }})()), state: safe, key: todayKey() });
+      } catch (e) {
+        console.error("STATE ERR", e); return bad(res, e.message || String(e));
+      }
+    }
+
+    // ---------- KITE routes (proxy live kite calls) ----------
     if (path.startsWith("/api/kite/")) {
       const seg = path.replace("/api/kite/", "");
-      const kc = await kite();
+      const kc = await instance();
 
       if (req.method === "GET" && seg === "funds") {
         try {
           const m = await (kc.getMargins?.() ?? kc.margins?.());
-          const { balance, equity } = pickEquityFunds(m);
+          const { balance, equity } = (function pick(m){ const r = pickEquityFunds(m||{}); return { balance: r.balance, funds: r.equity }; })(m);
           return ok(res, { funds: equity, balance });
         } catch (e) { return bad(res, e.message || "Funds fetch failed"); }
       }
 
       if (req.method === "GET" && seg === "positions") {
-        const p = await kc.getPositions();
-        return ok(res, { positions: p });
+        try { const p = await kc.getPositions(); return ok(res, { positions: p }); } catch (e) { return bad(res, e.message || "Positions failed"); }
       }
 
       if (req.method === "GET" && seg === "orders") {
-        const o = await kc.getOrders();
-        return ok(res, { orders: o });
+        try { const o = await kc.getOrders(); return ok(res, { orders: o }); } catch (e) { return bad(res, e.message || "Orders failed"); }
       }
 
       if (req.method === "GET" && seg === "profile") {
-        try {
-          const prof = await kc.getProfile?.();
-          return ok(res, { profile: prof || true });
-        } catch (e) { return bad(res, e.message || "Profile fetch failed"); }
+        try { const p = await kc.getProfile?.(); return ok(res, { profile: p || true }); } catch (e) { return bad(res, e.message || "Profile failed"); }
       }
 
       if (req.method === "POST" && seg === "cancel-all") {
@@ -162,36 +185,37 @@ export default async function handler(req, res) {
 
       if (req.method === "POST" && seg === "exit-all") {
         if (!isAdmin(req)) return unauth(res);
-        const resu = await enforceShutdown(kc, "manual_exit_all");
+        const resu = await (async function(){ await setState({ tripped_day:true, block_new_orders:true }); return await (async ()=>{ try{ const c = await cancelAllPendings(kc); const s = await exitAllNetPositions(kc); return { canceled:c, squared_off:s }; }catch(e){return { canceled:0, squared_off:0 }; } })(); })();
         return ok(res, resu);
       }
 
       return nope(res);
     }
 
-    // ADMIN group
+    // ---------- ADMIN routes ----------
     if (path.startsWith("/api/admin/")) {
       if (!isAdmin(req)) return unauth(res);
       const seg = path.replace("/api/admin/", "");
       const cur = await getState();
 
       if (req.method === "POST" && seg === "rules-set") {
-        const b = req.body || {};
+        const b = req.body || await (async ()=>{ try{ const buf = await new Promise(r=>{ let d=''; req.on('data',c=>d+=c); req.on('end',()=>r(Buffer.from(d))); }); return JSON.parse(buf.toString()); }catch{return {}; } })();
         const next = { ...cur };
-        [
-          "max_loss_pct","trail_step_profit","cooldown_min",
-          "max_consecutive_losses","allow_new_after_lock10",
-          "expiry_flag","week_max_loss_pct","month_max_loss_pct"
-        ].forEach(k => { if (b[k] !== undefined) next[k] = b[k]; });
+        ["max_loss_pct","trail_step_profit","cooldown_min","max_consecutive_losses","allow_new_after_lock10","expiry_flag","week_max_loss_pct","month_max_loss_pct"].forEach(k => { if (b[k] !== undefined) next[k] = b[k]; });
         await setState(next);
         return ok(res, { saved:true });
       }
 
       if (req.method === "POST" && seg === "kill") {
         await setState({ tripped_day:true, block_new_orders:true });
-        const kc = await kite();
-        const resu = await enforceShutdown(kc, "kill");
-        return ok(res, { message:"Day killed. New orders blocked. Auto-enforcement executed.", ...resu });
+        try {
+          const kc = await instance();
+          const canceled = await cancelAllPendings(kc);
+          const squared = await exitAllNetPositions(kc);
+          return ok(res, { message:"Day killed. New orders blocked. Auto-enforcement executed.", canceled, squared });
+        } catch (e) {
+          return ok(res, { message:"Day killed flag set. Could not reach kite to enforce." });
+        }
       }
 
       if (req.method === "POST" && seg === "unlock") {
@@ -203,59 +227,115 @@ export default async function handler(req, res) {
       return nope(res);
     }
 
-    // GUARDIAN cron — auto-capture capital @ 09:15 IST; cache current balance; enforce daily loss
+    // ---------- GUARDIAN cron (hit by QStash) ----------
     if (path === "/api/guardian") {
-      const s = await getState();
-      const now = istNow();
-
-      // 1) Police revenge orders if blocked
       try {
-        if (s.block_new_orders) {
-          const kc = await kite();
-          await cancelAllPendings(kc);
-        }
-      } catch {}
-
-      try {
-        const kc = await kite();
-
-        // 2) Cache current balance + auto set capital at first valid tick ≥ 09:15
+        const s = await getState();
+        // If blocked, try to cancel pendings whenever guardian runs
         try {
+          if (s.block_new_orders) {
+            try { const kc = await instance(); await cancelAllPendings(kc); } catch {}
+          }
+        } catch {}
+
+        // try to fetch funds & positions to persist fallback info
+        try {
+          const kc = await instance();
           const m = await (kc.getMargins?.() ?? kc.margins?.());
-          const { balance } = pickEquityFunds(m);
+          const { balance } = pickEquityFunds(m || {});
           if (balance > 0) {
             await setState({ current_balance: balance });
           }
+          // auto set capital at first tick after 09:15 IST
           if (!s.capital_day_915) {
-            const hour = now.getHours(), min = now.getMinutes();
-            const after915 = (hour > 9) || (hour === 9 && min >= 15);
+            const now = istNow();
+            const h = now.getHours(), min = now.getMinutes();
+            const after915 = (h > 9) || (h === 9 && min >= 15);
             if (after915 && balance > 0) {
               await setState({ capital_day_915: balance });
             }
           }
-        } catch {}
-
-        // 3) Daily loss enforcement (no profit-lock enforcement)
-        const unreal = await getLiveMtm(kc);
-        const realised = Number((await getState()).realised || 0); // re-read
-        const totalPnL = realised + unreal;
-        const floor = computeActiveFloor(await getState());
-
-        if (totalPnL <= floor) {
-          const resu = await enforceShutdown(kc, "daily_loss");
-          return ok(res, { tick: now.toISOString(), breached:true, floor, totalPnL, ...resu });
+          const unreal = await (async ()=>{ try{ return await (async function(){ const p = await kc.getPositions(); const net = p?.net || []; return net.reduce((a,x)=>a + Number(x.pnl||0),0); })(); }catch{return 0;} })();
+          const curState = await getState();
+          const realised = Number(curState.realised || 0);
+          const totalPnL = realised + Number(unreal || 0);
+          const floor = computeActiveFloor(curState);
+          if (totalPnL <= floor) {
+            // enforce kill
+            try {
+              await setState({ tripped_day:true, block_new_orders:true });
+              await cancelAllPendings(kc);
+              await exitAllNetPositions(kc);
+            } catch(e){}
+            return ok(res, { tick: new Date().toISOString(), breached:true, floor, totalPnL });
+          }
+          await setState({ unrealised: unreal });
+          return ok(res, { tick: new Date().toISOString(), breached:false, floor, totalPnL });
+        } catch (e) {
+          // not logged in — return tick and note
+          return ok(res, { tick: new Date().toISOString(), note:"kite not connected", error: e.message });
         }
-
-        await setState({ unrealised: unreal });
-        return ok(res, { tick: now.toISOString(), breached:false, floor, totalPnL });
-      } catch (e) {
-        // Not logged in: still tick; UI will use cached current_balance/unrealised
-        return ok(res, { tick: now.toISOString(), note:"kite not connected or error", error: e.message });
-      }
+      } catch (e) { return bad(res, e.message || String(e)); }
     }
 
-    return bad(res, "Unknown route");
+    // ---------- ENFORCE (manual or scheduled) ----------
+    if (path === "/api/enforce") {
+      try {
+        const state = await getState();
+        const kc = await instance();
+        let canceled=0, squared=0;
+        // cancel new open orders
+        try {
+          const orders = await kc.getOrders();
+          const open = (orders||[]).filter(o => ["OPEN","TRIGGER PENDING","TRIGGERPENDING"].includes((o.status||"").toUpperCase()));
+          for (const o of open) {
+            try { if (o.order_id) { await kc.cancelOrder(o.variety || "regular", o.order_id); canceled++; } } catch {}
+          }
+        } catch {}
+        // square positions if blocked
+        if (state.block_new_orders || state.tripped_day) {
+          try {
+            const pos = await kc.getPositions();
+            const net = pos?.net || [];
+            for (const p of net) {
+              const q = Number(p.net_quantity || 0);
+              if (!q) continue;
+              const side = q > 0 ? "SELL" : "BUY";
+              try {
+                await kc.placeOrder("regular", {
+                  exchange: p.exchange || "NSE",
+                  tradingsymbol: p.tradingsymbol || p.trading_symbol,
+                  transaction_type: side,
+                  quantity: Math.abs(q),
+                  order_type: "MARKET",
+                  product: p.product || "MIS",
+                  variety: "regular"
+                });
+                squared++;
+              } catch(e){}
+            }
+          } catch(e){}
+        }
+        // cooldown logic (simple): if realised < 0 and no cooldown start it
+        const cur = await getState();
+        const realised = Number(cur.realised || 0);
+        const now = Date.now();
+        if (realised < 0 && !cur.cooldown_until) {
+          const COOLDOWN_MIN = cur.cooldown_min ?? 15;
+          cur.cooldown_until = now + COOLDOWN_MIN * 60 * 1000;
+          cur.block_new_orders = true;
+          await setState(cur);
+        } else if (cur.cooldown_until && now > cur.cooldown_until) {
+          cur.cooldown_until = 0; cur.block_new_orders = false; await setState(cur);
+        }
+        return ok(res, { canceled, squared, cooldown_until: cur.cooldown_until || 0, block_new_orders: !!cur.block_new_orders });
+      } catch (e) { return bad(res, e.message || String(e)); }
+    }
+
+    // unknown route -> 404
+    return send(res, 404, { ok:false, error:"Unknown route" });
   } catch (e) {
+    console.error("HUB ERR", e);
     return send(res, 500, { ok:false, error: e.message || String(e) });
   }
-}
+        }
