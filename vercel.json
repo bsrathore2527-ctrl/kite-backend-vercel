@@ -1,7 +1,6 @@
 {
-  "rewrites": [
-    { "source": "/api/kite/(.*)",  "destination": "/api/hub.js" },
-    { "source": "/api/admin/(.*)", "destination": "/api/hub.js" },
-    { "source": "/api/guardian",   "destination": "/api/hub.js" }
+  "routes": [
+    { "src": "/api/(.*)", "dest": "/api/hub.js" },
+    { "src": "/(.*)", "dest": "/$1" }
   ]
 }
