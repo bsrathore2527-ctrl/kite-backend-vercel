@@ -93,14 +93,17 @@ export default async function handler(req, res) {
     const path = url.pathname;
 
     // ---------- KITE login start ----------
-    if (path === "/api/login" && req.method === "GET") {
-      try {
-        const url = loginUrl();
-        res.writeHead(302, { Location: url });
-        res.end();
-      } catch (e) { return bad(res, e.message || "Login init failed"); }
-      return;
-    }
+    // TEMP debug login route — replace original /api/login block
+if (path === "/api/login" && req.method === "GET") {
+  try {
+    const urlStr = loginUrl(); // generate the Zerodha login URL
+    // return as JSON so we can inspect it directly (temporary)
+    return ok(res, { login_url: urlStr });
+  } catch (e) {
+    console.error("LOGIN URL ERR", e);
+    return bad(res, e.message || "Login init failed");
+  }
+}
 
     // ---------- KITE callback ----------
     if (path === "/api/callback" && req.method === "GET") {
