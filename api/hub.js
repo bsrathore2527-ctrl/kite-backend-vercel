@@ -1,49 +1,38 @@
 // api/hub.js
-// Robust hub/debug endpoints for Guardian. Tries to use your ./_lib/kv.js if available,
-// otherwise falls back to constructing an Upstash Redis client from env vars.
-//
-// Temporary debug endpoints:
-//  - GET  /api/hub/status       -> basic health
-//  - GET  /api/debug/token      -> shows whether an access token exists in today's state
-//  - POST /api/debug/clear      -> clears access token keys from today's state
-//
-// Remove debug endpoints after troubleshooting.
+// Full hub: debug routes + login + callback that stores access_token in Upstash.
+// Copy-paste entire file into api/hub.js and redeploy.
 
 async function buildKV() {
-  // try to import your kv module dynamically (works whether it exports kv/todayKey or not)
   try {
     const mod = await import("./_lib/kv.js");
-    // if user exported kv and todayKey, use them
-    const kv = mod.kv ?? mod.default ?? null;
-    const todayKey = mod.todayKey ?? mod.todayKey ?? mod.todayKey ?? (mod.todayKey === undefined ? null : mod.todayKey);
-    // if both kv and todayKey available return them
-    if (kv && typeof mod.todayKey === "function") {
-      return { kv, todayKey: mod.todayKey, from: "module" };
+    // if module exports kv and todayKey, use them
+    if (mod.kv && typeof mod.todayKey === "function") {
+      return { kv: mod.kv, todayKey: mod.todayKey, from: "module-kv" };
     }
-    // else try named exports for helpers getState / setState
-    if (mod.getState && mod.setState && mod.todayKey) {
-      return { kv: { get: async (k) => mod.getState(), set: async (k, v) => mod.setState(v) }, todayKey: mod.todayKey, from: "module-getters" };
+    // if module provides getState/setState and todayKey, wrap them
+    if (mod.getState && mod.setState && typeof mod.todayKey === "function") {
+      const kvWrapper = {
+        get: async (k) => {
+          // return object stored at key in getState? We'll just use getState fallback
+          return await mod.getState();
+        },
+        set: async (k, v) => {
+          return await mod.setState(v);
+        }
+      };
+      return { kv: kvWrapper, todayKey: mod.todayKey, from: "module-getters" };
     }
-    // If we have only kv or only todayKey, still return what we have
-    if (kv && typeof mod.todayKey === "function") {
-      return { kv, todayKey: mod.todayKey, from: "partial-module" };
-    }
-    // otherwise fallthrough to fallback
   } catch (e) {
-    // ignore, we'll fallback
-    // console.error("dynamic import of _lib/kv.js failed:", e);
+    // ignore and fallback
   }
 
-  // fallback: construct a Redis client using upstash REST URL + token
+  // fallback: create Upstash client from env
   try {
     const { Redis } = await import("@upstash/redis");
     const url = process.env.UPSTASH_REDIS_REST_URL || "";
     const token = process.env.UPSTASH_REDIS_REST_TOKEN || "";
-    if (!url || !token) {
-      throw new Error("Missing UPSTASH_REDIS_REST_URL or UPSTASH_REDIS_REST_TOKEN env var for fallback");
-    }
+    if (!url || !token) throw new Error("Missing UPSTASH env for fallback");
     const kv = new Redis({ url, token });
-    // local todayKey implementation (same as typical kv.js)
     const IST = "Asia/Kolkata";
     function todayKey(d = new Date()) {
       const now = new Date(d.toLocaleString("en-US", { timeZone: IST }));
@@ -54,8 +43,7 @@ async function buildKV() {
     }
     return { kv, todayKey, from: "fallback" };
   } catch (e) {
-    // final fallback: throw a clear error
-    throw new Error("Cannot initialize KV: " + (e && e.message ? e.message : String(e)));
+    throw new Error("Cannot init KV: " + (e.message || String(e)));
   }
 }
 
@@ -72,10 +60,8 @@ function maskToken(t = "") {
   return `${t.slice(0, 6)}…${t.slice(-6)}`;
 }
 
-// local helpers to read/write today's state (use kv.get / kv.set)
 async function getStateUsingKV(kv, todayKeyFn) {
   const key = `risk:${todayKeyFn()}`;
-  // upstash redis client exposes get() and set()
   const v = await kv.get(key);
   return v || {};
 }
@@ -87,26 +73,34 @@ async function setStateUsingKV(kv, todayKeyFn, patch = {}) {
   return next;
 }
 
-// main handler
+// helper to safely import kite helper module (if present)
+async function loadKiteHelper() {
+  try {
+    const mod = await import("./_lib/kite.js");
+    return mod;
+  } catch (e) {
+    // ignore
+    return null;
+  }
+}
+
 export default async function handler(req, res) {
   try {
-    // initialize kv (cached per invocation by Node if warm)
+    // initialize & cache KV
     if (!global.__HUB_KV_READY) {
       global.__HUB_KV = await buildKV();
       global.__HUB_KV_READY = true;
-      // store shorter refs
       global.__HUB_KV.kvRef = global.__HUB_KV.kv;
       global.__HUB_KV.todayKeyFn = global.__HUB_KV.todayKey;
     }
     const { kv: kvRef, todayKeyFn, from } = global.__HUB_KV;
 
-    // normalize URL
     const host = req.headers.host || "localhost";
     const url = new URL(req.url, `https://${host}`);
     const path = url.pathname || "/";
 
-    // Basic status / debug routes
-    if (path === "/api/hub/status" && req.method === "GET") {
+    // ----------------- Health / Debug -----------------
+    if ((path === "/api/hub" || path === "/api/hub/status") && req.method === "GET") {
       return ok(res, {
         status: "hub ok",
         time: new Date().toISOString(),
@@ -135,9 +129,130 @@ export default async function handler(req, res) {
       return ok(res, { cleared: true, state_key: todayKeyFn() });
     }
 
-    return bad(res, "Unknown hub route", 404);
+    // ----------------- Login: redirect to Kite -----------------
+    if (path === "/api/login" && req.method === "GET") {
+      const kite = await loadKiteHelper();
+      try {
+        if (kite && typeof kite.loginUrl === "function") {
+          const loginUrl = kite.loginUrl();
+          // normal behavior: redirect user to kite login
+          res.writeHead(302, { Location: loginUrl });
+          res.end();
+          return;
+        } else {
+          // fallback: construct login url from env KITE_API_KEY if available
+          const key = process.env.KITE_API_KEY || "";
+          if (!key) return bad(res, "Missing KITE_API_KEY");
+          const loginUrl = `https://kite.trade/connect/login?api_key=${encodeURIComponent(key)}&v=3`;
+          res.writeHead(302, { Location: loginUrl });
+          res.end();
+          return;
+        }
+      } catch (e) {
+        console.error("login err", e);
+        return bad(res, e.message || "Login init failed");
+      }
+    }
+
+    // ----------------- Callback: exchange request_token for access_token -----------------
+    if (path === "/api/callback" && req.method === "GET") {
+      try {
+        const params = url.searchParams;
+        const request_token = params.get("request_token");
+        console.log("CALLBACK HIT:", { request_token, search: url.search });
+        if (!request_token) {
+          console.warn("Missing request_token in callback url:", url.href);
+          // redirect to admin with query so UI can show hint
+          const redirectTo = (process.env.POST_LOGIN_REDIRECT || "/admin.html") + "?kite=missing_request_token";
+          res.writeHead(302, { Location: redirectTo });
+          res.end();
+          return;
+        }
+
+        // Try to use kite helper's generateSession if available
+        const kite = await loadKiteHelper();
+        if (kite && typeof kite.generateSession === "function") {
+          try {
+            const data = await kite.generateSession(request_token);
+            const token = data?.access_token || data?.accessToken || "";
+            if (!token) {
+              console.error("generateSession returned no access_token", data);
+              const redirectTo = (process.env.POST_LOGIN_REDIRECT || "/admin.html") + "?kite=session_failed";
+              res.writeHead(302, { Location: redirectTo });
+              res.end();
+              return;
+            }
+            // store token in today's state
+            await setStateUsingKV(kvRef, todayKeyFn, { access_token: token });
+            console.log("GENERATE SESSION: stored token (masked):", token.slice(0,6) + "…" + token.slice(-6));
+            const redirectTo = process.env.POST_LOGIN_REDIRECT || "/admin.html";
+            res.writeHead(302, { Location: redirectTo });
+            res.end();
+            return;
+          } catch (e) {
+            console.error("generateSession error:", e && e.stack ? e.stack : e);
+            const redirectTo = (process.env.POST_LOGIN_REDIRECT || "/admin.html") + "?kite=session_error";
+            res.writeHead(302, { Location: redirectTo });
+            res.end();
+            return;
+          }
+        }
+
+        // Fallback: if no kite helper, attempt to call KiteConnect directly here
+        try {
+          const { KiteConnect } = await import("kiteconnect");
+          const apiKey = process.env.KITE_API_KEY;
+          const apiSecret = process.env.KITE_API_SECRET;
+          if (!apiKey || !apiSecret) {
+            console.error("Missing KITE_API_KEY/SECRET for direct generateSession fallback");
+            const redirectTo = (process.env.POST_LOGIN_REDIRECT || "/admin.html") + "?kite=missing_app_creds";
+            res.writeHead(302, { Location: redirectTo });
+            res.end();
+            return;
+          }
+          const kc = new KiteConnect({ api_key: apiKey });
+          const data = await kc.generateSession(request_token, apiSecret);
+          const token = data?.access_token || "";
+          if (!token) {
+            console.error("Direct generateSession returned no token", data);
+            const redirectTo = (process.env.POST_LOGIN_REDIRECT || "/admin.html") + "?kite=session_failed2";
+            res.writeHead(302, { Location: redirectTo });
+            res.end();
+            return;
+          }
+          // store
+          await setStateUsingKV(kvRef, todayKeyFn, { access_token: token });
+          console.log("DIRECT GENERATE SESSION: stored token masked:", token.slice(0,6) + "…" + token.slice(-6));
+          const redirectTo = process.env.POST_LOGIN_REDIRECT || "/admin.html";
+          res.writeHead(302, { Location: redirectTo });
+          res.end();
+          return;
+        } catch (e) {
+          console.error("Direct generateSession fallback failed:", e && e.stack ? e.stack : e);
+          const redirectTo = (process.env.POST_LOGIN_REDIRECT || "/admin.html") + "?kite=session_error3";
+          res.writeHead(302, { Location: redirectTo });
+          res.end();
+          return;
+        }
+      } catch (e) {
+        console.error("callback outer error:", e && e.stack ? e.stack : e);
+        return bad(res, e.message || "Callback failed");
+      }
+    }
+
+    // ----------------- State read (public) -----------------
+    if (path === "/api/state" && req.method === "GET") {
+      const s = await getStateUsingKV(kvRef, todayKeyFn);
+      const t = s?.access_token || s?.accessToken || "";
+      const kite_status = t ? "ok" : "";
+      const now = new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour12: false });
+      return ok(res, { time: now, admin: false, kite_status, state: s, key: todayKeyFn() });
+    }
+
+    // unknown route
+    return bad(res, "Unknown route", 404);
   } catch (err) {
-    console.error("hub.js handler error:", err && err.stack ? err.stack : err);
+    console.error("HUB ERROR:", err && err.stack ? err.stack : err);
     return send(res, 500, { ok: false, error: err?.message || String(err) });
   }
 }
