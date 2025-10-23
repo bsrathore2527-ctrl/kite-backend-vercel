@@ -1,4 +1,18 @@
-// api/hub.js
+// DEBUG: show masked stored token (temporary)
+if (path === "/api/debug/token" && req.method === "GET") {
+  const s = await getState();
+  const t = s?.access_token || "";
+  const masked = t ? (t.slice(0,6) + "…" + t.slice(-6)) : "";
+  return ok(res, { has_token: !!t, token_masked: masked });
+}
+
+// DEBUG: clear stored token (temporary) — use only to force re-login
+if (path === "/api/debug/clear" && req.method === "POST") {
+  const s = await getState();
+  const next = { ...s }; delete next.access_token;
+  await setState(next);
+  return ok(res, { cleared: true });
+}// api/hub.js
 import { loginUrl, generateSession, instance } from "./_lib/kite.js";
 import { getState, setState } from "./_lib/state.js";
 import { todayKey, IST } from "./_lib/kv.js";
