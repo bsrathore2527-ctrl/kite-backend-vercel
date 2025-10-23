@@ -3,347 +3,476 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Guardian â€¢ Admin / Trader</title>
-<meta name="color-scheme" content="dark light" />
+<title>Guardian — Admin</title>
 <style>
   :root{
-    --bg:#0b0d14; --bg2:#0d111a; --card:#121a2d; --line:#20283a; --fg:#eef3ff; --muted:#98a3b3;
-    --accent:#3b82f6; --ok:#22c55e; --warn:#f59e0b; --bad:#ef4444;
-    --r:12px; --pad:12px; --gap:12px;
+    --bg:#0f1720; --card:#0b1220; --muted:#9aa6b2; --ok:#2ecc71; --bad:#ff6b6b;
+    --accent:#38bdf8; --glass: rgba(255,255,255,0.03);
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
   }
-  html,body{height:100%}
-  body{
-    margin:0;color:var(--fg);font-family: ui-rounded,system-ui,"SF Pro Rounded",Segoe UI,Roboto,Ubuntu,Arial,sans-serif;
-    background:
-      radial-gradient(900px 560px at 12% -10%, rgba(59,130,246,.18), transparent 60%),
-      radial-gradient(700px 420px at 95% 8%, rgba(34,197,94,.10), transparent 60%),
-      linear-gradient(180deg, var(--bg2) 0%, var(--bg) 100%);
-    -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale;
-  }
-  .wrap{max-width:1080px;margin:0 auto;padding:14px}
-  .muted{color:var(--muted)} .tiny{font-size:12px}
+  html,body{height:100%;margin:0;background:
+    linear-gradient(180deg,#071029 0%, #08111a 60%); color:#e6eef6;}
+  .wrap{max-width:1150px;margin:18px auto;padding:18px;display:grid;gap:14px;
+    grid-template-columns: 1fr; }
+  header{display:flex;align-items:center;gap:12px;}
+  h1{margin:0;font-size:20px;font-weight:600}
+  .topbar{display:flex;gap:8px;align-items:center;margin-left:auto}
+  .btn{background:var(--card);border:1px solid rgba(255,255,255,0.03);
+    padding:8px 12px;border-radius:10px;color:var(--muted);cursor:pointer;
+    box-shadow: 0 4px 18px rgba(2,6,23,0.6); transition: transform .08s, box-shadow .12s;}
+  .btn:active,.btn.pressed{transform:translateY(1px) scale(.997);opacity:.95}
+  .btn.primary{background:linear-gradient(180deg,#0369a1,#044e75);color:#fff;}
+  .btn.warn{background:linear-gradient(180deg,#7b2,#5a8);color:#051109}
+  .btn.toggled{background:linear-gradient(180deg,#10b981,#059669); color:#022; border:0}
 
-  .header{display:flex;align-items:center;gap:10px;margin-bottom:10px}
-  .title{font-weight:800;font-size:18px;display:flex;align-items:center;gap:8px}
-  .badge{display:inline-flex;align-items:center;gap:6px;padding:5px 9px;border-radius:999px;border:1px solid var(--line);
-    background:linear-gradient(180deg,#141a2b,#0f1524);color:#cfe3ff;font-size:12px}
-  .dot{width:8px;height:8px;border-radius:50%}
-  .b-ok{border-color:#1d2f24}.b-warn{border-color:#3d2e10}.b-bad{border-color:#3a1616}
+  .grid{display:grid;gap:12px;grid-template-columns: 1fr 380px;}
+  @media (max-width:900px){ .grid{grid-template-columns:1fr} }
 
-  .banner{
-    display:grid;grid-template-columns:1fr auto auto auto auto;gap:10px;align-items:center;
-    background:linear-gradient(180deg,#131a2d,#0f1525);border:1px solid var(--line);border-radius:12px;padding:10px;margin-bottom:10px
-  }
-  .banner .mode{grid-column:1/-1;font-size:12px;color:#dbe5f2}
-  .banner input,.banner button{
-    padding:10px;border-radius:10px;border:1px solid var(--line);
-    background:linear-gradient(180deg,#0f1523,#0d111a);color:var(--fg)
-  }
-  .btn{background:linear-gradient(180deg,#1e40af,#19399b);font-weight:700;border-color:#1c3692;cursor:pointer}
-  .ghost{background:linear-gradient(180deg,#0f1523,#0d111a)}
-  @media (max-width:760px){.banner{grid-template-columns:1fr 1fr 1fr}.banner input{grid-column:1/-1}}
+  .card{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+    border-radius:10px;padding:12px;border:1px solid rgba(255,255,255,0.03); box-shadow:0 6px 30px rgba(0,0,0,0.6);}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .kpi{display:flex;flex-direction:column;padding:8px;border-radius:8px;background:var(--glass);
+    min-width:120px}
+  .kpi .label{font-size:12px;color:var(--muted)}
+  .kpi .value{font-weight:700;font-size:16px;margin-top:6px}
+  .muted{color:var(--muted);font-size:13px}
+  #admin-lock-badge{padding:6px 10px;border-radius:8px;background:#071427;color:#cde6f5;font-size:13px;margin-left:6px}
 
-  .grid{display:grid;gap:var(--gap);grid-template-columns:repeat(12,minmax(0,1fr))}
-  .card{grid-column:span 12;background:linear-gradient(180deg,#131a2d,#0f1525);border:1px solid var(--line);
-    border-radius:12px;padding:var(--pad);box-shadow:0 10px 28px rgba(0,0,0,.28)}
-  .card h3{margin:0 0 8px;font-size:13px;font-weight:800}
-  @media (min-width:900px){.span-6{grid-column:span 6}}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{padding:6px 8px;text-align:left;border-bottom:1px dashed rgba(255,255,255,0.03)}
+  th{color:var(--muted);font-size:12px}
+  tbody tr td:first-child{width:120px}
+  .muted-sm{color:var(--muted);font-size:12px}
 
-  .kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
-  @media (max-width:720px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
-  @media (max-width:380px){.kpis{grid-template-columns:1fr}}
-  .kpi{background:linear-gradient(180deg,#111a33,#0e1527);border:1px solid #1a2236;border-radius:10px;padding:8px}
-  .kpi .hd{font-size:11px;color:#9aa3ad;margin-bottom:3px}
-  .kpi .vl{font-size:16px;font-weight:800}
-  .kpi .sub{font-size:11px;color:#9aa3ad;margin-top:2px}
+  input,select{background:transparent;border:1px solid rgba(255,255,255,0.04);color:#eaf6ff;padding:8px;border-radius:6px}
+  input[disabled]{opacity:.6}
+  .field{display:flex;flex-direction:column;gap:6px}
+  .admin-editable{opacity:.95}
 
-  label{display:block;font-size:11px;color:var(--muted);margin:6px 0 5px}
-  input,select,button{width:100%;padding:11px;border-radius:10px;border:1px solid var(--line);
-    background:linear-gradient(180deg,#101523,#0d111a);color:var(--fg);outline:none}
-  input:focus,select:focus{border-color:#2856b8;box-shadow:0 0 0 3px rgba(59,130,246,.18)}
-  .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-  @media (max-width:760px){.row{grid-template-columns:1fr}}
-
-  .pill{display:inline-flex;align-items:center;min-height:30px;padding:7px 10px;border:1px solid var(--line);
-    border-radius:10px;background:linear-gradient(180deg,#0f1524,#0e1421);font-size:12px;color:#dbe5f2}
-
-  .actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
-  @media (max-width:760px){.actions{grid-template-columns:1fr 1fr}}
-  @media (max-width:520px){.actions{grid-template-columns:1fr}}
-  .btn-ok{background:linear-gradient(180deg,#166534,#115c2e);border-color:#0b4d25;color:#fff;font-weight:700}
-  .btn-warn{background:linear-gradient(180deg,#7c2d12,#6b2109);border-color:#5c1a07;color:#fff;font-weight:700}
-  .btn-ghost{background:linear-gradient(180deg,#101523,#0d111a);color:#fff}
-
-  .disabled *[data-admin-only]{pointer-events:none;opacity:.55;filter:saturate(.75)}
-  .footer{margin-top:8px;color:var(--muted);font-size:11px;text-align:right}
+  footer{font-size:12px;color:var(--muted);text-align:center;padding:8px}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <div class="header">
-    <div class="title">ðŸ›¡ Guardian</div>
-    <span id="kite-badge" class="badge"><span class="dot" style="background:#555"></span> Zerodha: â€”</span>
-    <span id="engine-badge" class="badge"><span class="dot" style="background:#555"></span> Guardian: â€”</span>
-    <div class="muted tiny" id="now" style="margin-left:auto">â€”</div>
-  </div>
 
-  <div class="banner">
-    <div class="mode" id="modeText"><b>Read-only</b> mode. Enter token to enable changes.</div>
-    <input id="token" type="password" placeholder="ADMIN_TOKEN" autocomplete="off">
-    <button class="btn" onclick="saveToken()">Save</button>
-    <a href="/api/login"><button class="btn" type="button">Login Zerodha</button></a>
-    <button class="ghost" onclick="clearToken()">Clear</button>
-    <button class="ghost" onclick="refresh()">Refresh</button>
-  </div>
-
-  <section class="card" style="padding-top:10px;padding-bottom:10px">
-    <div class="kpis">
-      <div class="kpi"><div class="hd">Capital @ 09:15</div><div class="vl" id="k_cap">â€”</div><div class="sub">Auto from Zerodha</div></div>
-      <div class="kpi"><div class="hd">Current Balance (live/fallback)</div><div class="vl" id="k_live_balance">â€”</div><div class="sub">Uses cached if offline</div></div>
-      <div class="kpi"><div class="hd">Live MTM</div><div class="vl" id="k_live_mtm">â€”</div><div class="sub">Sum of position PnL</div></div>
-
-      <div class="kpi"><div class="hd">PnL (R/UR/Total)</div><div class="vl" id="k_pnl">â€”</div><div class="sub" id="k_pnl_sub">â€”</div></div>
-      <div class="kpi"><div class="hd">Max Loss (â‚¹)</div><div class="vl" id="k_maxloss_amt">â€”</div><div class="sub" id="k_maxloss_pct">â€”</div></div>
-      <div class="kpi"><div class="hd">Active Loss Floor (â‚¹)</div><div class="vl" id="k_active_floor">â€”</div><div class="sub" id="k_next_trail">â€”</div></div>
-
-      <div class="kpi"><div class="hd">Remaining to Max Loss</div><div class="vl" id="k_remaining">â€”</div><div class="sub" id="k_remaining_note">â€”</div></div>
-      <div class="kpi"><div class="hd">10% Profit Lock</div><div class="vl" id="k_lock10_amt">â€”</div><div class="sub" id="k_lock10_state">â€”</div></div>
-      <div class="kpi"><div class="hd">20% Profit Lock</div><div class="vl" id="k_lock20_amt">â€”</div><div class="sub" id="k_lock20_state">â€”</div></div>
-
-      <div class="kpi"><div class="hd">Trailing Step (â‚¹)</div><div class="vl" id="k_trail_step">â€”</div><div class="sub">Loss floor trails by step</div></div>
+  <header>
+    <img src="" alt="" style="width:40px;height:40px;border-radius:8px;background:linear-gradient(135deg,#0369a1,#0ea5a3)"/>
+    <div>
+      <h1>Guardian — Admin</h1>
+      <div class="muted" id="subline">Risk automation & enforcement</div>
     </div>
-  </section>
 
-  <div id="content" class="grid disabled" style="margin-top:10px">
-    <section class="card span-6">
-      <h3>Live State</h3>
-      <div class="row">
-        <div><label>Capital</label><div id="cap" class="pill">â€”</div></div>
-        <div><label>PnL</label><div id="pnl" class="pill">â€”</div></div>
-      </div>
-      <div class="row" style="margin-top:10px">
-        <div><label>Day Status</label><div id="day" class="pill">â€”</div></div>
-        <div><label>New Orders</label><div id="block" class="pill">â€”</div></div>
-      </div>
-      <div class="row" style="margin-top:10px">
-        <div><label>Consecutive Losses</label><div id="losses" class="pill">â€”</div></div>
-        <div><label>Cooldown Until</label><div id="cool" class="pill">â€”</div></div>
-      </div>
+    <div class="topbar">
+      <div id="kite-status" class="muted-sm">Kite: <strong id="kite-status-val">—</strong></div>
+      <div id="admin-lock-badge">Lock: unknown</div>
+      <button class="btn" id="login-admin-btn" data-feedback="true">Set Admin Token</button>
+      <button class="btn primary" id="acquire-lock-btn" data-feedback="true">Acquire Lock</button>
+      <button class="btn" id="release-lock-btn" data-feedback="true">Release Lock</button>
+    </div>
+  </header>
 
-      <div class="row" style="margin-top:10px">
-        <div><label>Broker Balance (live/fallback)</label><div id="live_funds" class="pill">â€”</div></div>
-        <div><label>Live Positions MTM</label><div id="live_mtm" class="pill">â€”</div></div>
-      </div>
-    </section>
+  <div class="grid">
+    <!-- left column -->
+    <div>
 
-    <section class="card span-6" data-admin-only>
-      <h3>Daily Rules</h3>
-      <div class="row">
-        <div><label>Max Loss %</label><input id="max_loss_pct" type="number" step="0.1" placeholder="10"></div>
-        <div><label>Trailing Step (â‚¹)</label><input id="trail_step_profit" type="number" step="100" placeholder="5000"></div>
-      </div>
-      <div class="row" style="margin-top:10px">
-        <div><label>Cooldown (min)</label><input id="cooldown_min" type="number" step="1" placeholder="15"></div>
-        <div><label>Max Consecutive Losses</label><input id="max_consecutive_losses" type="number" step="1" placeholder="3"></div>
-      </div>
-      <div class="row" style="margin-top:10px">
-        <div><label>Allow New After 10%?</label>
-          <select id="allow_new_after_lock10"><option value="false">No</option><option value="true">Yes</option></select>
+      <div class="card row" style="justify-content:space-between;align-items:flex-start">
+        <div style="display:flex;gap:12px;flex-wrap:wrap">
+          <div class="kpi">
+            <div class="label">Capital (08:30 IST)</div>
+            <div class="value" id="capital-val">-</div>
+            <div class="muted-sm" id="cap-time">snapshot: -</div>
+          </div>
+          <div class="kpi">
+            <div class="label">Live Balance</div>
+            <div class="value" id="live-balance">-</div>
+            <div class="muted-sm" id="live-misc">unrealised: -</div>
+          </div>
+          <div class="kpi">
+            <div class="label">Day Trip</div>
+            <div class="value" id="tripped-day">-</div>
+            <div class="muted-sm" id="block-new">block new: -</div>
+          </div>
+          <div class="kpi">
+            <div class="label">Consecutive Losses</div>
+            <div class="value" id="consec-loss">0</div>
+            <div class="muted-sm" id="cooldown-until">cooldown: -</div>
+          </div>
         </div>
-        <div><label>Expiry Day?</label>
-          <select id="expiry_flag"><option value="false">No</option><option value="true">Yes</option></select>
+        <div style="min-width:220px;">
+          <div class="muted" style="margin-bottom:6px">Quick actions</div>
+          <div style="display:flex;gap:8px;flex-direction:column">
+            <button class="btn admin-editable" id="btn-snapshot" data-feedback="true">Take 08:30 Snapshot</button>
+            <button class="btn admin-editable warn" id="btn-enforce-now" data-feedback="true">Enforce Now</button>
+            <button class="btn admin-editable" id="btn-reset-consec" data-feedback="true">Reset Consecutive</button>
+          </div>
         </div>
       </div>
-    </section>
 
-    <section class="card span-12" data-admin-only>
-      <h3>Actions</h3>
-      <div class="actions">
-        <button class="btn-ok"   onclick="saveRules()">Save Rules</button>
-        <button class="btn-warn" onclick="postAction('/api/admin/kill')">Kill (Block + Trip)</button>
-        <button class="btn-ghost"onclick="postAction('/api/admin/unlock')">Unlock (Allow New)</button>
-        <button class="btn-ghost"onclick="postAction('/api/kite/cancel-all')">Cancel All Pending</button>
-        <button class="btn-ghost"onclick="postAction('/api/kite/exit-all')">Exit All Positions</button>
+      <!-- Rules & editable controls -->
+      <div class="card" id="rules-card">
+        <div class="row" style="justify-content:space-between;align-items:center">
+          <div style="font-weight:600">Risk Rules (editable by admin)</div>
+          <div class="muted-sm">Only when you hold the lock</div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px">
+          <div class="field">
+            <label class="muted-sm">Max loss (%)</label>
+            <input id="rule-max-loss-pct" class="admin-editable" type="number" />
+          </div>
+          <div class="field">
+            <label class="muted-sm">Trailing step (₹)</label>
+            <input id="rule-trail-step" class="admin-editable" type="number" />
+          </div>
+          <div class="field">
+            <label class="muted-sm">Cooldown (min)</label>
+            <input id="rule-cooldown" class="admin-editable" type="number" />
+          </div>
+          <div class="field">
+            <label class="muted-sm">Max consecutive losses</label>
+            <input id="rule-max-consec" class="admin-editable" type="number" />
+          </div>
+          <div class="field">
+            <label class="muted-sm">Max trades / day</label>
+            <input id="rule-max-trades" class="admin-editable" type="number" />
+          </div>
+          <div class="field">
+            <label class="muted-sm">Allow new after 10% lock</label>
+            <select id="rule-allow-after-10" class="admin-editable">
+              <option value="false">No (default)</option>
+              <option value="true">Yes (admin enable)</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="margin-top:12px;display:flex;gap:8px">
+          <button class="btn admin-editable primary" id="save-rules-btn" data-feedback="true">Save Rules</button>
+          <button class="btn" id="refresh-state-btn" data-feedback="true">Refresh</button>
+        </div>
       </div>
-    </section>
+
+      <!-- Trade history -->
+      <div class="card" id="trade-card">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div style="font-weight:600">Trade history (realized recent)</div>
+          <div class="muted-sm">auto-refresh every 15s</div>
+        </div>
+        <div style="margin-top:8px; overflow:auto; max-height:320px;">
+          <table>
+            <thead><tr><th>Time</th><th>Symbol</th><th>Qty</th><th>IN</th><th>OUT</th><th>Realized</th></tr></thead>
+            <tbody id="trade-table-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- right column -->
+    <aside>
+      <div class="card">
+        <div style="font-weight:600">Connection & status</div>
+        <div style="margin-top:8px" class="muted-sm">Shows kite connection & enforcement info</div>
+        <div style="margin-top:12px">
+          <div class="muted-sm">Kite status: <strong id="kite-conn">—</strong></div>
+          <div class="muted-sm">Last enforce: <span id="last-enforce">-</span></div>
+          <div style="margin-top:10px">Trade count today: <strong id="trade-count">0</strong></div>
+          <div style="margin-top:8px">Profit lock 10%: <strong id="profit-lock-10">false</strong></div>
+          <div>Profit lock 20%: <strong id="profit-lock-20">false</strong></div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:12px">
+        <div style="font-weight:600">Manual commands</div>
+        <div style="display:flex;gap:8px;margin-top:8px;flex-direction:column">
+          <button class="btn" id="btn-show-state" data-feedback="true">Show Raw State</button>
+          <button class="btn" id="btn-show-trades" data-feedback="true">Show Raw Trades</button>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:12px">
+        <div class="muted-sm">UI Settings</div>
+        <div style="margin-top:8px">
+          <label class="muted-sm">Vibration on click</label>
+          <select id="ui-vibrate"><option value="true">On</option><option value="false">Off</option></select>
+        </div>
+      </div>
+    </aside>
   </div>
 
-  <div class="footer">Guardian UI â€¢ v3.4 â€¢ Auto capital, cached balance fallback, live MTM merges</div>
+  <footer>Guardian • Keep your admin token private • Last updated: <span id="footer-time">—</span></footer>
 </div>
 
 <script>
-const $ = id => document.getElementById(id);
-const readToken = () => localStorage.getItem('ADMIN_TOKEN') || '';
+/* ============================
+   Configuration / helpers
+   ============================ */
 
-function setText(id, txt){ const el=$(id); if(el) el.textContent = txt; }
-function setMode(isAdmin){
-  const wrap = $('content');
-  const mode = $('modeText');
-  if(isAdmin){ wrap.classList.remove('disabled'); mode.innerHTML = '<b>Admin</b> mode enabled.'; }
-  else { wrap.classList.add('disabled'); mode.innerHTML = '<b>Read-only</b> mode. Enter token to enable changes.'; }
-}
-function saveToken(){ const v=$('token').value.trim(); if(!v){alert('Enter token');return;} localStorage.setItem('ADMIN_TOKEN',v); $('token').value=''; refresh(); }
-function clearToken(){ localStorage.removeItem('ADMIN_TOKEN'); refresh(); }
+const API_BASE = window.location.origin + '/api';
+let ADMIN_TOKEN = localStorage.getItem('ADMIN_TOKEN') || '';
+const CLIENT_ID = (() => {
+  let v = localStorage.getItem('guardian_client_id');
+  if (!v) { v = 'cli_' + Date.now() + '_' + Math.floor(Math.random()*99999); localStorage.setItem('guardian_client_id', v); }
+  return v;
+})();
+const CLIENT_LABEL = (navigator.platform || navigator.userAgent).slice(0,40);
+let lockRefreshTimer = null;
+let pollTimer = null;
+const POLL_INTERVAL = 15000; // 15s
+const LOCK_POLL_INTERVAL = 10000; // 10s
 
-function n2(v){ return Number(v||0); }
-function inr(n){ try{ return new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:0}).format(n);}catch{ return 'â‚¹'+Math.round(n);} }
-function fmtR(n){ return inr(n); }
-function setIfEmpty(id,val){ const el=$(id); if(el && el.value==='') el.value=String(val); }
-
-function renderDerivedUsing(state, overrides = {}) {
-  const s = { ...state, ...overrides };
-  const cap = n2(s.capital_day_915), r = n2(s.realised), u = n2(s.unrealised);
-  const ttl = r + u;
-  const maxPct = s.max_loss_pct ?? 10, step = s.trail_step_profit ?? 5000;
-  const baseFloor = -(cap * (maxPct/100));
-  const steps = Math.max(0, Math.floor(Math.max(0, r) / step));
-  const trailFloor = -(steps * step);
-  const activeFloor = Math.max(baseFloor, trailFloor);
-  const remaining = activeFloor - ttl;
-  const l10 = cap * 0.10, l20 = cap * 0.20, nextTrail = steps * step + step;
-
-  // KPI area
-  setText('k_cap', fmtR(cap));
-  setText('k_pnl', `${fmtR(r)} / ${fmtR(u)} / ${fmtR(ttl)}`);
-  setText('k_pnl_sub', ttl >= 0 ? 'In profit' : 'In loss');
-  setText('k_maxloss_amt', fmtR(-baseFloor));
-  setText('k_maxloss_pct', `Max Loss %: ${(+maxPct).toFixed(2)}%`);
-  setText('k_active_floor', fmtR(activeFloor));
-  setText('k_next_trail', `Next trail at realised â‰¥ ${fmtR(nextTrail)} (step â‚¹${step})`);
-  setText('k_remaining', fmtR(Math.max(0, remaining)));
-  setText('k_remaining_note', remaining <= 0 ? 'Floor breached' : 'Room left before floor');
-  setText('k_trail_step', 'â‚¹' + (step || 0));
-  setText('k_lock10_amt', fmtR(l10));
-  setText('k_lock20_amt', fmtR(l20));
-
-  // mini pill PnL row
-  setText('cap', n2(s.capital_day_915).toFixed(2));
-  setText('pnl', `${n2(s.realised).toFixed(2)} / ${n2(s.unrealised).toFixed(2)} / ${ttl.toFixed(2)}`);
+function headers() {
+  const h = { 'Content-Type':'application/json' };
+  if (ADMIN_TOKEN) h['Authorization'] = 'Bearer ' + ADMIN_TOKEN;
+  return h;
 }
 
-async function refresh(){
-  try{
-    const headers = readToken()? { 'Authorization':'Bearer '+readToken() } : {};
-    const j = await fetch('/api/state?t='+Date.now(), { headers }).then(r=>r.json());
-    paint(j);
+async function api(path, opts = {}) {
+  opts.headers = Object.assign({}, opts.headers || {}, headers());
+  const r = await fetch(API_BASE + path, opts);
+  try { return await r.json(); } catch { return { ok:false, status:r.status }; }
+}
 
-    // track live values for override
-    let liveMtmVal = null;
-    let liveFundsVal = null;
+/* ============================
+   UI Feedback (press + vibrate)
+   ============================ */
+function pressFeedback(el) {
+  if (!el) return;
+  el.classList.add('pressed');
+  if (document.getElementById('ui-vibrate').value !== 'false' && navigator.vibrate) navigator.vibrate(35);
+  setTimeout(()=>el.classList.remove('pressed'), 120);
+}
+document.addEventListener('click', (ev)=>{
+  const b = ev.target.closest('[data-feedback="true"]');
+  if (b) pressFeedback(b);
+});
 
-    // Live funds (with fallback to cached)
-    try {
-      const r = await fetch('/api/kite/funds?t='+Date.now());
-      const funds = await r.json();
-      if (funds.ok) {
-        const av = Number(
-   (funds.balance ??
-   funds.funds?.available?.live_balance ??
-   funds.funds?.net ??
-   funds.funds?.available?.cash ??
-   funds.funds?.cash ??
-   0)
-);
-        if (!Number.isNaN(av)) {
-          liveFundsVal = av;
-          const txt = inr(av);
-          setText('live_funds', txt); setText('k_live_balance', txt);
-        } else {
-          const cached = (j.state && j.state.current_balance) ? inr(j.state.current_balance) : 'â€”';
-          setText('live_funds', cached); setText('k_live_balance', cached);
-        }
-      } else {
-        const cached = (j.state && j.state.current_balance) ? inr(j.state.current_balance) : 'â€”';
-        setText('live_funds', cached); setText('k_live_balance', cached);
-      }
-    } catch {
-      const cached = (j.state && j.state.current_balance) ? inr(j.state.current_balance) : 'â€”';
-      setText('live_funds', cached); setText('k_live_balance', cached);
-    }
+/* ============================
+   Admin token management
+   ============================ */
+document.getElementById('login-admin-btn').addEventListener('click', ()=> {
+  const cur = ADMIN_TOKEN || '';
+  const token = prompt('Paste ADMIN_TOKEN (keeps in localStorage for this browser):', cur);
+  if (token === null) return;
+  ADMIN_TOKEN = token.trim();
+  localStorage.setItem('ADMIN_TOKEN', ADMIN_TOKEN);
+  alert('Admin token saved locally. Use Acquire Lock to edit.');
+});
 
-    // Live MTM (with fallback to cached unrealised)
-    try {
-      const r2 = await fetch('/api/kite/positions?t='+Date.now());
-      const pos = await r2.json();
-      if (pos.ok && pos.positions?.net) {
-        const mtm = pos.positions.net.reduce((a,p)=> a + Number(p.pnl||0), 0);
-        liveMtmVal = mtm;
-        const txt = inr(mtm);
-        setText('live_mtm', txt); setText('k_live_mtm', txt);
-      } else {
-        const cachedU = (j.state && typeof j.state.unrealised === 'number') ? inr(j.state.unrealised) : 'â€”';
-        setText('live_mtm', cachedU); setText('k_live_mtm', cachedU);
-      }
-    } catch {
-      const cachedU = (j.state && typeof j.state.unrealised === 'number') ? inr(j.state.unrealised) : 'â€”';
-      setText('live_mtm', cachedU); setText('k_live_mtm', cachedU);
-    }
+/* ============================
+   Lock: acquire / release / refresh / poll
+   ============================ */
+async function acquireLock() {
+  const res = await api('/admin?action=lock', { method:'POST', body: JSON.stringify({ client_id: CLIENT_ID, label: CLIENT_LABEL }) });
+  handleLockRes(res);
+}
+async function refreshLock() {
+  const res = await api('/admin?action=lock', { method:'POST', body: JSON.stringify({ client_id: CLIENT_ID, label: CLIENT_LABEL }) });
+  handleLockRes(res);
+}
+async function releaseLock() {
+  const res = await api('/admin?action=unlock', { method:'POST', body: JSON.stringify({ client_id: CLIENT_ID }) });
+  handleLockRes(res);
+}
 
-    // Re-render derived KPIs using live MTM when available
-    if (liveMtmVal !== null) {
-      renderDerivedUsing(j.state, { unrealised: liveMtmVal });
-    }
-
-  }catch(e){
-    alert('Failed to load state: ' + e.message);
+function handleLockRes(res) {
+  const badge = document.getElementById('admin-lock-badge');
+  if (!res || !res.ok) {
+    badge.textContent = 'Lock: Error';
+    badge.dataset.locked = 'false';
+    setAdminEditable(false);
+    stopLockRefresh();
+    return;
+  }
+  const lock = res.admin_lock || res.admin_lock_present && res.admin_lock ? res.admin_lock : (res.admin_lock || null);
+  if (res.locked && lock && lock.owner === CLIENT_ID) {
+    badge.textContent = `Locked by you (${lock.label||'me'})`;
+    badge.dataset.locked = 'true';
+    setAdminEditable(true);
+    startLockRefresh();
+  } else if (lock) {
+    badge.textContent = `Locked by ${lock.label || lock.owner}`;
+    badge.dataset.locked = 'false';
+    setAdminEditable(false);
+    stopLockRefresh();
+  } else {
+    badge.textContent = 'Unlocked';
+    badge.dataset.locked = 'false';
+    setAdminEditable(false);
+    stopLockRefresh();
   }
 }
 
-function paint(j){
-  setText('now','Time: '+(j.time||'â€”'));
-  const kb=$('kite-badge'), eb=$('engine-badge'); kb.className='badge'; eb.className='badge';
-  if(j.kite_status==='ok'){ kb.innerHTML='<span class="dot" style="background:#22c55e"></span> Zerodha: Connected'; kb.classList.add('b-ok'); }
-  else if(j.kite_status==='invalid'){ kb.innerHTML='<span class="dot" style="background:#ef4444"></span> Zerodha: Token invalid'; kb.classList.add('b-bad'); }
-  else { kb.innerHTML='<span class="dot" style="background:#f59e0b"></span> Zerodha: Not logged in'; kb.classList.add('b-warn'); }
-  eb.innerHTML = j.ok ? '<span class="dot" style="background:#3b82f6"></span> Guardian: Online'
-                      : '<span class="dot" style="background:#ef4444"></span> Guardian: Error';
-
-  if(!j.ok){ alert('State error: '+(j.error||'unknown')); return; }
-
-  const s=j.state||{};
-  setIfEmpty('max_loss_pct', s.max_loss_pct ?? '');
-  setIfEmpty('trail_step_profit', s.trail_step_profit ?? '');
-  setIfEmpty('cooldown_min', s.cooldown_min ?? '');
-  setIfEmpty('max_consecutive_losses', s.max_consecutive_losses ?? '');
-  setIfEmpty('allow_new_after_lock10', String(s.allow_new_after_lock10 ?? ''));
-  setIfEmpty('expiry_flag', String(s.expiry_flag ?? ''));
-
-  setText('day', s.tripped_day?'TRIPPED':'ACTIVE');
-  setText('block', s.block_new_orders?'BLOCKED':'ALLOWED');
-  setText('losses', n2(s.consecutive_losses));
-  setText('cool', s.cooldown_until?new Date(s.cooldown_until).toLocaleTimeString():'â€”');
-
-  setMode(!!j.admin);
-
-  // First render with cached values; refresh() will override with live MTM if available
-  renderDerivedUsing(s);
-}
-
-async function saveRules(){
-  const t=readToken(); if(!t){alert('Enter admin token first');return;}
-  const body={}; copyNum('max_loss_pct',body); copyNum('trail_step_profit',body);
-  copyNum('cooldown_min',body); copyNum('max_consecutive_losses',body);
-  copyBool('allow_new_after_lock10',body); copyBool('expiry_flag',body);
-  const r=await fetch('/api/admin/rules-set',{
-    method:'POST',
-    headers:{'Content-Type':'application/json','Authorization':'Bearer '+t},
-    body:JSON.stringify(body)
+function setAdminEditable(enabled) {
+  document.querySelectorAll('.admin-editable').forEach(el=>{
+    if (enabled) { el.removeAttribute('disabled'); el.style.opacity='1' }
+    else { el.setAttribute('disabled','true'); el.style.opacity='.6' }
   });
-  const j=await r.json(); if(!j.ok){alert('Save failed: '+(j.error||'unknown'));return;} alert('Rules saved.'); refresh();
-}
-function copyNum(id,out){const el=$(id);if(!el)return;const v=el.value.trim();if(v==='')return;const n=Number(v);if(!Number.isNaN(n))out[id]=n;}
-function copyBool(id,out){const el=$(id);if(!el)return;const v=el.value.trim(); if(v==='true')out[id]=true; else if(v==='false')out[id]=false;}
-
-async function postAction(url){
-  const t=readToken(); if(!t){alert('Enter admin token first');return;}
-  const r=await fetch(url,{method:'POST',headers:{'Authorization':'Bearer '+t}});
-  const j=await r.json();
-  if(!j.ok){alert('Action failed: '+(j.error||'unknown'));return;}
-  alert(j.message || 'OK');
-  refresh();
 }
 
-refresh(); setInterval(refresh, 10000);
+function startLockRefresh(){
+  stopLockRefresh();
+  lockRefreshTimer = setInterval(()=>{ refreshLock(); }, 2*60*1000); // every 2 minutes
+  // also ensure we poll state so UI shows ownership
+}
+function stopLockRefresh(){ if (lockRefreshTimer){ clearInterval(lockRefreshTimer); lockRefreshTimer = null } }
+
+/* ============================
+   State refresh & UI render
+   ============================ */
+async function loadState() {
+  const r = await api('/state');
+  if (!r || !r.ok) { console.warn('state err', r); return; }
+  // kite status
+  document.getElementById('kite-status-val').textContent = r.kite_status || 'not_logged_in';
+  document.getElementById('kite-conn').textContent = r.kite_status || 'not_logged_in';
+  // state
+  const s = r.state || {};
+  document.getElementById('capital-val').textContent = (s.capital_day_830 ?? s.capital_day_915 ?? 0).toString();
+  document.getElementById('cap-time').textContent = 'snapshot: ' + (s.capital_snapshot_time || '-');
+  document.getElementById('live-balance').textContent = (s.current_balance ?? 0).toString();
+  document.getElementById('live-misc').textContent = `unrealised: ${s.unrealised ?? 0}`;
+  document.getElementById('tripped-day').textContent = s.tripped_day ? 'YES' : 'NO';
+  document.getElementById('block-new').textContent = s.block_new_orders ? 'YES' : 'NO';
+  document.getElementById('consec-loss').textContent = s.consecutive_losses ?? 0;
+  document.getElementById('cooldown-until').textContent = s.cooldown_until ? (new Date(s.cooldown_until).toLocaleTimeString()) : '-';
+  document.getElementById('trade-count').textContent = s.trade_count ?? 0;
+  document.getElementById('profit-lock-10').textContent = s.profit_lock_10 ? 'true' : 'false';
+  document.getElementById('profit-lock-20').textContent = s.profit_lock_20 ? 'true' : 'false';
+  document.getElementById('last-enforce').textContent = r.time || '-';
+  document.getElementById('footer-time').textContent = new Date().toLocaleString();
+
+  // populate rule controls
+  document.getElementById('rule-max-loss-pct').value = s.max_loss_pct ?? 10;
+  document.getElementById('rule-trail-step').value = s.trail_step_profit ?? 5000;
+  document.getElementById('rule-cooldown').value = s.cooldown_min ?? 15;
+  document.getElementById('rule-max-consec').value = s.max_consecutive_losses ?? 3;
+  document.getElementById('rule-max-trades').value = s.max_trades_per_day ?? 20;
+  document.getElementById('rule-allow-after-10').value = (s.allow_new_after_lock10 ? 'true' : 'false');
+
+  // admin lock present in state?
+  if (s.admin_lock) {
+    handleLockRes({ ok:true, locked:false, admin_lock: s.admin_lock, admin_lock_present:true });
+  }
+}
+
+/* ============================
+   Save rules
+   ============================ */
+document.getElementById('save-rules-btn').addEventListener('click', async ()=>{
+  // Prepare patch
+  const patch = {
+    max_loss_pct: Number(document.getElementById('rule-max-loss-pct').value || 10),
+    trail_step_profit: Number(document.getElementById('rule-trail-step').value || 5000),
+    cooldown_min: Number(document.getElementById('rule-cooldown').value || 15),
+    max_consecutive_losses: Number(document.getElementById('rule-max-consec').value || 3),
+    max_trades_per_day: Number(document.getElementById('rule-max-trades').value || 20),
+    allow_new_after_lock10: document.getElementById('rule-allow-after-10').value === 'true'
+  };
+  // call admin snapshot endpoint to save (we'll use admin?action=snapshot?no - reuse admin route for updates)
+  // Since we merged endpoints, use admin?action=snapshot as privileged write - server will save state
+  const res = await api('/admin?action=snapshot', { method:'POST', body: JSON.stringify({ patch }) });
+  if (res && res.ok) { alert('Rules saved'); loadState(); } else { alert('Save failed'); }
+});
+
+/* ============================
+   Quick actions
+   ============================ */
+document.getElementById('btn-snapshot').addEventListener('click', async ()=>{
+  const ok = confirm('Run morning snapshot now? (requires admin token)');
+  if (!ok) return;
+  const res = await api('/admin?action=snapshot', { method:'POST', body: JSON.stringify({}) });
+  if (res && res.ok) { alert('Snapshot done'); loadState(); } else { alert('Snapshot failed'); }
+});
+
+document.getElementById('btn-enforce-now').addEventListener('click', async ()=>{
+  // call enforce endpoint (public) — may require secret; this will run enforcement
+  const res = await api('/enforce', { method:'GET' });
+  if (res && res.ok) { alert('Enforce executed'); loadState(); } else { alert('Enforce failed: ' + (res && res.error)); }
+});
+
+document.getElementById('btn-reset-consec').addEventListener('click', async ()=>{
+  if (!confirm('Reset consecutive losses to 0?')) return;
+  const res = await api('/admin?action=snapshot', { method:'POST', body: JSON.stringify({ patch:{ consecutive_losses:0 } }) });
+  if (res && res.ok) { alert('Reset'); loadState(); } else alert('Reset failed');
+});
+
+/* ============================
+   Trades panel
+   ============================ */
+async function refreshTrades() {
+  try {
+    const r = await api('/admin?action=trades');
+    if (!r || !r.ok) return;
+    const realized = (r.history || []).slice(-80).reverse();
+    const tbody = document.getElementById('trade-table-body'); tbody.innerHTML = '';
+    for (const ev of realized) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${new Date(ev.time).toLocaleTimeString()}</td>
+        <td>${ev.symbol || ev.symbolKey || ''}</td>
+        <td>${ev.qty || ''}</td>
+        <td>${(ev.price_in||'')}</td>
+        <td>${(ev.price_out||'')}</td>
+        <td style="color:${Number(ev.pnl||0) < 0 ? 'var(--bad)' : 'var(--ok)'}">${Number(ev.pnl||0).toFixed(2)}</td>`;
+      tbody.appendChild(tr);
+    }
+  } catch(e){ console.error(e) }
+}
+
+/* ============================
+   Polling start/stop
+   ============================ */
+function startPoll() {
+  stopPoll();
+  loadState(); refreshTrades();
+  pollTimer = setInterval(()=>{ loadState(); refreshTrades(); }, POLL_INTERVAL);
+}
+function stopPoll(){ if (pollTimer){ clearInterval(pollTimer); pollTimer = null } }
+
+/* ============================
+   Helper: poll lock-only status (to show who holds lock)
+   ============================ */
+async function pollLockOnly() {
+  const r = await api('/state');
+  if (r && r.state && r.state.admin_lock) {
+    handleLockRes({ ok:true, locked:false, admin_lock: r.state.admin_lock });
+  } else {
+    handleLockRes({ ok:true, locked:false, admin_lock: null });
+  }
+}
+setInterval(pollLockOnly, LOCK_POLL_INTERVAL);
+
+/* ============================
+   Raw debug buttons
+   ============================ */
+document.getElementById('btn-show-state').addEventListener('click', async ()=>{
+  const r = await api('/state'); alert(JSON.stringify(r, null, 2));
+});
+document.getElementById('btn-show-trades').addEventListener('click', async ()=>{
+  const r = await api('/admin?action=trades'); alert(JSON.stringify(r, null, 2));
+});
+
+/* ============================
+   Wire up main buttons
+   ============================ */
+document.getElementById('acquire-lock-btn').addEventListener('click', async ()=>{ await acquireLock(); });
+document.getElementById('release-lock-btn').addEventListener('click', async ()=>{ await releaseLock(); });
+
+document.getElementById('refresh-state-btn').addEventListener('click', ()=>{ loadState(); refreshTrades(); });
+
+/* ============================
+   On load
+   ============================ */
+(async function init(){
+  // set vibrate default
+  if (!localStorage.getItem('ui-vibrate')) localStorage.setItem('ui-vibrate','true');
+  document.getElementById('ui-vibrate').value = localStorage.getItem('ui-vibrate') || 'true';
+  document.getElementById('ui-vibrate').addEventListener('change', (e)=>{ localStorage.setItem('ui-vibrate', e.target.value); });
+
+  // load once and start polling
+  await loadState();
+  await refreshTrades();
+  startPoll();
+})();
 </script>
 </body>
 </html>
