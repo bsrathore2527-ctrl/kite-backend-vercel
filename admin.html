@@ -149,7 +149,7 @@
       el('refresh').onclick=()=>{fetchState();fetchFunds();};
       el('enforce_now').onclick=()=>callAdmin('/api/enforce');
       el('kill').onclick=()=>callAdmin('/api/admin/kill');
-      el('login_zerodha').onclick=()=>window.open('/api/kite/login','_blank');
+      el('login_zerodha').onclick=()=>window.open('/api/login','_blank');
       el('save_capital').onclick=()=>{
         const cap=Number(el('set_capital').value||'');
         if(Number.isNaN(cap))return showMsg('Enter valid capital',false);
