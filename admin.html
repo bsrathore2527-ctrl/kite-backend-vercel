@@ -6,39 +6,37 @@
 <title>Guardian — Admin</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap" rel="stylesheet">
 <style>
-  :root{
-    --bg:#071026; --card:#0f1724; --muted:#9aa6b2; --accent:#2b6cf6;
-    --glass: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
-  }
-  html,body{height:100%;margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial;color:#e6eef6;background:
-    radial-gradient(1200px 400px at 10% 10%, rgba(30,40,60,0.35), transparent),
-    radial-gradient(800px 300px at 90% 90%, rgba(20,30,50,0.25), transparent), var(--bg);
-  -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;}
-  .wrap{max-width:980px;margin:18px auto;padding:18px;}
-  header{display:flex;align-items:center;gap:18px;margin-bottom:14px}
-  .logo{width:64px;height:64px;border-radius:12px;background:linear-gradient(135deg,#0b1220,#102033);display:flex;align-items:center;justify-content:center;font-weight:700;color:#cfe8ff}
-  h1{margin:0;font-size:28px}
-  .meta{margin-left:auto;color:var(--muted);display:flex;gap:12px;font-weight:600;align-items:center}
-  .panel{background:var(--card);border-radius:14px;padding:18px;margin-bottom:16px;box-shadow:0 8px 30px rgba(2,6,23,0.6);border:1px solid rgba(255,255,255,0.02)}
-  .row{display:flex;gap:12px;flex-wrap:wrap}
-  .token{display:flex;gap:12px;align-items:center}
-  input[type="password"], input[type="text"]{background:transparent;border:1px solid rgba(255,255,255,0.06);padding:12px 14px;border-radius:10px;color:#e7f2ff;min-width:220px}
-  button{padding:10px 16px;border-radius:10px;border:0;cursor:pointer;font-weight:700}
+  :root{ --bg:#071026; --panel:#0b1724; --muted:#9aa6b2; --accent:#2b6cf6; --ok:#1f8a37; --danger:#a8302e; }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial;background:
+    radial-gradient(900px 300px at 5% 10%, rgba(30,40,60,0.30), transparent),
+    radial-gradient(600px 240px at 95% 90%, rgba(20,30,50,0.18), transparent),
+    var(--bg); color:#e7f7ff; -webkit-font-smoothing:antialiased}
+  .wrap{max-width:980px;margin:18px auto;padding:14px}
+  header{display:flex;align-items:center;gap:14px;margin-bottom:14px}
+  .logo{width:56px;height:56px;border-radius:12px;background:linear-gradient(135deg,#071226,#0d2138);display:flex;align-items:center;justify-content:center;font-weight:800;color:#cfe8ff;font-size:20px}
+  h1{margin:0;font-size:26px}
+  .meta{margin-left:auto;color:var(--muted);display:flex;gap:16px;font-weight:600;align-items:center}
+  .panel{background:linear-gradient(180deg, rgba(255,255,255,0.01), rgba(255,255,255,0.00));border-radius:14px;padding:18px;margin-bottom:16px;border:1px solid rgba(255,255,255,0.03);box-shadow:0 10px 40px rgba(2,6,23,0.6)}
+  .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+  input[type="password"], input[type="text"]{background:transparent;border:1px solid rgba(255,255,255,0.06);padding:12px 14px;border-radius:10px;color:#e7f7ff;min-width:260px}
+  button{padding:10px 14px;border-radius:10px;border:0;cursor:pointer;font-weight:700}
   .btn-primary{background:linear-gradient(90deg,var(--accent),#1b9cff);color:white;box-shadow:0 6px 18px rgba(43,108,246,0.12)}
-  .btn-ghost{background:transparent;border:1px solid rgba(255,255,255,0.06);color:#bcd6ff}
-  .btn-danger{background:#9b2a2a;color:white}
-  .btn-green{background:linear-gradient(90deg,#1f8a37,#006f2f);color:white}
-  .controls{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
+  .btn-ghost{background:transparent;border:1px solid rgba(255,255,255,0.06);color:#bcd6ff;padding:10px 14px;border-radius:10px}
+  .btn-green{background:linear-gradient(90deg,#1f8a37,#0f6f2f);color:white}
+  .btn-danger{background:var(--danger);color:white}
+  .controls{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
   .two-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
-  .card{padding:14px;border-radius:12px;background:linear-gradient(180deg, rgba(255,255,255,0.01), rgba(255,255,255,0.00));border:1px solid rgba(255,255,255,0.03);min-height:80px}
+  .card{padding:14px;border-radius:12px;background:linear-gradient(180deg, rgba(255,255,255,0.01), rgba(255,255,255,0.00));border:1px solid rgba(255,255,255,0.03);min-height:84px}
   .card h3{margin:0;font-size:14px;color:var(--muted);font-weight:600}
   .card .big{font-size:22px;font-weight:800;margin-top:8px}
-  small{color:var(--muted);display:block;margin-top:8px}
-  .status-line{margin-top:10px;color:#ffd0d0;background:rgba(255,50,50,0.06);padding:10px;border-radius:8px}
   .muted{color:var(--muted)}
+  .status{margin-top:10px;padding:10px;border-radius:8px;background:rgba(0,0,0,0.25);color:#ffdede;display:none}
+  .debug{margin-top:10px;padding:8px;border-radius:8px;background:rgba(255,255,255,0.02);color:#bcd6ff;display:none;white-space:pre-wrap;font-size:12px}
+  label{display:inline-flex;align-items:center;gap:8px}
   @media (max-width:720px){
     .two-grid{grid-template-columns:1fr}
-    header{flex-direction:column;align-items:flex-start;gap:12px}
+    header{flex-direction:column;align-items:flex-start}
     .meta{margin-left:0}
   }
 </style>
@@ -58,12 +56,13 @@
     </div>
   </header>
 
+  <!-- Admin controls -->
   <section class="panel">
-    <div class="token">
-      <input id="admin_token" type="password" placeholder="Enter admin token" aria-label="admin token" />
+    <div class="row" style="align-items:center">
+      <input id="admin_token" type="password" placeholder="Enter admin token" />
       <button id="save_token" class="btn-primary">Save</button>
+      <button id="login_kite" class="btn-ghost" title="Login Zerodha">Login Zerodha</button>
       <button id="clear_token" class="btn-ghost">Clear</button>
-      <button id="login_kite" class="btn-ghost">Login Zerodha</button>
       <button id="refresh_state" class="btn-ghost">Refresh</button>
     </div>
 
@@ -71,14 +70,16 @@
       <button id="enforce_btn" class="btn-green" disabled>Enforce Now</button>
       <button id="kill_btn" class="btn-danger" disabled>Kill (Close)</button>
       <button id="cancel_btn" class="btn-ghost" disabled>Cancel All</button>
-      <label style="align-items:center;display:inline-flex;gap:8px;color:var(--muted);">
-        <input id="allow_new" type="checkbox" disabled /> Allow New Orders
-      </label>
+      <label class="muted"><input id="allow_new" type="checkbox" disabled /> Allow New Orders</label>
+      <button id="acquire_btn" class="btn-ghost" style="display:none">Acquire Lock</button> <!-- hidden as requested -->
+      <button id="release_btn" class="btn-ghost" style="display:none">Release Lock</button>
     </div>
 
-    <div id="action_result" class="status-line" style="display:none"></div>
+    <div id="action_status" class="status">Action status</div>
+    <div id="debug" class="debug"></div>
   </section>
 
+  <!-- Live overview -->
   <section class="panel">
     <div style="display:flex;justify-content:space-between;align-items:center">
       <h2 style="margin:0">Live overview</h2>
@@ -89,25 +90,25 @@
       <div class="card">
         <h3>Capital @ 09:15</h3>
         <div class="big" id="capital_915">—</div>
-        <small id="capital_note">Base for daily limits</small>
+        <small class="muted">Base for daily limits</small>
       </div>
 
       <div class="card">
         <h3>Current Balance (live/fallback)</h3>
         <div class="big" id="live_balance">—</div>
-        <small id="balance_note">Uses cached if offline</small>
+        <small class="muted">Uses cached if offline</small>
       </div>
 
       <div class="card">
         <h3>Live MTM</h3>
         <div class="big" id="live_mtm">—</div>
-        <small>Sum of position PnL</small>
+        <small class="muted">Sum of position PnL</small>
       </div>
 
       <div class="card">
         <h3>PnL (R/UR/Total)</h3>
         <div class="big" id="pnl_text">—</div>
-        <small id="pnl_note">Status</small>
+        <small class="muted">Realised / Unrealised / Total</small>
       </div>
 
       <div class="card">
@@ -119,101 +120,127 @@
       <div class="card">
         <h3>Active Loss Floor (₹)</h3>
         <div class="big" id="active_floor">—</div>
-        <small id="active_floor_note" class="muted">Next trail: —</small>
+        <small class="muted">Next trail: —</small>
       </div>
     </div>
   </section>
 
-  <div id="debug" style="margin-top:10px;color:#bcd6ff;display:none"></div>
 </div>
 
 <script>
 (async function(){
-  // Config - endpoints used by this UI
+  // API endpoints — adjust if your files are in different paths
   const API = {
     state: '/api/state',
     funds: '/api/kite/funds',
-    kiteLogin: '/api/kite/login',
-    enforce: '/api/enforce',           // enforce endpoint (server may expect GET)
-    kill: '/api/admin/kill',           // may expect POST
-    cancel: '/api/admin/cancel'        // may expect POST/GET - we attempt fallback
+    kiteLogin: '/api/kite/login',   // UI will try POST then GET
+    enforce: '/api/enforce',        // server handler seems to expect GET (we try GET then POST)
+    kill: '/api/admin/kill',
+    cancel: '/api/admin/cancel'
   };
 
-  // helpers
-  function el(id){return document.getElementById(id);}
-  function fmtINR(v){
-    if (v === null || v === undefined) return '—';
-    const n = Number(v);
-    if (Number.isNaN(n)) return '—';
-    return '₹' + n.toLocaleString('en-IN', {maximumFractionDigits: (Math.abs(n) % 1 ? 2 : 0)});
-  }
-  function showResult(msg, isError = false){
-    const r = el('action_result');
-    r.style.display = 'block';
-    r.style.background = isError ? 'rgba(255,30,30,0.06)' : 'rgba(30,200,120,0.04)';
-    r.style.color = isError ? '#ffdede' : '#d1ffd6';
-    r.textContent = msg;
-    setTimeout(()=>{ r.style.display='none'; }, 10_000);
-  }
-  function setText(id, txt){ const e = el(id); if (e) e.textContent = txt; }
-
-  // token management
+  // elements
+  const el = id => document.getElementById(id);
   const tokenInput = el('admin_token');
   const saveBtn = el('save_token');
-  const clearBtn = el('clear_token');
   const loginBtn = el('login_kite');
+  const clearBtn = el('clear_token');
   const refreshBtn = el('refresh_state');
   const enforceBtn = el('enforce_btn');
   const killBtn = el('kill_btn');
   const cancelBtn = el('cancel_btn');
   const allowNewCheckbox = el('allow_new');
-  const refreshCards = el('refresh_cards');
+  const refreshCardsBtn = el('refresh_cards');
+  const actionStatus = el('action_status');
+  const debugBox = el('debug');
 
-  function getSavedToken(){ return localStorage.getItem('ADMIN_TOKEN') || ''; }
-  function setSavedToken(t){ if (t) localStorage.setItem('ADMIN_TOKEN', t); else localStorage.removeItem('ADMIN_TOKEN'); }
-  function authHeader(){
-    const t = getSavedToken();
-    return t ? { 'Authorization': (t.startsWith('Bearer ') ? t : 'Bearer ' + t) } : {};
+  function setStatus(msg, isError=false){
+    if (!actionStatus) return;
+    actionStatus.style.display = 'block';
+    actionStatus.style.background = isError ? 'rgba(255,30,30,0.06)' : 'rgba(50,200,100,0.06)';
+    actionStatus.style.color = isError ? '#ffdede' : '#d1ffd6';
+    actionStatus.textContent = msg;
+    setTimeout(()=>actionStatus.style.display='none', 8000);
   }
-  // masked input: we keep input type password so it's masked - but show placeholder when empty
-  tokenInput.value = getSavedToken() ? '********' : '';
-  let tokenDirty = false;
-  tokenInput.addEventListener('input', ()=> { tokenDirty = true; });
+  function debug(msg){ debugBox.style.display='block'; debugBox.textContent = msg; }
+
+  // token management
+  function savedToken(){ return localStorage.getItem('ADMIN_TOKEN') || ''; }
+  function setSavedToken(v){ if (v) localStorage.setItem('ADMIN_TOKEN', v); else localStorage.removeItem('ADMIN_TOKEN'); }
+  function authHeader(){ const t = savedToken(); return t ? { 'Authorization': t.startsWith('Bearer ') ? t : 'Bearer ' + t } : {}; }
+
+  // mask token if already saved
+  tokenInput.value = savedToken() ? '********' : '';
+  let tokenEdited = false;
+  tokenInput.addEventListener('input', ()=> { tokenEdited = true; });
+
   saveBtn.onclick = ()=>{
-    if (tokenDirty && tokenInput.value){
-      // if user typed new string, save it
-      setSavedToken(tokenInput.value);
-      tokenInput.value = '********';
-      tokenDirty = false;
-      updateButtons();
-      showResult('Admin token saved.', false);
-    } else if (!getSavedToken()){
-      showResult('No token supplied.', true);
-    } else {
-      showResult('Token already saved.', false);
+    if (!tokenEdited && savedToken()){
+      setStatus('Token already saved.');
+      return;
     }
+    if (!tokenInput.value){
+      setStatus('No token entered', true);
+      return;
+    }
+    setSavedToken(tokenInput.value);
+    tokenEdited = false;
+    tokenInput.value = '********';
+    updateButtons();
+    setStatus('Admin token saved.');
   };
+
   clearBtn.onclick = ()=>{
     setSavedToken('');
     tokenInput.value = '';
-    tokenDirty = false;
+    tokenEdited = false;
     updateButtons();
-    showResult('Admin token cleared.', false);
+    setStatus('Admin token cleared.');
   };
 
   function updateButtons(){
-    const has = !!getSavedToken();
+    const has = !!savedToken();
     [enforceBtn, killBtn, cancelBtn, allowNewCheckbox, loginBtn].forEach(b=>{
-      b.disabled = !has
+      if (b) b.disabled = !has;
     });
   }
   updateButtons();
 
-  // load state & funds
-  async function loadStateAndFunds(){
+  // helpers
+  function fmtINR(v){
+    if (v === null || v === undefined) return '—';
+    const n = Number(v);
+    if (Number.isNaN(n)) return '—';
+    // show 1 decimal if fractional, else no decimal
+    const opts = (Math.abs(n) % 1 !== 0) ? {maximumFractionDigits:2} : {maximumFractionDigits:0};
+    return '₹' + n.toLocaleString('en-IN', opts);
+  }
+  function setText(id, txt){ const e = el(id); if (e) e.textContent = txt; }
+
+  // fetch with fallback for method-not-allowed scenarios
+  async function fetchWithFallback(url, { headers = {}, body = null } = {}, methods = ['POST','GET']){
+    const combined = { ...headers, ...authHeader() };
+    let last = null;
+    for (const method of methods){
+      try {
+        const res = await fetch(url, { method, headers: { 'Content-Type':'application/json', ...combined }, body: body ? JSON.stringify(body) : null });
+        let txt = await res.text();
+        let json;
+        try{ json = JSON.parse(txt); } catch(e){ json = { ok:false, error: txt || 'Invalid JSON' }; }
+        if (res.status === 405) { last = { status:405, body: json }; continue; }
+        return { status: res.status, body: json };
+      } catch (err){
+        last = { status: 0, body: { ok:false, error: String(err) } };
+      }
+    }
+    return last;
+  }
+
+  // load state and funds
+  async function loadState(){
     try {
-      const sRes = await fetch(API.state);
-      const j = await sRes.json();
+      const s = await fetch(API.state);
+      const j = await s.json();
       if (!j.ok) throw new Error(j.error || 'state error');
       const st = j.state || {};
       setText('capital_915', fmtINR(st.capital_day_915 ?? 0));
@@ -223,120 +250,95 @@
       setText('pnl_text', `${fmtINR(st.realised ?? 0)} / ${fmtINR(st.unrealised ?? 0)} / ${fmtINR((st.realised??0)+(st.unrealised??0))}`);
       setText('guardian_status', j.admin ? 'admin' : '—');
       setText('time_now', j.time || '--:--:--');
-      // cached balance fallback is in state.current_balance
+      // cached balance fallback
       if (st.current_balance != null) setText('live_balance', fmtINR(st.current_balance));
     } catch (e){
-      showResult('Failed to load state: ' + (e.message||e), true);
+      setStatus('Failed to load state: ' + (e.message || e), true);
     }
 
-    // funds - attempt to fetch, but keep using cached value if offline
+    // funds
     try {
-      const r = await fetch(API.funds, {headers: {...authHeader()}});
-      const funds = await r.json();
-      if (!funds.ok) {
-        // display server-provided error inside the card
-        setText('live_balance', (funds.error) ? 'ERR: ' + funds.error : '—');
+      const r = await fetch(API.funds, { headers: {...authHeader()} });
+      const jf = await r.json();
+      if (!jf.ok) {
+        setText('live_balance', jf.error ? 'ERR: ' + jf.error : '—');
       } else {
-        // derive best available
         const av = Number(
-          funds.funds?.available?.live_balance ??
-          funds.funds?.net ??
-          funds.balance ??
-          funds.funds?.available?.cash ??
-          funds.funds?.cash ??
+          jf.funds?.available?.live_balance ??
+          jf.funds?.net ??
+          jf.balance ??
+          jf.funds?.available?.cash ??
+          jf.funds?.cash ??
           0
         );
         if (!Number.isNaN(av)) setText('live_balance', fmtINR(av));
       }
     } catch (e){
-      // ignore, state may have fallback
+      // keep cached value if any
     }
-  }
-
-  // Try a fetch with method fallback (POST then GET) to avoid method-not-allowed
-  async function fetchWithFallback(url, opts = {}, allowedMethods = ['POST','GET']){
-    const headers = opts.headers || {};
-    let lastErr;
-    for (const method of allowedMethods){
-      try {
-        const res = await fetch(url, {...opts, method, headers: {...headers, ...(authHeader())}});
-        const body = await res.text();
-        let json;
-        try { json = JSON.parse(body); } catch(e){ json = { ok: false, error: body || 'Invalid JSON' }; }
-        if (res.status === 405){
-          lastErr = { status:405, body: json };
-          continue;
-        }
-        return { status: res.status, body: json };
-      } catch (e){
-        lastErr = e;
-      }
-    }
-    // everything failed
-    return { status: lastErr?.status||0, body: lastErr?.body || { ok:false, error: String(lastErr) } };
   }
 
   // actions
   loginBtn.onclick = async ()=>{
     loginBtn.disabled = true;
     try {
-      // try POST then GET fallback
-      const r = await fetchWithFallback(API.kiteLogin, { headers: {'Content-Type':'application/json'} }, ['POST','GET']);
-      el('debug').style.display='block'; el('debug').textContent = 'Login response: ' + JSON.stringify(r.body);
-      if (!r.body.ok) showResult('Zerodha login returned: ' + JSON.stringify(r.body), true);
-      else showResult('Zerodha login ok', false);
-      await loadStateAndFunds();
+      const r = await fetchWithFallback(API.kiteLogin, {}, ['POST','GET']);
+      debug('Login returned: ' + JSON.stringify(r.body));
+      if (!r.body.ok) setStatus('Zerodha login returned: ' + JSON.stringify(r.body), true);
+      else setStatus('Zerodha login OK');
+      await loadState();
     } finally { loginBtn.disabled = false; }
   };
 
   enforceBtn.onclick = async ()=>{
     enforceBtn.disabled = true;
     try {
-      const r = await fetchWithFallback(API.enforce, { headers: {'Content-Type':'application/json'} }, ['GET','POST']);
-      el('debug').style.display='block'; el('debug').textContent = 'Enforce response: ' + JSON.stringify(r.body);
-      if (!r.body.ok) showResult('Enforce failed: ' + JSON.stringify(r.body), true);
-      else showResult('Enforce done: ' + JSON.stringify(r.body), false);
-      await loadStateAndFunds();
+      // enforce endpoint likely supports GET, try GET then POST
+      const r = await fetchWithFallback(API.enforce, {}, ['GET','POST']);
+      debug('Enforce returned: ' + JSON.stringify(r.body));
+      if (!r.body.ok) setStatus('Enforce failed: ' + JSON.stringify(r.body), true);
+      else setStatus('Enforce done: ' + JSON.stringify(r.body));
+      await loadState();
     } finally { enforceBtn.disabled = false; }
   };
 
   killBtn.onclick = async ()=>{
     killBtn.disabled = true;
     try {
-      const r = await fetchWithFallback(API.kill, { headers: {'Content-Type':'application/json'} , body: JSON.stringify({})}, ['POST','GET']);
-      el('debug').style.display='block'; el('debug').textContent = 'Kill response: ' + JSON.stringify(r.body);
-      if (!r.body.ok) showResult('Kill failed: ' + JSON.stringify(r.body), true);
-      else showResult('Kill done', false);
-      await loadStateAndFunds();
+      const r = await fetchWithFallback(API.kill, {}, ['POST','GET']);
+      debug('Kill returned: ' + JSON.stringify(r.body));
+      if (!r.body.ok) setStatus('Kill failed: ' + JSON.stringify(r.body), true);
+      else setStatus('Kill executed');
+      await loadState();
     } finally { killBtn.disabled = false; }
   };
 
   cancelBtn.onclick = async ()=>{
     cancelBtn.disabled = true;
     try {
-      const r = await fetchWithFallback(API.cancel, { headers: {'Content-Type':'application/json'} , body: JSON.stringify({})}, ['POST','GET']);
-      el('debug').style.display='block'; el('debug').textContent = 'Cancel response: ' + JSON.stringify(r.body);
-      if (!r.body.ok) showResult('Cancel failed: ' + JSON.stringify(r.body), true);
-      else showResult('Cancel done: ' + JSON.stringify(r.body), false);
-      await loadStateAndFunds();
+      const r = await fetchWithFallback(API.cancel, {}, ['POST','GET']);
+      debug('Cancel returned: ' + JSON.stringify(r.body));
+      if (!r.body.ok) setStatus('Cancel failed: ' + JSON.stringify(r.body), true);
+      else setStatus('Cancel done: ' + JSON.stringify(r.body));
+      await loadState();
     } finally { cancelBtn.disabled = false; }
   };
 
-  refreshBtn.onclick = ()=>loadStateAndFunds();
-  refreshCards.onclick = ()=>loadStateAndFunds();
+  refreshBtn.onclick = loadState;
+  refreshCardsBtn.onclick = loadState;
 
-  // init
-  setInterval(async ()=>{
-    // update time in header (local)
+  // periodically update header time
+  setInterval(()=> {
     const t = new Date().toLocaleTimeString('en-IN', {hour12:false});
     setText('time_now', t);
-  },1000);
+  }, 1000);
 
-  // enable buttons if token saved
+  // set button enabled state based on saved token
+  function updateButtons(){ const has = !!savedToken(); [enforceBtn, killBtn, cancelBtn, allowNewCheckbox, loginBtn].forEach(b=>{ if(b) b.disabled = !has; }); }
   updateButtons();
 
   // initial load
-  await loadStateAndFunds();
+  await loadState();
 
 })();
 </script>
