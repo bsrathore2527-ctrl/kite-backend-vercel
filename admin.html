@@ -4,40 +4,43 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>Guardian — Admin</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap" rel="stylesheet">
 <style>
   :root{
-    --bg:#071022; --card:#0f1724; --muted:#93a0b3; --accent:#2f6df6;
-    --success:#1f7a2f; --danger:#b93131; --glass: rgba(255,255,255,0.03);
-    --glass-2: rgba(255,255,255,0.02); --radius:14px;
+    --bg:#071026; --card:#0f1724; --muted:#9aa6b2; --accent:#2b6cf6;
+    --glass: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
   }
-  html,body{height:100%;margin:0;background:linear-gradient(180deg,#061123 0%, #071022 40%, #05060a 100%);font-family:Inter,Arial;color:#e6eef8}
-  .wrap{max-width:1100px;margin:14px auto;padding:18px;}
+  html,body{height:100%;margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial;color:#e6eef6;background:
+    radial-gradient(1200px 400px at 10% 10%, rgba(30,40,60,0.35), transparent),
+    radial-gradient(800px 300px at 90% 90%, rgba(20,30,50,0.25), transparent), var(--bg);
+  -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;}
+  .wrap{max-width:980px;margin:18px auto;padding:18px;}
   header{display:flex;align-items:center;gap:18px;margin-bottom:14px}
-  .logo{width:64px;height:64px;border-radius:12px;background:linear-gradient(135deg,#061428,#0f1b2b);display:grid;place-items:center;font-weight:700}
+  .logo{width:64px;height:64px;border-radius:12px;background:linear-gradient(135deg,#0b1220,#102033);display:flex;align-items:center;justify-content:center;font-weight:700;color:#cfe8ff}
   h1{margin:0;font-size:28px}
-  .meta{margin-left:auto;display:flex;gap:12px;align-items:center;color:var(--muted)}
-  .card{background:linear-gradient(180deg,var(--glass),var(--glass-2));border-radius:var(--radius);padding:16px;margin:14px 0;box-shadow:0 6px 28px rgba(0,0,0,0.6);border:1px solid rgba(255,255,255,0.03)}
-  .admin-grid{display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center}
-  .label{color:var(--muted);font-size:13px;margin-bottom:6px}
-  .token-wrap{display:flex;align-items:center;gap:8px}
-  input[type="password"], input[type="text"]{width:100%;padding:12px;border-radius:10px;background:transparent;border:1px solid rgba(255,255,255,0.06);color:inherit}
-  .btn{padding:10px 18px;border-radius:10px;border:none;background:var(--accent);color:white;font-weight:600;cursor:pointer}
-  .btn.ghost{background:transparent;border:1px solid rgba(255,255,255,0.06)}
-  .btn.warn{background:var(--danger)}
-  .btn.ok{background:var(--success)}
-  .row{display:flex;gap:10px;flex-wrap:wrap}
-  .muted{color:var(--muted);font-size:13px}
-  .stats{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
-  .stat{padding:14px;border-radius:12px;background:rgba(0,0,0,0.18);border:1px solid rgba(255,255,255,0.02)}
-  .stat h3{margin:0;font-size:12px;color:var(--muted)}
-  .stat .val{font-weight:800;font-size:20px;margin-top:8px}
-  .pages{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;gap:18px;padding-bottom:12px}
-  .page{min-width:100%;scroll-snap-align:center}
-  .pager-nav{display:flex;gap:8px;justify-content:center;margin-top:8px}
-  .small{font-size:13px;padding:8px 12px;border-radius:8px}
-  .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:22px;background:rgba(0,0,0,0.78);color:#fff;padding:10px 14px;border-radius:8px;box-shadow:0 8px 30px rgba(0,0,0,0.6);display:none}
-  .toast.show{display:block}
-  .input-eye{cursor:pointer;padding:6px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:var(--muted)}
+  .meta{margin-left:auto;color:var(--muted);display:flex;gap:12px;font-weight:600;align-items:center}
+  .panel{background:var(--card);border-radius:14px;padding:18px;margin-bottom:16px;box-shadow:0 8px 30px rgba(2,6,23,0.6);border:1px solid rgba(255,255,255,0.02)}
+  .row{display:flex;gap:12px;flex-wrap:wrap}
+  .token{display:flex;gap:12px;align-items:center}
+  input[type="password"], input[type="text"]{background:transparent;border:1px solid rgba(255,255,255,0.06);padding:12px 14px;border-radius:10px;color:#e7f2ff;min-width:220px}
+  button{padding:10px 16px;border-radius:10px;border:0;cursor:pointer;font-weight:700}
+  .btn-primary{background:linear-gradient(90deg,var(--accent),#1b9cff);color:white;box-shadow:0 6px 18px rgba(43,108,246,0.12)}
+  .btn-ghost{background:transparent;border:1px solid rgba(255,255,255,0.06);color:#bcd6ff}
+  .btn-danger{background:#9b2a2a;color:white}
+  .btn-green{background:linear-gradient(90deg,#1f8a37,#006f2f);color:white}
+  .controls{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
+  .two-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+  .card{padding:14px;border-radius:12px;background:linear-gradient(180deg, rgba(255,255,255,0.01), rgba(255,255,255,0.00));border:1px solid rgba(255,255,255,0.03);min-height:80px}
+  .card h3{margin:0;font-size:14px;color:var(--muted);font-weight:600}
+  .card .big{font-size:22px;font-weight:800;margin-top:8px}
+  small{color:var(--muted);display:block;margin-top:8px}
+  .status-line{margin-top:10px;color:#ffd0d0;background:rgba(255,50,50,0.06);padding:10px;border-radius:8px}
+  .muted{color:var(--muted)}
+  @media (max-width:720px){
+    .two-grid{grid-template-columns:1fr}
+    header{flex-direction:column;align-items:flex-start;gap:12px}
+    .meta{margin-left:0}
+  }
 </style>
 </head>
 <body>
@@ -49,330 +52,293 @@
       <div class="muted">Risk automation & enforcement</div>
     </div>
     <div class="meta">
-      <div id="kite_status" class="muted">Kite: —</div>
-      <div id="guard_status" class="muted">Guardian: —</div>
-      <div id="now" class="muted">--:--:--</div>
+      <div id="kite_status">Kite: —</div>
+      <div id="guardian_status">Guardian: —</div>
+      <div id="time_now">--:--:--</div>
     </div>
   </header>
 
-  <!-- ADMIN CARD -->
-  <section class="card">
-    <div style="display:flex;flex-direction:column;gap:10px">
-      <div>
-        <div class="label">Admin token (keeps UI read-only unless saved)</div>
-        <div class="token-wrap">
-          <!-- token is a password field, masked by default -->
-          <input id="admin_token" type="password" placeholder="Enter admin token" aria-label="Admin token" />
-          <button id="toggle_token" class="input-eye" title="Show / Hide token">Show</button>
-          <button id="save_token" class="btn">Save</button>
-          <button id="clear_token" class="btn ghost">Clear</button>
-        </div>
-        <div class="muted" style="margin-top:8px">Token is stored locally only and will not be displayed anywhere (we show ****** only).</div>
-      </div>
-
-      <div style="display:flex;gap:10px;align-items:center">
-        <button id="login_zerodha" class="btn ghost small">Login Zerodha</button>
-        <button id="refresh_state" class="btn ghost small">Refresh</button>
-        <div style="margin-left:auto" class="muted">Admin controls unlock after saving token</div>
-      </div>
+  <section class="panel">
+    <div class="token">
+      <input id="admin_token" type="password" placeholder="Enter admin token" aria-label="admin token" />
+      <button id="save_token" class="btn-primary">Save</button>
+      <button id="clear_token" class="btn-ghost">Clear</button>
+      <button id="login_kite" class="btn-ghost">Login Zerodha</button>
+      <button id="refresh_state" class="btn-ghost">Refresh</button>
     </div>
 
-    <hr style="border:none;height:12px;background:transparent">
-
-    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
-      <button id="enforce_btn" class="btn ok">Enforce Now</button>
-      <button id="kill_btn" class="btn warn">Kill (Close)</button>
-      <label style="margin-left:8px" class="muted">Cancel All</label>
-      <input id="cancel_checkbox" type="checkbox" style="transform:scale(1.2);margin-left:6px" />
-      <label style="margin-left:auto" class="muted"><input id="allow_new_checkbox" type="checkbox" /> Allow New Orders</label>
+    <div class="controls">
+      <button id="enforce_btn" class="btn-green" disabled>Enforce Now</button>
+      <button id="kill_btn" class="btn-danger" disabled>Kill (Close)</button>
+      <button id="cancel_btn" class="btn-ghost" disabled>Cancel All</button>
+      <label style="align-items:center;display:inline-flex;gap:8px;color:var(--muted);">
+        <input id="allow_new" type="checkbox" disabled /> Allow New Orders
+      </label>
     </div>
 
-    <div style="margin-top:10px;color:#f7c6c6" id="last_action_msg"></div>
+    <div id="action_result" class="status-line" style="display:none"></div>
   </section>
 
-  <!-- swipeable pages -->
-  <div class="pages" id="pages">
-    <div class="page card">
-      <h2 style="margin-top:0">Live overview <button id="refresh_stats" class="btn ghost small" style="float:right">Refresh</button></h2>
-      <div class="stats" id="stats_grid">
-        <div class="stat">
-          <h3>Capital @ 09:15</h3>
-          <div class="val" id="capital915">—</div>
-          <div class="muted">Base for daily limits</div>
-        </div>
-        <div class="stat">
-          <h3>Current Balance (live/fallback)</h3>
-          <div class="val" id="live_funds">—</div>
-          <div class="muted">Uses cached if offline</div>
-        </div>
-        <div class="stat">
-          <h3>Live MTM</h3>
-          <div class="val" id="live_mtm">—</div>
-          <div class="muted">Sum of position PnL</div>
-        </div>
-        <div class="stat">
-          <h3>PnL (R/UR/Total)</h3>
-          <div class="val" id="pnl_info">—</div>
-          <div class="muted">Realtime</div>
-        </div>
-        <div class="stat">
-          <h3>Max Loss (₹)</h3>
-          <div class="val" id="max_loss">—</div>
-          <div class="muted" id="max_loss_pct">—</div>
-        </div>
-        <div class="stat">
-          <h3>Active Loss Floor (₹)</h3>
-          <div class="val" id="active_floor">—</div>
-          <div class="muted">Trail rules</div>
-        </div>
-      </div>
+  <section class="panel">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <h2 style="margin:0">Live overview</h2>
+      <button id="refresh_cards" class="btn-ghost">Refresh</button>
     </div>
 
-    <div class="page card">
-      <h2 style="margin-top:0">Rules (editable by admin)</h2>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-        <div>
-          <label class="muted">Max Loss %</label>
-          <input id="rule_max_loss_pct" type="text" placeholder="10" />
-        </div>
-        <div>
-          <label class="muted">Trailing step (₹)</label>
-          <input id="rule_trail_step" type="text" placeholder="5000" />
-        </div>
-        <div>
-          <label class="muted">Cooldown (min)</label>
-          <input id="rule_cooldown_min" type="text" placeholder="15" />
-        </div>
-        <div>
-          <label class="muted">Max consecutive losses</label>
-          <input id="rule_max_consec" type="text" placeholder="3" />
-        </div>
+    <div class="two-grid" style="margin-top:12px">
+      <div class="card">
+        <h3>Capital @ 09:15</h3>
+        <div class="big" id="capital_915">—</div>
+        <small id="capital_note">Base for daily limits</small>
       </div>
 
-      <div style="margin-top:12px" class="muted">Only editable when admin token is saved.</div>
+      <div class="card">
+        <h3>Current Balance (live/fallback)</h3>
+        <div class="big" id="live_balance">—</div>
+        <small id="balance_note">Uses cached if offline</small>
+      </div>
+
+      <div class="card">
+        <h3>Live MTM</h3>
+        <div class="big" id="live_mtm">—</div>
+        <small>Sum of position PnL</small>
+      </div>
+
+      <div class="card">
+        <h3>PnL (R/UR/Total)</h3>
+        <div class="big" id="pnl_text">—</div>
+        <small id="pnl_note">Status</small>
+      </div>
+
+      <div class="card">
+        <h3>Max Loss (₹)</h3>
+        <div class="big" id="max_loss">—</div>
+        <small id="max_loss_pct" class="muted">Max Loss %: —</small>
+      </div>
+
+      <div class="card">
+        <h3>Active Loss Floor (₹)</h3>
+        <div class="big" id="active_floor">—</div>
+        <small id="active_floor_note" class="muted">Next trail: —</small>
+      </div>
     </div>
+  </section>
 
-    <div class="page card">
-      <h2 style="margin-top:0">Logs & actions</h2>
-      <div class="muted">Quick action buttons and last responses</div>
-      <div style="display:flex;gap:8px;margin-top:10px">
-        <button id="enforce_trades_btn" class="btn small ghost">Enforce Trades (POST)</button>
-        <button id="cancel_all_btn" class="btn small ghost">Cancel All (POST)</button>
-        <button id="kill_btn2" class="btn warn small">Kill</button>
-      </div>
-
-      <div style="margin-top:12px">
-        <div class="muted">Last responses</div>
-        <pre id="raw_responses" style="white-space:pre-wrap;color:#ffdede;background:rgba(0,0,0,0.15);padding:12px;border-radius:8px;margin-top:8px;max-height:240px;overflow:auto">—</pre>
-      </div>
-    </div>
-  </div>
-
-  <div class="pager-nav">
-    <button id="prev_page" class="small btn ghost">⟨ Prev</button>
-    <button id="next_page" class="small btn ghost">Next ⟩</button>
-  </div>
+  <div id="debug" style="margin-top:10px;color:#bcd6ff;display:none"></div>
 </div>
 
-<div id="toast" class="toast"></div>
-
 <script>
-/* small helpers */
-function $(id){ return document.getElementById(id); }
-function showToast(msg,t=3000){ const tEl=$('toast'); tEl.textContent=msg; tEl.classList.add('show'); setTimeout(()=>tEl.classList.remove('show'),t); }
-function nowTime(){ return new Date().toLocaleTimeString('en-IN',{timeZone:'Asia/Kolkata',hour12:false}); }
+(async function(){
+  // Config - endpoints used by this UI
+  const API = {
+    state: '/api/state',
+    funds: '/api/kite/funds',
+    kiteLogin: '/api/kite/login',
+    enforce: '/api/enforce',           // enforce endpoint (server may expect GET)
+    kill: '/api/admin/kill',           // may expect POST
+    cancel: '/api/admin/cancel'        // may expect POST/GET - we attempt fallback
+  };
 
-/* --- Admin token handling --- */
-const tokenInput = $('admin_token');
-const toggleBtn = $('toggle_token');
-const saveBtn = $('save_token');
-const clearBtn = $('clear_token');
-
-function getStoredToken(){ return localStorage.getItem('admin_token') || ''; }
-function setStoredToken(v){ if(v) localStorage.setItem('admin_token', v); else localStorage.removeItem('admin_token'); }
-
-/* keep input masked. We will never display token anywhere else.
-   When token exists we display bullets in the field (type=password),
-   but we also set a "saved" visual state on save */
-function applyTokenUI(){
-  const t = getStoredToken();
-  if(t){
-    tokenInput.value = '********';            // show bullets only (not actual token)
-    tokenInput.dataset.real = '1';            // marker that token is saved
-    tokenInput.title = 'Saved token (masked)';
-    saveBtn.textContent = 'Saved';
-    setTimeout(()=> saveBtn.textContent = 'Save', 1200);
-  } else {
-    tokenInput.value = '';
-    tokenInput.dataset.real = '0';
+  // helpers
+  function el(id){return document.getElementById(id);}
+  function fmtINR(v){
+    if (v === null || v === undefined) return '—';
+    const n = Number(v);
+    if (Number.isNaN(n)) return '—';
+    return '₹' + n.toLocaleString('en-IN', {maximumFractionDigits: (Math.abs(n) % 1 ? 2 : 0)});
   }
-}
-applyTokenUI();
-
-toggleBtn.addEventListener('click', ()=>{
-  // temporarily reveal the real token value (if saved) for a few seconds
-  const saved = getStoredToken();
-  if(!saved){
-    // if not saved, toggle display of typed value (switch type between text/password)
-    tokenInput.type = (tokenInput.type === 'password') ? 'text' : 'password';
-    toggleBtn.textContent = (tokenInput.type === 'password') ? 'Show' : 'Hide';
-    return;
+  function showResult(msg, isError = false){
+    const r = el('action_result');
+    r.style.display = 'block';
+    r.style.background = isError ? 'rgba(255,30,30,0.06)' : 'rgba(30,200,120,0.04)';
+    r.style.color = isError ? '#ffdede' : '#d1ffd6';
+    r.textContent = msg;
+    setTimeout(()=>{ r.style.display='none'; }, 10_000);
   }
-  // if saved, show the real token only briefly
-  tokenInput.type = 'text';
-  tokenInput.value = saved;
-  toggleBtn.textContent = 'Hide';
-  setTimeout(()=>{
-    tokenInput.type = 'password';
-    tokenInput.value = '********';
-    toggleBtn.textContent = 'Show';
-  }, 3500); // visible for 3.5s
-});
+  function setText(id, txt){ const e = el(id); if (e) e.textContent = txt; }
 
-saveBtn.addEventListener('click', ()=>{
-  // if user typed a new token into the masked field (dataset.real=='0' or visible)
-  let val = tokenInput.value.trim();
-  const wasSaved = tokenInput.dataset.real === '1';
-  if(wasSaved && val === '********'){
-    showToast('Token already saved (masked). Use Clear to replace.');
-    return;
+  // token management
+  const tokenInput = el('admin_token');
+  const saveBtn = el('save_token');
+  const clearBtn = el('clear_token');
+  const loginBtn = el('login_kite');
+  const refreshBtn = el('refresh_state');
+  const enforceBtn = el('enforce_btn');
+  const killBtn = el('kill_btn');
+  const cancelBtn = el('cancel_btn');
+  const allowNewCheckbox = el('allow_new');
+  const refreshCards = el('refresh_cards');
+
+  function getSavedToken(){ return localStorage.getItem('ADMIN_TOKEN') || ''; }
+  function setSavedToken(t){ if (t) localStorage.setItem('ADMIN_TOKEN', t); else localStorage.removeItem('ADMIN_TOKEN'); }
+  function authHeader(){
+    const t = getSavedToken();
+    return t ? { 'Authorization': (t.startsWith('Bearer ') ? t : 'Bearer ' + t) } : {};
   }
-  if(!val){
-    showToast('Enter token first');
-    return;
-  }
-  // store the actual token (do not echo it anywhere)
-  setStoredToken(val);
-  applyTokenUI();
-  setAdminEnabled(true);
-  showToast('Token saved (masked)');
-});
-
-clearBtn.addEventListener('click', ()=>{
-  setStoredToken('');
-  tokenInput.value = '';
-  tokenInput.dataset.real = '0';
-  tokenInput.type = 'password';
-  setAdminEnabled(false);
-  showToast('Token cleared');
-});
-
-/* --- Admin enable/disable controls --- */
-let adminEnabled = false;
-function setAdminEnabled(v){
-  adminEnabled = !!v;
-  const inputs = ['rule_max_loss_pct','rule_trail_step','rule_cooldown_min','rule_max_consec'];
-  inputs.forEach(id => { const el=$(id); if(el) el.disabled = !adminEnabled; });
-  const btns = ['enforce_btn','kill_btn','cancel_all_btn','enforce_trades_btn'];
-  btns.forEach(id => { const el=$(id); if(el) el.disabled = !adminEnabled; });
-}
-
-/* initialize enable state from stored token */
-if(getStoredToken()) setAdminEnabled(true);
-
-/* --- polite helper to attach Authorization header without exposing token in UI --- */
-function authHeader(){
-  const t = getStoredToken();
-  if(!t) return {};
-  const headerVal = t.startsWith('Bearer ') ? t : 'Bearer ' + t;
-  return { 'Authorization': headerVal };
-}
-
-/* --- fetch state and funds --- */
-async function fetchState(){
-  try{
-    const r = await fetch('/api/state?t=' + Date.now());
-    const j = await r.json();
-    if(!j.ok) { showToast('Failed to load state'); return; }
-    $('now').textContent = j.time || nowTime();
-    $('kite_status').textContent = 'Kite: ' + (j.kite_status || '—');
-    $('guard_status').textContent = (j.admin ? 'admin' : 'read-only');
-    const s = j.state || {};
-    $('capital915').textContent = formatINR(s.capital_day_915 || 0);
-    $('max_loss').textContent = formatINR(calcMaxLoss(s));
-    $('max_loss_pct').textContent = 'Max Loss %: ' + (s.max_loss_pct ?? 10) + '%';
-    window._state = s;
-  }catch(e){
-    console.error(e); showToast('Load state error');
-  }
-}
-async function fetchFunds(){
-  try{
-    const r = await fetch('/api/kite/funds');
-    const j = await r.json();
-    if(j.ok){
-      const av = Number(j.funds?.available?.live_balance ?? j.funds?.available?.cash ?? j.balance ?? j.funds?.cash || 0);
-      $('live_funds').textContent = formatINR(av);
+  // masked input: we keep input type password so it's masked - but show placeholder when empty
+  tokenInput.value = getSavedToken() ? '********' : '';
+  let tokenDirty = false;
+  tokenInput.addEventListener('input', ()=> { tokenDirty = true; });
+  saveBtn.onclick = ()=>{
+    if (tokenDirty && tokenInput.value){
+      // if user typed new string, save it
+      setSavedToken(tokenInput.value);
+      tokenInput.value = '********';
+      tokenDirty = false;
+      updateButtons();
+      showResult('Admin token saved.', false);
+    } else if (!getSavedToken()){
+      showResult('No token supplied.', true);
     } else {
-      $('live_funds').textContent = 'ERR';
+      showResult('Token already saved.', false);
     }
-  }catch(e){ $('live_funds').textContent = 'ERR'; }
-}
-function calcMaxLoss(s){ const cap = Number(s.capital_day_915 || 0); const pct = Number(s.max_loss_pct ?? 10); return Math.round(cap * pct / 100); }
-function formatINR(v){ if(v==null || isNaN(Number(v))) return '—'; return '₹' + Number(v).toLocaleString('en-IN',{maximumFractionDigits:0}); }
+  };
+  clearBtn.onclick = ()=>{
+    setSavedToken('');
+    tokenInput.value = '';
+    tokenDirty = false;
+    updateButtons();
+    showResult('Admin token cleared.', false);
+  };
 
-/* --- admin action POST helper (sends Authorization header) --- */
-async function postAction(path, body = {}){
-  const headers = { 'Content-Type': 'application/json', ...authHeader() };
-  try{
-    const r = await fetch(path, { method:'POST', headers, body: JSON.stringify(body) });
-    const j = await r.json().catch(()=>({ ok:false, error:'invalid json' }));
-    // write response but do NOT include Authorization header or token
-    const safe = JSON.stringify(j);
-    const pre = $('raw_responses');
-    if(pre) pre.textContent = `${path} => ${safe}\n\n` + pre.textContent;
-    $('last_action_msg').textContent = (j.ok ? 'Success' : 'Error: ' + (j.error || safe));
-    return j;
-  }catch(e){
-    showToast('Request failed: ' + e.message);
-    return { ok:false, error:String(e) };
+  function updateButtons(){
+    const has = !!getSavedToken();
+    [enforceBtn, killBtn, cancelBtn, allowNewCheckbox, loginBtn].forEach(b=>{
+      b.disabled = !has
+    });
   }
-}
+  updateButtons();
 
-/* --- button handlers --- */
-$('enforce_btn').addEventListener('click', async ()=>{
-  $('last_action_msg').textContent = 'Enforcing...';
-  const allowNew = !!$('allow_new_checkbox').checked;
-  await postAction('/api/admin/enforce', { allow_new: allowNew });
-});
-$('enforce_trades_btn').addEventListener('click', ()=> $('enforce_btn').click());
+  // load state & funds
+  async function loadStateAndFunds(){
+    try {
+      const sRes = await fetch(API.state);
+      const j = await sRes.json();
+      if (!j.ok) throw new Error(j.error || 'state error');
+      const st = j.state || {};
+      setText('capital_915', fmtINR(st.capital_day_915 ?? 0));
+      setText('max_loss', fmtINR( (st.capital_day_915 || 0) * (st.max_loss_pct ?? 10) / 100 ));
+      setText('max_loss_pct', 'Max Loss %: ' + ((st.max_loss_pct ?? 10) + '%'));
+      setText('active_floor', fmtINR(st.active_loss_floor ?? 0));
+      setText('pnl_text', `${fmtINR(st.realised ?? 0)} / ${fmtINR(st.unrealised ?? 0)} / ${fmtINR((st.realised??0)+(st.unrealised??0))}`);
+      setText('guardian_status', j.admin ? 'admin' : '—');
+      setText('time_now', j.time || '--:--:--');
+      // cached balance fallback is in state.current_balance
+      if (st.current_balance != null) setText('live_balance', fmtINR(st.current_balance));
+    } catch (e){
+      showResult('Failed to load state: ' + (e.message||e), true);
+    }
 
-$('cancel_all_btn').addEventListener('click', async ()=>{
-  $('last_action_msg').textContent = 'Cancelling...';
-  const cancelAll = !!$('cancel_checkbox').checked;
-  await postAction('/api/admin/cancel', { cancel_all: cancelAll });
-});
+    // funds - attempt to fetch, but keep using cached value if offline
+    try {
+      const r = await fetch(API.funds, {headers: {...authHeader()}});
+      const funds = await r.json();
+      if (!funds.ok) {
+        // display server-provided error inside the card
+        setText('live_balance', (funds.error) ? 'ERR: ' + funds.error : '—');
+      } else {
+        // derive best available
+        const av = Number(
+          funds.funds?.available?.live_balance ??
+          funds.funds?.net ??
+          funds.balance ??
+          funds.funds?.available?.cash ??
+          funds.funds?.cash ??
+          0
+        );
+        if (!Number.isNaN(av)) setText('live_balance', fmtINR(av));
+      }
+    } catch (e){
+      // ignore, state may have fallback
+    }
+  }
 
-$('kill_btn').addEventListener('click', async ()=> { $('last_action_msg').textContent = 'Killing...'; await postAction('/api/admin/kill', {}); });
-$('kill_btn2').addEventListener('click', ()=> $('kill_btn').click());
+  // Try a fetch with method fallback (POST then GET) to avoid method-not-allowed
+  async function fetchWithFallback(url, opts = {}, allowedMethods = ['POST','GET']){
+    const headers = opts.headers || {};
+    let lastErr;
+    for (const method of allowedMethods){
+      try {
+        const res = await fetch(url, {...opts, method, headers: {...headers, ...(authHeader())}});
+        const body = await res.text();
+        let json;
+        try { json = JSON.parse(body); } catch(e){ json = { ok: false, error: body || 'Invalid JSON' }; }
+        if (res.status === 405){
+          lastErr = { status:405, body: json };
+          continue;
+        }
+        return { status: res.status, body: json };
+      } catch (e){
+        lastErr = e;
+      }
+    }
+    // everything failed
+    return { status: lastErr?.status||0, body: lastErr?.body || { ok:false, error: String(lastErr) } };
+  }
 
-$('login_zerodha').addEventListener('click', async ()=>{
-  $('last_action_msg').textContent = 'Zerodha login...';
-  const headers = { 'Content-Type':'application/json', ...authHeader() };
-  try{
-    const r = await fetch('/api/kite/login', { method:'POST', headers, body: JSON.stringify({}) });
-    const j = await r.json();
-    $('raw_responses').textContent = JSON.stringify(j) + '\n\n' + $('raw_responses').textContent;
-    if(j.ok) showToast('Zerodha login OK');
-    else showToast('Zerodha login: ' + (j.error || 'failed'));
-  }catch(e){ showToast('Login failed: '+e.message); }
-});
+  // actions
+  loginBtn.onclick = async ()=>{
+    loginBtn.disabled = true;
+    try {
+      // try POST then GET fallback
+      const r = await fetchWithFallback(API.kiteLogin, { headers: {'Content-Type':'application/json'} }, ['POST','GET']);
+      el('debug').style.display='block'; el('debug').textContent = 'Login response: ' + JSON.stringify(r.body);
+      if (!r.body.ok) showResult('Zerodha login returned: ' + JSON.stringify(r.body), true);
+      else showResult('Zerodha login ok', false);
+      await loadStateAndFunds();
+    } finally { loginBtn.disabled = false; }
+  };
 
-$('refresh_state').addEventListener('click', ()=> { fetchState(); fetchFunds(); });
-$('refresh_stats').addEventListener('click', ()=> { fetchState(); fetchFunds(); });
+  enforceBtn.onclick = async ()=>{
+    enforceBtn.disabled = true;
+    try {
+      const r = await fetchWithFallback(API.enforce, { headers: {'Content-Type':'application/json'} }, ['GET','POST']);
+      el('debug').style.display='block'; el('debug').textContent = 'Enforce response: ' + JSON.stringify(r.body);
+      if (!r.body.ok) showResult('Enforce failed: ' + JSON.stringify(r.body), true);
+      else showResult('Enforce done: ' + JSON.stringify(r.body), false);
+      await loadStateAndFunds();
+    } finally { enforceBtn.disabled = false; }
+  };
 
-/* pager nav */
-$('prev_page').addEventListener('click', ()=> { const p=$('pages'); p.scrollBy({ left: -window.innerWidth, behavior:'smooth' }); });
-$('next_page').addEventListener('click', ()=> { const p=$('pages'); p.scrollBy({ left: window.innerWidth, behavior:'smooth' }); });
+  killBtn.onclick = async ()=>{
+    killBtn.disabled = true;
+    try {
+      const r = await fetchWithFallback(API.kill, { headers: {'Content-Type':'application/json'} , body: JSON.stringify({})}, ['POST','GET']);
+      el('debug').style.display='block'; el('debug').textContent = 'Kill response: ' + JSON.stringify(r.body);
+      if (!r.body.ok) showResult('Kill failed: ' + JSON.stringify(r.body), true);
+      else showResult('Kill done', false);
+      await loadStateAndFunds();
+    } finally { killBtn.disabled = false; }
+  };
 
-/* initial load */
-window.addEventListener('load', ()=>{
-  // if token stored, keep masked placeholder
-  applyTokenUI();
-  fetchState();
-  fetchFunds();
-  setInterval(()=> $('now').textContent = nowTime(),1000);
-});
+  cancelBtn.onclick = async ()=>{
+    cancelBtn.disabled = true;
+    try {
+      const r = await fetchWithFallback(API.cancel, { headers: {'Content-Type':'application/json'} , body: JSON.stringify({})}, ['POST','GET']);
+      el('debug').style.display='block'; el('debug').textContent = 'Cancel response: ' + JSON.stringify(r.body);
+      if (!r.body.ok) showResult('Cancel failed: ' + JSON.stringify(r.body), true);
+      else showResult('Cancel done: ' + JSON.stringify(r.body), false);
+      await loadStateAndFunds();
+    } finally { cancelBtn.disabled = false; }
+  };
+
+  refreshBtn.onclick = ()=>loadStateAndFunds();
+  refreshCards.onclick = ()=>loadStateAndFunds();
+
+  // init
+  setInterval(async ()=>{
+    // update time in header (local)
+    const t = new Date().toLocaleTimeString('en-IN', {hour12:false});
+    setText('time_now', t);
+  },1000);
+
+  // enable buttons if token saved
+  updateButtons();
+
+  // initial load
+  await loadStateAndFunds();
+
+})();
 </script>
 </body>
 </html>
