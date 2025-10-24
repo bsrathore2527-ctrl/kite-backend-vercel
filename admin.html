@@ -6,351 +6,307 @@
 <title>Guardian — Admin</title>
 <style>
   :root{
-    --bg:#071020;
-    --card:#0b1624;
-    --muted:#9aa7b6;
-    --accent:#60d36b;
-    --accent2:#5aa6ff;
-    --glass: rgba(255,255,255,0.03);
-    --card-border: rgba(255,255,255,0.04);
-    font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+    --bg:#071025; --card:#0e1724; --muted:#9aa6b2; --accent:#2b7ef6;
+    --accent-2:#20c997; --danger:#e05151; --glass: rgba(255,255,255,0.03);
+    font-family: Inter, system-ui, Arial, sans-serif;
   }
-  html,body{height:100%;margin:0;background:linear-gradient(180deg,#071020 0%, #05101a 100%);color:#e6eef6}
-  .wrap{max-width:1050px;margin:18px auto;padding:18px}
-  header{display:flex;align-items:center;gap:14px;margin-bottom:18px}
-  .logo{width:56px;height:56px;border-radius:10px;background:linear-gradient(135deg,#0e2b3a,#163347);display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff}
-  h1{margin:0;font-size:20px;letter-spacing:-0.3px}
+  html,body{height:100%;margin:0;background:linear-gradient(180deg,#041021, #071025 60%);color:#e6f0ff}
+  .wrap{max-width:980px;margin:22px auto;padding:18px}
+  header{display:flex;gap:12px;align-items:center;margin-bottom:18px}
+  header h1{margin:0;font-size:20px}
   .badges{margin-left:auto;display:flex;gap:10px;align-items:center}
-  .badge{padding:6px 10px;border-radius:999px;background:var(--glass);border:1px solid var(--card-border);font-size:13px;color:var(--muted)}
-  .badge.ok{background:linear-gradient(90deg,#052b17,#06311a);color:var(--accent)}
-  .grid{display:grid;grid-template-columns:1fr 420px;gap:18px}
-  .card{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));border-radius:12px;padding:16px;border:1px solid var(--card-border)}
-  .controls{display:flex;gap:8px;flex-wrap:wrap}
-  input[type="text"]{width:100%;padding:12px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:inherit}
-  button{padding:10px 14px;border-radius:10px;border:none;background:#142a3a;color:#fff;cursor:pointer}
-  button.primary{background:linear-gradient(90deg,#56c27a,#2fb37a);box-shadow:0 6px 18px rgba(46,170,109,0.12)}
-  button.ghost{background:transparent;border:1px solid rgba(255,255,255,0.06);color:var(--muted)}
-  .row{display:flex;gap:10px;align-items:center}
-  .stat-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:12px}
-  .stat{padding:12px;border-radius:10px;background:rgba(255,255,255,0.01);border:1px solid rgba(255,255,255,0.03)}
-  .stat h3{margin:0;font-size:13px;color:var(--muted)}
-  .stat p{margin:8px 0 0;font-size:22px;font-weight:700}
-  .actions{margin-top:12px;display:flex;gap:8px;flex-wrap:wrap}
+  .badge{padding:8px 12px;border-radius:999px;background:var(--glass);color:var(--muted);font-size:13px}
+  .card{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));border-radius:12px;padding:14px;margin-bottom:14px;box-shadow:0 6px 18px rgba(0,0,0,0.6)}
+  .row{display:flex;gap:12px;align-items:center}
+  .row .col{flex:1}
+  input[type=text]{width:100%;padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,0.03);background:transparent;color:inherit}
+  button{padding:10px 14px;border-radius:10px;border:0;background:var(--accent);color:white;font-weight:600;cursor:pointer}
+  .btn-ghost{background:transparent;border:1px solid rgba(255,255,255,0.04);color:var(--muted)}
+  .btn-danger{background:var(--danger)}
+  .controls{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}
+  .status{font-size:13px;color:var(--muted);margin-top:8px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:12px}
+  .metric{background:rgba(255,255,255,0.02);padding:12px;border-radius:10px}
   .muted{color:var(--muted);font-size:13px}
-  .error{color:#ff8a8a;background:rgba(255,138,138,0.06);padding:8px;border-radius:8px;border:1px solid rgba(255,138,138,0.08)}
-  footer{margin-top:18px;color:var(--muted);font-size:13px;text-align:center}
-  @media(max-width:980px){.grid{grid-template-columns:1fr}}
+  .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:22px;padding:12px 18px;border-radius:8px;background:#111;color:#fff;box-shadow:0 8px 20px rgba(0,0,0,0.6)}
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
-    <div class="logo">G</div>
-    <div>
-      <h1>Guardian — Admin</h1>
-      <div class="muted">Risk automation & enforcement</div>
-    </div>
-
+    <h1>Guardian — Admin</h1>
     <div class="badges">
-      <div id="kiteBadge" class="badge">Kite: —</div>
-      <div id="lockBadge" class="badge">Lock: —</div>
-      <div id="guardianBadge" class="badge">Guardian: —</div>
+      <div id="kiteStatus" class="badge">Kite: —</div>
+      <div id="guardianStatus" class="badge">Guardian: —</div>
+      <div id="clock" class="badge">--:--:--</div>
     </div>
   </header>
 
-  <div class="grid">
-    <!-- left: main controls and stats -->
-    <div>
-      <div class="card">
-        <div style="display:flex;gap:12px;align-items:center">
-          <input id="adminToken" type="text" placeholder="ADMIN_TOKEN (stored locally)">
-          <div class="controls" style="width:260px">
-            <button id="saveToken" class="ghost">Save Token</button>
-            <button id="loginZerodha" class="ghost">Login Zerodha</button>
-            <button id="clearToken" class="ghost">Clear</button>
-          </div>
-        </div>
-
-        <div class="actions" style="margin-top:12px">
-          <button id="acquireLock" class="primary">Acquire Lock</button>
-          <button id="releaseLock" class="ghost">Release Lock</button>
-          <button id="takeSnapshot" class="ghost">Take 08:30 Snapshot</button>
-          <button id="enforceNow" class="primary">Enforce Now</button>
-          <button id="resetConsec" class="ghost">Reset Consecutive</button>
-        </div>
-
-        <div id="actionError" style="margin-top:12px"></div>
-      </div>
-
-      <div class="card" style="margin-top:12px">
-        <div style="display:flex;justify-content:space-between;align-items:center">
-          <div><strong>Live overview</strong><div class="muted">Current state & funds</div></div>
-          <div style="display:flex;gap:8px">
-            <button id="refreshBtn" class="ghost">Refresh</button>
-          </div>
-        </div>
-
-        <div class="stat-grid">
-          <div class="stat">
-            <h3>Capital @ 09:15</h3>
-            <p id="capital915">—</p>
-            <div class="muted">Base for daily limits</div>
-          </div>
-
-          <div class="stat">
-            <h3>Live Balance (broker)</h3>
-            <p id="liveBalance">—</p>
-            <div class="muted" id="liveUnreal">unrealised: —</div>
-          </div>
-
-          <div class="stat">
-            <h3>Live MTM</h3>
-            <p id="liveMtm">—</p>
-            <div class="muted">Sum of position PnL</div>
-          </div>
-
-          <div class="stat">
-            <h3>Day Trip</h3>
-            <p id="dayTrip">—</p>
-            <div class="muted">Tripped today?</div>
-          </div>
-        </div>
-
-        <div style="margin-top:12px;display:flex;gap:12px;flex-wrap:wrap">
-          <div class="stat" style="flex:1">
-            <h3>Consecutive Losses</h3>
-            <p id="consec">—</p>
-          </div>
-          <div class="stat" style="flex:1">
-            <h3>Cooldown Until</h3>
-            <p id="cooldownUntil">—</p>
-          </div>
-        </div>
-      </div>
-
-      <div class="card" style="margin-top:12px">
-        <strong>Rules (editable by admin)</strong>
-        <div class="muted" style="margin-bottom:8px">Only when you hold the lock</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-          <input id="ruleMaxLoss" type="number" placeholder="Max Loss %">
-          <input id="ruleTrailStep" type="number" placeholder="Trailing step (₹)">
-          <input id="ruleCooldown" type="number" placeholder="Cooldown (min)">
-          <input id="ruleMaxConsec" type="number" placeholder="Max consecutive losses">
-        </div>
-        <div style="margin-top:10px;display:flex;gap:8px">
-          <button id="saveRules" class="primary">Save Rules</button>
-          <button id="loadRules" class="ghost">Reload Rules</button>
-        </div>
-      </div>
+  <section class="card">
+    <div style="display:flex;gap:12px;align-items:center">
+      <input id="adminToken" type="text" placeholder="Paste ADMIN_TOKEN here (stored locally)"/>
+      <button id="saveBtn" class="">Save</button>
+      <button id="loginBtn" class="btn-ghost">Login Zerodha</button>
+      <button id="clearBtn" class="btn-ghost">Clear</button>
     </div>
 
-    <!-- right column: details -->
-    <div>
-      <div class="card">
-        <h3>State JSON</h3>
-        <pre id="rawState" style="white-space:pre-wrap;background:transparent;padding:8px;border-radius:8px;border:1px dashed rgba(255,255,255,0.02);max-height:340px;overflow:auto">—</pre>
+    <div class="controls">
+      <button id="acquireBtn">Acquire Lock</button>
+      <button id="releaseBtn" class="btn-ghost">Release Lock</button>
+      <button id="snapshotBtn" class="btn-ghost">Take 08:30 Snapshot</button>
+      <button id="enforceBtn" style="background:linear-gradient(90deg,#20c997,#2b7ef6)">Enforce Now</button>
+      <button id="resetConsecBtn" class="btn-ghost">Reset Consecutive</button>
+      <button id="killBtn" class="btn-danger">Kill (Close)</button>
+      <button id="cancelAllBtn" class="btn-ghost">Cancel All</button>
+      <label style="display:flex;align-items:center;gap:8px;margin-left:8px">
+        <input id="allowNew" type="checkbox"/> Allow New Orders
+      </label>
+    </div>
+
+    <div id="actionStatus" class="status muted">Ready.</div>
+  </section>
+
+  <section class="card">
+    <div class="grid">
+      <div class="metric">
+        <div class="muted">Capital @ 09:15</div>
+        <div id="capital" style="font-size:22px;font-weight:700">—</div>
       </div>
-      <div class="card" style="margin-top:12px">
-        <h3>Quick actions / debug</h3>
-        <div class="muted">Use these to test / debug enforcement</div>
-        <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
-          <button id="fakeTrip" class="ghost">Set Tripped (local)</button>
-          <button id="clearTrip" class="ghost">Clear Tripped (local)</button>
-        </div>
+      <div class="metric">
+        <div class="muted">Live Balance (broker)</div>
+        <div id="liveBalance" style="font-size:22px;font-weight:700">—</div>
+        <div class="muted" id="balanceNote">—</div>
+      </div>
+      <div class="metric">
+        <div class="muted">Live MTM</div>
+        <div id="liveMtm" style="font-size:22px;font-weight:700">—</div>
+      </div>
+      <div class="metric">
+        <div class="muted">Day Trip</div>
+        <div id="dayTrip" style="font-size:22px;font-weight:700">—</div>
       </div>
     </div>
-  </div>
-
-  <footer>Guardian admin UI — local admin token stored in browser. Use only on secure devices.</footer>
+  </section>
 </div>
 
+<div id="toast" class="toast" style="display:none"></div>
+
 <script>
-/*
- admin.html
- - Expects these backend routes to exist:
-   GET  /api/state                -> public state (includes kite_status)
-   GET  /api/kite/funds           -> kite funds (ok:true + funds object)
-   POST /api/admin/lock           -> acquire lock (requires Authorization Bearer ADMIN_TOKEN)
-   POST /api/admin/release        -> release lock
-   POST /api/admin/enforce        -> run enforcement immediately
-   POST /api/admin/snapshot       -> take snapshot (08:30)
-   POST /api/admin/reset          -> reset consecutive losses
-   POST /api/admin/rules          -> save rules (body JSON) (requires auth)
-   GET  /api/login                -> login flow (redirect)
- If some endpoints differ in your backend, update the URLs below.
-*/
+/* ---------- Utilities ---------- */
+const apiRoot = location.origin;
+const LS_KEY = "guardian_admin_token";
 
-const $ = id => document.getElementById(id);
+function toast(msg, ms=3500) {
+  const t = document.getElementById("toast");
+  t.textContent = msg;
+  t.style.display = "block";
+  setTimeout(()=> t.style.display="none", ms);
+}
 
-const adminKeyLS = 'guardian_admin_token';
-
-function setBadge(id,text,ok=false){
-  const el = $(id);
+function setStatus(text, isError=false) {
+  const el = document.getElementById("actionStatus");
   el.textContent = text;
-  el.className = ok ? 'badge ok' : 'badge';
+  el.style.color = isError ? "#f88" : "";
 }
 
-function showError(msg){
-  const e = $('actionError');
-  e.innerHTML = '<div class="error">' + msg + '</div>';
-  setTimeout(()=> e.innerHTML = '', 7000);
-}
-
-function authHeader(){
-  const token = localStorage.getItem(adminKeyLS);
-  return token ? { Authorization: 'Bearer ' + token } : {};
-}
-
-async function fetchJson(url, opts = {}) {
+/* fetch that retries GET/POST fallback on 405 */
+async function fetchWithFallback(url, opts={}) {
+  // default method
+  opts.method = (opts.method || "GET").toUpperCase();
   try {
-    const r = await fetch(url, opts);
-    const txt = await r.text();
-    // some endpoints may return non-json error pages -> handle gracefully
-    try { return JSON.parse(txt); } catch(err) { return { ok:false, _raw: txt, status:r.status }; }
-  } catch(err){
-    return { ok:false, error: String(err) };
+    const res = await fetch(url, opts);
+    if (res.status === 405) {
+      // try fallback method (swap GET <-> POST)
+      const fallback = (opts.method === "GET") ? "POST" : "GET";
+      const newOpts = {...opts, method: fallback};
+      // if GET, delete body
+      if (fallback === "GET") delete newOpts.body;
+      const r2 = await fetch(url, newOpts);
+      return r2;
+    }
+    return res;
+  } catch(e){
+    throw e;
   }
 }
 
-function setText(id, v){ if($(id)) $(id).textContent = v; }
+/* add Authorization header if token stored */
+function authHeaders() {
+  const token = localStorage.getItem(LS_KEY) || "";
+  return token ? { "Authorization": "Bearer " + token } : {};
+}
 
-async function refreshAll(){
-  // state
-  const st = await fetchJson('/api/state');
-  if(!st || !st.ok){ setText('rawState', JSON.stringify(st, null, 2)); showError('Failed to load state'); updateBadges(null); return; }
-  setText('rawState', JSON.stringify(st, null, 2));
-  updateBadges(st);
-  const s = st.state || {};
-  setText('capital915', formatCurrency(s.capital_day_915 ?? 0));
-  setText('dayTrip', (s.tripped_day ? 'YES' : 'NO'));
-  setText('consec', s.consecutive_losses ?? 0);
-  setText('cooldownUntil', s.cooldown_until ? new Date(s.cooldown_until).toLocaleString() : '—');
+/* convenience: call API and parse JSON */
+async function callApi(path, {method="GET", body=null}={}) {
+  const url = apiRoot + path;
+  const headers = {...authHeaders()};
+  if (body !== null) {
+    headers["Content-Type"] = "application/json";
+  }
+  const opts = {method, headers};
+  if (body !== null) opts.body = JSON.stringify(body);
+  const res = await fetchWithFallback(url, opts);
+  const text = await res.text();
+  try {
+    return { ok: res.ok, status: res.status, json: JSON.parse(text), text };
+  } catch(e) {
+    return { ok: res.ok, status: res.status, json: null, text };
+  }
+}
 
-  // show cached current_balance
-  setText('liveBalance', formatCurrency(s.current_balance ?? '—'));
-  setText('liveMtm', formatCurrency(s.unrealised ?? 0));
-  setText('liveUnreal', 'unrealised: ' + (s.unrealised ?? '—'));
+/* ---------- UI actions ---------- */
+async function saveToken() {
+  const v = document.getElementById("adminToken").value.trim();
+  if (!v) { toast("Empty token not saved"); return; }
+  localStorage.setItem(LS_KEY, v);
+  toast("Admin token saved (local)");
+  loadState(); // reload with auth
+}
 
-  // rules
-  $('ruleMaxLoss').value = s.max_loss_pct ?? $('ruleMaxLoss').value;
-  $('ruleTrailStep').value = s.trail_step_profit ?? $('ruleTrailStep').value;
-  $('ruleCooldown').value = s.cooldown_min ?? $('ruleCooldown').value;
-  $('ruleMaxConsec').value = s.max_consecutive_losses ?? $('ruleMaxConsec').value;
+function clearToken() {
+  localStorage.removeItem(LS_KEY);
+  document.getElementById("adminToken").value = "";
+  toast("Admin token cleared");
+  loadState();
+}
 
-  // live funds from kite
-  const fundsResp = await fetchJson('/api/kite/funds');
-  if(fundsResp.ok && fundsResp.funds){
-    // try to pick live balance fields (available.live_balance preferred)
-    const f = fundsResp;
-    const liveBalance = Number((f.funds?.available?.live_balance ?? f.funds?.net ?? f.balance ?? f.funds?.available?.cash ?? f.funds?.cash) || 0);
-    setText('liveBalance', formatCurrency(liveBalance));
-    setText('liveUnreal', 'unrealised: ' + (f.funds?.available?.m2m_unrealised ?? f.funds?.unrealised ?? '0'));
+async function loginZerodha() {
+  setStatus("Logging into Zerodha...");
+  try {
+    const r = await callApi("/api/kite/login", { method: "GET" });
+    if (r.json) {
+      setStatus("Login response: " + (r.json.ok ? "ok" : JSON.stringify(r.json)));
+      toast("Zerodha login returned: " + (r.json.ok ? "ok" : r.text));
+      // if the login endpoint returns a redirect url, open it:
+      if (r.json && r.json.redirect) window.open(r.json.redirect, "_blank");
+    } else {
+      setStatus("Login failed: " + r.text, true);
+      toast("Zerodha login failed");
+    }
+  } catch (e) {
+    setStatus("Login error", true);
+    toast("Error: " + (e.message || e));
+  }
+}
+
+async function acquireLock() {
+  setStatus("Acquiring lock...");
+  const r = await callApi("/api/admin/lock", { method: "POST", body: {} });
+  if (r.ok) {
+    setStatus("Lock acquired");
+    toast("Lock acquired");
+    loadState();
   } else {
-    // keep cached from state
+    setStatus("Acquire failed: " + (r.text || r.status), true);
+    toast("Acquire failed: " + (r.text || r.status));
+  }
+}
+async function releaseLock() {
+  setStatus("Releasing lock...");
+  const r = await callApi("/api/admin/release", { method: "POST", body: {} });
+  if (r.ok) {
+    setStatus("Lock released");
+    toast("Lock released");
+    loadState();
+  } else {
+    setStatus("Release failed: " + (r.text || r.status), true);
+    toast("Release failed: " + (r.text || r.status));
+  }
+}
+async function enforceNow() {
+  setStatus("Enforce now...");
+  const r = await callApi("/api/admin/enforce", { method: "POST", body: {} });
+  if (r.ok) { setStatus("Enforce started"); toast("Enforce started"); loadState(); }
+  else { setStatus("Enforce failed: " + (r.text||r.status), true); toast("Enforce failed"); }
+}
+async function resetConsecutive() {
+  setStatus("Reset consecutive losses...");
+  const r = await callApi("/api/admin/reset-consecutive", { method: "POST", body: {} });
+  if (r.ok) { setStatus("Reset done"); toast("Reset done"); loadState(); }
+  else { setStatus("Reset failed", true); toast("Reset failed"); }
+}
+async function killSwitch() {
+  if (!confirm("Kill switch: will attempt to close positions. Proceed?")) return;
+  setStatus("Kill: closing positions...");
+  const r = await callApi("/api/admin/kill", { method: "POST", body: {} });
+  if (r.ok) { setStatus("Kill executed"); toast("Kill executed"); loadState(); }
+  else { setStatus("Kill failed", true); toast("Kill failed: " + (r.text||r.status)); }
+}
+async function cancelAll() {
+  if (!confirm("Cancel all orders?")) return;
+  setStatus("Cancelling all...");
+  const r = await callApi("/api/admin/cancel-all", { method: "POST", body: {} });
+  if (r.ok) { setStatus("All cancelled"); toast("All cancelled"); loadState(); }
+  else { setStatus("Cancel failed", true); toast("Cancel failed"); }
+}
+async function toggleAllowNew(allow) {
+  setStatus((allow? "Allowing":"Blocking")+" new orders...");
+  const r = await callApi("/api/admin/allow-new", { method: "POST", body: { allow }});
+  if (r.ok) { setStatus("Updated allow-new"); toast("Updated"); loadState(); }
+  else { setStatus("Update failed", true); toast("Update failed"); }
+}
+
+/* ---------- state & UI refresh ---------- */
+function fmtINR(x){ return (typeof x !== "number" ? x : "₹" + Math.round(x)); }
+
+async function loadState() {
+  try {
+    document.getElementById("kiteStatus").textContent = "Kite: ...";
+    const r = await callApi("/api/state", { method: "GET" });
+    if (!r.ok || !r.json) {
+      setStatus("Failed to load state", true);
+      document.getElementById("kiteStatus").textContent = "Kite: -";
+      return;
+    }
+    const j = r.json;
+    document.getElementById("guardianStatus").textContent = "Guardian: " + (j.admin ? "admin" : "online");
+    document.getElementById("clock").textContent = j.time || "";
+    // metrics (safe defaults)
+    const s = j.state || {};
+    document.getElementById("capital").textContent = fmtINR(s.capital_day_915 ?? 0);
+    document.getElementById("dayTrip").textContent = (s.tripped_day ? "YES" : "NO");
+    document.getElementById("liveMtm").textContent = fmtINR(s.unrealised ?? 0);
+    // Live funds request
+    const funds = await callApi("/api/kite/funds", { method: "GET" });
+    if (funds.ok && funds.json) {
+      const payload = funds.json;
+      // choose best live balance fields
+      let bal = payload.balance ?? (payload.funds && payload.funds.available && (payload.funds.available.live_balance ?? payload.funds.available.cash)) ?? (payload.funds && payload.funds.cash) ?? 0;
+      document.getElementById("liveBalance").textContent = fmtINR(bal);
+      document.getElementById("balanceNote").textContent = "live from broker";
+      document.getElementById("kiteStatus").textContent = "Kite: connected";
+    } else {
+      // fallback to cached current_balance
+      document.getElementById("liveBalance").textContent = fmtINR(s.current_balance ?? "—");
+      document.getElementById("balanceNote").textContent = "uses cached if offline";
+      if (funds.json && funds.json.error) document.getElementById("kiteStatus").textContent = "Kite: auth error";
+      else document.getElementById("kiteStatus").textContent = "Kite: offline";
+    }
+    setStatus("State loaded");
+  } catch (e) {
+    setStatus("Failed to load state: " + (e.message || e), true);
   }
 }
 
-function updateBadges(stateResp){
-  // kite status from state endpoint
-  if(!stateResp){ setBadge('kiteBadge','Kite: error'); setBadge('lockBadge','Lock: Error'); setBadge('guardianBadge','Guardian: —'); return; }
-  const kite_ok = stateResp.kite_status === 'ok';
-  setBadge('kiteBadge', 'Kite: ' + (kite_ok ? 'ok' : 'not logged in'), kite_ok);
+/* ---------- wiring ---------- */
+document.getElementById("saveBtn").addEventListener("click", saveToken);
+document.getElementById("clearBtn").addEventListener("click", clearToken);
+document.getElementById("loginBtn").addEventListener("click", loginZerodha);
+document.getElementById("acquireBtn").addEventListener("click", acquireLock);
+document.getElementById("releaseBtn").addEventListener("click", releaseLock);
+document.getElementById("enforceBtn").addEventListener("click", enforceNow);
+document.getElementById("resetConsecBtn").addEventListener("click", resetConsecutive);
+document.getElementById("killBtn").addEventListener("click", killSwitch);
+document.getElementById("cancelAllBtn").addEventListener("click", cancelAll);
+document.getElementById("allowNew").addEventListener("change", (e)=> toggleAllowNew(e.target.checked));
 
-  // lock state: try to parse stateResp.lock_owner (if backend provides) or show admin flag
-  // fallback: if admin shown true, show Lock: Held
-  const admin = stateResp.admin;
-  if(stateResp.lock_owner) setBadge('lockBadge', `Lock: ${stateResp.lock_owner}`);
-  else setBadge('lockBadge', admin ? 'Lock: Held' : 'Lock: Free', admin);
-
-  setBadge('guardianBadge', 'Guardian: ' + (stateResp.ok ? 'online' : '—'), !!stateResp.ok);
-}
-
-function formatCurrency(v){
-  if(v === null || v === undefined || v === '') return '—';
-  if(isNaN(Number(v))) return String(v);
-  const n = Number(v);
-  return '₹' + n.toLocaleString('en-IN', { maximumFractionDigits: 2 });
-}
-
-/* ---------- actions ---------- */
-$('saveToken').addEventListener('click', ()=>{
-  const t = $('adminToken').value.trim();
-  if(!t){ localStorage.removeItem(adminKeyLS); $('adminToken').value=''; showError('Empty token removed'); return; }
-  localStorage.setItem(adminKeyLS, t);
-  showError('Admin token saved locally');
-  refreshAll();
-});
-$('clearToken').addEventListener('click', ()=>{
-  localStorage.removeItem(adminKeyLS);
-  $('adminToken').value = '';
-  showError('Admin token cleared');
-  refreshAll();
-});
-
-$('loginZerodha').addEventListener('click', ()=>{
-  // open redirect login in new tab — your /api/login should redirect to kite connect
-  window.open('/api/login','_blank');
-});
-
-$('acquireLock').addEventListener('click', async ()=>{
-  const res = await fetchJson('/api/admin/lock', { method:'POST', headers:{ 'Content-Type':'application/json', ...authHeader() } });
-  if(res.ok){ showError('Lock acquired'); refreshAll(); } else showError('Acquire failed: ' + (res.error || res._raw || res.status));
-});
-
-$('releaseLock').addEventListener('click', async ()=>{
-  const res = await fetchJson('/api/admin/release', { method:'POST', headers:{ 'Content-Type':'application/json', ...authHeader() } });
-  if(res.ok){ showError('Lock released'); refreshAll(); } else showError('Release failed: ' + (res.error || res._raw || res.status));
-});
-
-$('enforceNow').addEventListener('click', async ()=>{
-  const ok = confirm('Run enforcement now? This will execute enforcement logic on the backend.');
-  if(!ok) return;
-  const res = await fetchJson('/api/admin/enforce', { method:'POST', headers:{ 'Content-Type':'application/json', ...authHeader() } });
-  if(res.ok){ showError('Enforce triggered'); refreshAll(); } else showError('Enforce failed: ' + (res.error || res._raw || res.status));
-});
-
-$('takeSnapshot').addEventListener('click', async ()=>{
-  const res = await fetchJson('/api/admin/snapshot', { method:'POST', headers:{ 'Content-Type':'application/json', ...authHeader() } });
-  if(res.ok){ showError('Snapshot taken'); refreshAll(); } else showError('Snapshot failed: ' + (res.error || res._raw || res.status));
-});
-
-$('resetConsec').addEventListener('click', async ()=>{
-  if(!confirm('Reset consecutive losses to 0?')) return;
-  const res = await fetchJson('/api/admin/reset', { method:'POST', headers:{ 'Content-Type':'application/json', ...authHeader() } });
-  if(res.ok){ showError('Consecutive losses reset'); refreshAll(); } else showError('Reset failed: ' + (res.error || res._raw || res.status));
-});
-
-$('saveRules').addEventListener('click', async ()=>{
-  const body = {
-    max_loss_pct: Number($('ruleMaxLoss').value) || undefined,
-    trail_step_profit: Number($('ruleTrailStep').value) || undefined,
-    cooldown_min: Number($('ruleCooldown').value) || undefined,
-    max_consecutive_losses: Number($('ruleMaxConsec').value) || undefined
-  };
-  const res = await fetchJson('/api/admin/rules', { method:'POST', body: JSON.stringify(body), headers:{ 'Content-Type':'application/json', ...authHeader() } });
-  if(res.ok){ showError('Rules saved'); refreshAll(); } else showError('Save failed: ' + (res.error || res._raw || res.status));
-});
-
-$('loadRules').addEventListener('click', refreshAll);
-$('refreshBtn').addEventListener('click', refreshAll);
-
-// quick local debug helpers
-$('fakeTrip').addEventListener('click', ()=>{
-  alert('This only modifies UI locally for debug. Use enforce to actually change backend state.');
-});
-$('clearTrip').addEventListener('click', ()=>{ alert('Local clear'); });
-
-/* ---------- boot ---------- */
-function boot(){
-  const t = localStorage.getItem(adminKeyLS) || '';
-  $('adminToken').value = t;
-  refreshAll();
-
-  // poll a bit for live updates
-  setInterval(refreshAll, 20_000);
-}
-boot();
+/* load saved token */
+(function init() {
+  const t = localStorage.getItem(LS_KEY);
+  if (t) document.getElementById("adminToken").value = t;
+  loadState();
+  setInterval(loadState, 30*1000); // refresh every 30s
+})();
 </script>
-
 </body>
 </html>
