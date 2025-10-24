@@ -1,7 +1,4 @@
 // api/enforce.js
-// Cancels pending orders and squares off net positions
-// when daily loss (tripped_day) or block_new_orders flag is active.
-
 import { instance } from "./_lib/kite.js";
 import { kv, todayKey } from "./_lib/kv.js";
 
@@ -67,7 +64,8 @@ async function squareOffAll(kc) {
 
 export default async function handler(req, res) {
   try {
-    if (req.method !== "GET") return bad(res, "Method not allowed");
+    // accept GET or POST from UI / scheduler
+    if (req.method !== "GET" && req.method !== "POST") return bad(res, "Method not allowed");
 
     const key = `risk:${todayKey()}`;
     const state = (await kv.get(key)) || {};
