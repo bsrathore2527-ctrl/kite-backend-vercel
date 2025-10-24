@@ -6,26 +6,20 @@
 <title>Guardian — Admin</title>
 <style>
   :root{
-    --bg:#071022;
-    --card:#0f1724;
-    --muted:#93a0b3;
-    --accent:#2f6df6;
-    --success:#1f7a2f;
-    --danger:#b93131;
-    --glass: rgba(255,255,255,0.03);
-    --glass-2: rgba(255,255,255,0.02);
-    --radius:14px;
+    --bg:#071022; --card:#0f1724; --muted:#93a0b3; --accent:#2f6df6;
+    --success:#1f7a2f; --danger:#b93131; --glass: rgba(255,255,255,0.03);
+    --glass-2: rgba(255,255,255,0.02); --radius:14px;
   }
-  html,body{height:100%;margin:0;background:
-    linear-gradient(180deg,#061123 0%, #071022 40%, #05060a 100%);font-family:Inter,ui-sans-serif,system-ui,Arial;color:#e6eef8}
+  html,body{height:100%;margin:0;background:linear-gradient(180deg,#061123 0%, #071022 40%, #05060a 100%);font-family:Inter,Arial;color:#e6eef8}
   .wrap{max-width:1100px;margin:14px auto;padding:18px;}
   header{display:flex;align-items:center;gap:18px;margin-bottom:14px}
   .logo{width:64px;height:64px;border-radius:12px;background:linear-gradient(135deg,#061428,#0f1b2b);display:grid;place-items:center;font-weight:700}
   h1{margin:0;font-size:28px}
   .meta{margin-left:auto;display:flex;gap:12px;align-items:center;color:var(--muted)}
   .card{background:linear-gradient(180deg,var(--glass),var(--glass-2));border-radius:var(--radius);padding:16px;margin:14px 0;box-shadow:0 6px 28px rgba(0,0,0,0.6);border:1px solid rgba(255,255,255,0.03)}
-  /* small admin panel */
   .admin-grid{display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center}
+  .label{color:var(--muted);font-size:13px;margin-bottom:6px}
+  .token-wrap{display:flex;align-items:center;gap:8px}
   input[type="password"], input[type="text"]{width:100%;padding:12px;border-radius:10px;background:transparent;border:1px solid rgba(255,255,255,0.06);color:inherit}
   .btn{padding:10px 18px;border-radius:10px;border:none;background:var(--accent);color:white;font-weight:600;cursor:pointer}
   .btn.ghost{background:transparent;border:1px solid rgba(255,255,255,0.06)}
@@ -33,28 +27,17 @@
   .btn.ok{background:var(--success)}
   .row{display:flex;gap:10px;flex-wrap:wrap}
   .muted{color:var(--muted);font-size:13px}
-
-  /* cards grid for stats (two columns) */
   .stats{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
   .stat{padding:14px;border-radius:12px;background:rgba(0,0,0,0.18);border:1px solid rgba(255,255,255,0.02)}
   .stat h3{margin:0;font-size:12px;color:var(--muted)}
   .stat .val{font-weight:800;font-size:20px;margin-top:8px}
-
-  /* pager (swipeable pages) */
   .pages{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;gap:18px;padding-bottom:12px}
   .page{min-width:100%;scroll-snap-align:center}
-  /* nav */
   .pager-nav{display:flex;gap:8px;justify-content:center;margin-top:8px}
   .small{font-size:13px;padding:8px 12px;border-radius:8px}
-
-  /* responsive */
-  @media(min-width:900px){
-    .page{min-width:calc(100% - 400px)} /* allow two pages visible a bit on desktop */
-    .wrap{max-width:1300px}
-  }
-  /* toast */
   .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:22px;background:rgba(0,0,0,0.78);color:#fff;padding:10px 14px;border-radius:8px;box-shadow:0 8px 30px rgba(0,0,0,0.6);display:none}
   .toast.show{display:block}
+  .input-eye{cursor:pointer;padding:6px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:var(--muted)}
 </style>
 </head>
 <body>
@@ -74,22 +57,23 @@
 
   <!-- ADMIN CARD -->
   <section class="card">
-    <div class="admin-grid">
-      <div style="display:grid;gap:8px">
-        <div class="muted">Read-only mode. Enter admin token to enable changes.</div>
-        <div style="display:flex;gap:8px;align-items:center">
-          <input id="admin_token" type="password" placeholder="ADMIN_TOKEN" />
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <div>
+        <div class="label">Admin token (keeps UI read-only unless saved)</div>
+        <div class="token-wrap">
+          <!-- token is a password field, masked by default -->
+          <input id="admin_token" type="password" placeholder="Enter admin token" aria-label="Admin token" />
+          <button id="toggle_token" class="input-eye" title="Show / Hide token">Show</button>
           <button id="save_token" class="btn">Save</button>
           <button id="clear_token" class="btn ghost">Clear</button>
         </div>
-        <div class="muted">Token stored locally only. Admin controls unlock the action buttons below.</div>
+        <div class="muted" style="margin-top:8px">Token is stored locally only and will not be displayed anywhere (we show ****** only).</div>
       </div>
 
-      <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">
-        <div class="row">
-          <button id="login_zerodha" class="btn ghost small">Login Zerodha</button>
-          <button id="refresh_state" class="btn ghost small">Refresh</button>
-        </div>
+      <div style="display:flex;gap:10px;align-items:center">
+        <button id="login_zerodha" class="btn ghost small">Login Zerodha</button>
+        <button id="refresh_state" class="btn ghost small">Refresh</button>
+        <div style="margin-left:auto" class="muted">Admin controls unlock after saving token</div>
       </div>
     </div>
 
@@ -108,7 +92,6 @@
 
   <!-- swipeable pages -->
   <div class="pages" id="pages">
-    <!-- PAGE 1 -->
     <div class="page card">
       <h2 style="margin-top:0">Live overview <button id="refresh_stats" class="btn ghost small" style="float:right">Refresh</button></h2>
       <div class="stats" id="stats_grid">
@@ -145,7 +128,6 @@
       </div>
     </div>
 
-    <!-- PAGE 2 -->
     <div class="page card">
       <h2 style="margin-top:0">Rules (editable by admin)</h2>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
@@ -170,7 +152,6 @@
       <div style="margin-top:12px" class="muted">Only editable when admin token is saved.</div>
     </div>
 
-    <!-- PAGE 3 -->
     <div class="page card">
       <h2 style="margin-top:0">Logs & actions</h2>
       <div class="muted">Quick action buttons and last responses</div>
@@ -182,7 +163,7 @@
 
       <div style="margin-top:12px">
         <div class="muted">Last responses</div>
-        <pre id="raw_responses" style="white-space:pre-wrap;color:#ffdede;background:rgba(0,0,0,0.15);padding:12px;border-radius:8px;margin-top:8px">—</pre>
+        <pre id="raw_responses" style="white-space:pre-wrap;color:#ffdede;background:rgba(0,0,0,0.15);padding:12px;border-radius:8px;margin-top:8px;max-height:240px;overflow:auto">—</pre>
       </div>
     </div>
   </div>
@@ -196,214 +177,202 @@
 <div id="toast" class="toast"></div>
 
 <script>
-/* ---------- Utilities ---------- */
+/* small helpers */
 function $(id){ return document.getElementById(id); }
-function showToast(msg, time=3000){ const t=$('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),time); }
+function showToast(msg,t=3000){ const tEl=$('toast'); tEl.textContent=msg; tEl.classList.add('show'); setTimeout(()=>tEl.classList.remove('show'),t); }
 function nowTime(){ return new Date().toLocaleTimeString('en-IN',{timeZone:'Asia/Kolkata',hour12:false}); }
-function getAuthHeader(){
-  const tok = localStorage.getItem('admin_token') || '';
-  if(!tok) return {};
-  return { 'Authorization': (tok.startsWith('Bearer ') ? tok : ('Bearer '+tok)) };
-}
-function safeSet(id, txt){ const el=$(id); if(el) el.textContent = txt; }
 
-/* ---------- State ---------- */
-let adminEnabled = false;
-function setAdminEnabled(v){
-  adminEnabled=v;
-  const inputs = ['rule_max_loss_pct','rule_trail_step','rule_cooldown_min','rule_max_consec'];
-  inputs.forEach(i => { const el=$(i); if(el) el.disabled = !v; });
-}
+/* --- Admin token handling --- */
+const tokenInput = $('admin_token');
+const toggleBtn = $('toggle_token');
+const saveBtn = $('save_token');
+const clearBtn = $('clear_token');
 
-/* ---------- Fetch helpers ---------- */
-async function fetchState(){
-  try{
-    const res = await fetch('/api/state?t=' + Date.now());
-    const j = await res.json();
-    if(!j.ok) throw new Error(j.error || 'Failed to load state');
-    // populate UI
-    safeSet('now', j.time || nowTime());
-    safeSet('kite_status', 'Kite: ' + (j.kite_status || '—'));
-    safeSet('guard_status', (j.admin ? 'admin' : 'read-only'));
-    const s = j.state || {};
-    safeSet('capital915', formatINR(s.capital_day_915 ?? 0));
-    safeSet('max_loss', formatINR(calcMaxLoss(s) ));
-    safeSet('max_loss_pct', 'Max Loss %: ' + ((s.max_loss_pct ?? 10) + '%'));
-    setAdminEnabled(!!j.admin);
-    // store state for UI usage
-    window._state = s;
-  }catch(e){
-    console.error('load state failed', e);
-    showToast('Failed to load state: ' + (e.message||e));
+function getStoredToken(){ return localStorage.getItem('admin_token') || ''; }
+function setStoredToken(v){ if(v) localStorage.setItem('admin_token', v); else localStorage.removeItem('admin_token'); }
+
+/* keep input masked. We will never display token anywhere else.
+   When token exists we display bullets in the field (type=password),
+   but we also set a "saved" visual state on save */
+function applyTokenUI(){
+  const t = getStoredToken();
+  if(t){
+    tokenInput.value = '********';            // show bullets only (not actual token)
+    tokenInput.dataset.real = '1';            // marker that token is saved
+    tokenInput.title = 'Saved token (masked)';
+    saveBtn.textContent = 'Saved';
+    setTimeout(()=> saveBtn.textContent = 'Save', 1200);
+  } else {
+    tokenInput.value = '';
+    tokenInput.dataset.real = '0';
   }
 }
+applyTokenUI();
 
-function calcMaxLoss(s){
-  const cap = Number(s.capital_day_915 || 0);
-  const pct = Number(s.max_loss_pct ?? 10);
-  return Math.round((cap * pct)/100);
-}
-
-function formatINR(v){
-  if (v == null || isNaN(Number(v))) return '—';
-  return '₹' + Number(v).toLocaleString('en-IN', {maximumFractionDigits: 0});
-}
-
-/* ---------- Funds & MTM ---------- */
-async function fetchFundsAndMtm(){
-  // funds
-  try{
-    const r = await fetch('/api/kite/funds');
-    const funds = await r.json();
-    if(funds.ok){
-      const av = Number(
-        (funds.funds?.available?.live_balance ?? funds.funds?.available?.cash ?? funds.balance ?? funds.funds?.cash) || 0
-      );
-      safeSet('live_funds', formatINR(av));
-    } else {
-      safeSet('live_funds', 'ERR: ' + (funds.error || 'no data'));
-    }
-  }catch(e){
-    safeSet('live_funds', 'ERR');
+toggleBtn.addEventListener('click', ()=>{
+  // temporarily reveal the real token value (if saved) for a few seconds
+  const saved = getStoredToken();
+  if(!saved){
+    // if not saved, toggle display of typed value (switch type between text/password)
+    tokenInput.type = (tokenInput.type === 'password') ? 'text' : 'password';
+    toggleBtn.textContent = (tokenInput.type === 'password') ? 'Show' : 'Hide';
+    return;
   }
-
-  // live MTM -> try kite positions endpoint (api/kite/positions or use /api/kite/funds if no positions)
-  try{
-    const r2 = await fetch('/api/kite/positions');
-    const j2 = await r2.json();
-    if(j2.ok){
-      // net positions array
-      const net = j2.positions?.net || [];
-      let mtm = 0;
-      for(const p of net){
-        mtm += Number(p.unrealised_pnl ?? 0);
-      }
-      safeSet('live_mtm', (mtm ? (mtm>=0?'+':'') + '₹' + Math.round(mtm).toLocaleString('en-IN') : '₹0'));
-    } else {
-      // fallback
-      safeSet('live_mtm', '—');
-    }
-  }catch(e){
-    safeSet('live_mtm', '—');
-  }
-}
-
-/* ---------- Admin token handling ---------- */
-$('save_token')?.addEventListener('click', ()=>{
-  const v = $('admin_token').value.trim();
-  if(!v){ showToast('Enter token'); return; }
-  localStorage.setItem('admin_token', v);
-  setAdminEnabled(true);
-  showToast('Token saved');
-  // refresh state using token
-  loadAll();
+  // if saved, show the real token only briefly
+  tokenInput.type = 'text';
+  tokenInput.value = saved;
+  toggleBtn.textContent = 'Hide';
+  setTimeout(()=>{
+    tokenInput.type = 'password';
+    tokenInput.value = '********';
+    toggleBtn.textContent = 'Show';
+  }, 3500); // visible for 3.5s
 });
-$('clear_token')?.addEventListener('click', ()=>{
-  localStorage.removeItem('admin_token'); $('admin_token').value='';
+
+saveBtn.addEventListener('click', ()=>{
+  // if user typed a new token into the masked field (dataset.real=='0' or visible)
+  let val = tokenInput.value.trim();
+  const wasSaved = tokenInput.dataset.real === '1';
+  if(wasSaved && val === '********'){
+    showToast('Token already saved (masked). Use Clear to replace.');
+    return;
+  }
+  if(!val){
+    showToast('Enter token first');
+    return;
+  }
+  // store the actual token (do not echo it anywhere)
+  setStoredToken(val);
+  applyTokenUI();
+  setAdminEnabled(true);
+  showToast('Token saved (masked)');
+});
+
+clearBtn.addEventListener('click', ()=>{
+  setStoredToken('');
+  tokenInput.value = '';
+  tokenInput.dataset.real = '0';
+  tokenInput.type = 'password';
   setAdminEnabled(false);
   showToast('Token cleared');
 });
 
-/* ---------- Actions: POST to admin endpoints ---------- */
-async function postAction(url, body = {}){
-  const headers = { 'Content-Type': 'application/json', ...getAuthHeader() };
-  const r = await fetch(url, { method:'POST', headers, body: JSON.stringify(body) });
-  const j = await r.json().catch(()=>({ ok:false, error:'invalid json' }));
-  const s = `${url} => ${JSON.stringify(j)}`;
-  const pre = $('raw_responses');
-  if(pre) pre.textContent = s + '\n\n' + pre.textContent;
-  $('last_action_msg').textContent = (j.ok ? 'Success: ' : 'Error: ') + (j.error || JSON.stringify(j));
-  return j;
+/* --- Admin enable/disable controls --- */
+let adminEnabled = false;
+function setAdminEnabled(v){
+  adminEnabled = !!v;
+  const inputs = ['rule_max_loss_pct','rule_trail_step','rule_cooldown_min','rule_max_consec'];
+  inputs.forEach(id => { const el=$(id); if(el) el.disabled = !adminEnabled; });
+  const btns = ['enforce_btn','kill_btn','cancel_all_btn','enforce_trades_btn'];
+  btns.forEach(id => { const el=$(id); if(el) el.disabled = !adminEnabled; });
 }
 
-$('enforce_btn')?.addEventListener('click', async ()=>{
+/* initialize enable state from stored token */
+if(getStoredToken()) setAdminEnabled(true);
+
+/* --- polite helper to attach Authorization header without exposing token in UI --- */
+function authHeader(){
+  const t = getStoredToken();
+  if(!t) return {};
+  const headerVal = t.startsWith('Bearer ') ? t : 'Bearer ' + t;
+  return { 'Authorization': headerVal };
+}
+
+/* --- fetch state and funds --- */
+async function fetchState(){
+  try{
+    const r = await fetch('/api/state?t=' + Date.now());
+    const j = await r.json();
+    if(!j.ok) { showToast('Failed to load state'); return; }
+    $('now').textContent = j.time || nowTime();
+    $('kite_status').textContent = 'Kite: ' + (j.kite_status || '—');
+    $('guard_status').textContent = (j.admin ? 'admin' : 'read-only');
+    const s = j.state || {};
+    $('capital915').textContent = formatINR(s.capital_day_915 || 0);
+    $('max_loss').textContent = formatINR(calcMaxLoss(s));
+    $('max_loss_pct').textContent = 'Max Loss %: ' + (s.max_loss_pct ?? 10) + '%';
+    window._state = s;
+  }catch(e){
+    console.error(e); showToast('Load state error');
+  }
+}
+async function fetchFunds(){
+  try{
+    const r = await fetch('/api/kite/funds');
+    const j = await r.json();
+    if(j.ok){
+      const av = Number(j.funds?.available?.live_balance ?? j.funds?.available?.cash ?? j.balance ?? j.funds?.cash || 0);
+      $('live_funds').textContent = formatINR(av);
+    } else {
+      $('live_funds').textContent = 'ERR';
+    }
+  }catch(e){ $('live_funds').textContent = 'ERR'; }
+}
+function calcMaxLoss(s){ const cap = Number(s.capital_day_915 || 0); const pct = Number(s.max_loss_pct ?? 10); return Math.round(cap * pct / 100); }
+function formatINR(v){ if(v==null || isNaN(Number(v))) return '—'; return '₹' + Number(v).toLocaleString('en-IN',{maximumFractionDigits:0}); }
+
+/* --- admin action POST helper (sends Authorization header) --- */
+async function postAction(path, body = {}){
+  const headers = { 'Content-Type': 'application/json', ...authHeader() };
+  try{
+    const r = await fetch(path, { method:'POST', headers, body: JSON.stringify(body) });
+    const j = await r.json().catch(()=>({ ok:false, error:'invalid json' }));
+    // write response but do NOT include Authorization header or token
+    const safe = JSON.stringify(j);
+    const pre = $('raw_responses');
+    if(pre) pre.textContent = `${path} => ${safe}\n\n` + pre.textContent;
+    $('last_action_msg').textContent = (j.ok ? 'Success' : 'Error: ' + (j.error || safe));
+    return j;
+  }catch(e){
+    showToast('Request failed: ' + e.message);
+    return { ok:false, error:String(e) };
+  }
+}
+
+/* --- button handlers --- */
+$('enforce_btn').addEventListener('click', async ()=>{
   $('last_action_msg').textContent = 'Enforcing...';
-  try{
-    const allowNew = $('allow_new_checkbox')?.checked;
-    const res = await postAction('/api/admin/enforce', { allow_new: !!allowNew });
-    if(res.ok) showToast('Enforced');
-  }catch(e){ showToast('Enforce failed: '+e.message); }
+  const allowNew = !!$('allow_new_checkbox').checked;
+  await postAction('/api/admin/enforce', { allow_new: allowNew });
 });
+$('enforce_trades_btn').addEventListener('click', ()=> $('enforce_btn').click());
 
-$('enforce_trades_btn')?.addEventListener('click', ()=> $('enforce_btn').click());
-
-$('cancel_all_btn')?.addEventListener('click', async ()=>{
-  const cancelAll = !!$('cancel_checkbox')?.checked;
+$('cancel_all_btn').addEventListener('click', async ()=>{
   $('last_action_msg').textContent = 'Cancelling...';
-  try{
-    const res = await postAction('/api/admin/cancel', { cancel_all: cancelAll });
-    if(res.ok) showToast('Cancel request sent');
-  }catch(e){ showToast('Cancel failed: '+e.message); }
+  const cancelAll = !!$('cancel_checkbox').checked;
+  await postAction('/api/admin/cancel', { cancel_all: cancelAll });
 });
 
-$('kill_btn')?.addEventListener('click', async ()=>{
-  $('last_action_msg').textContent = 'Killing (closing)...';
-  try{
-    const res = await postAction('/api/admin/kill', {});
-    if(res.ok) showToast('Kill executed');
-  }catch(e){ showToast('Kill failed: '+e.message); }
-});
-$('kill_btn2')?.addEventListener('click', ()=> $('kill_btn').click());
+$('kill_btn').addEventListener('click', async ()=> { $('last_action_msg').textContent = 'Killing...'; await postAction('/api/admin/kill', {}); });
+$('kill_btn2').addEventListener('click', ()=> $('kill_btn').click());
 
-/* ---------- Zerodha login (from UI) ---------- */
-$('login_zerodha')?.addEventListener('click', async ()=>{
+$('login_zerodha').addEventListener('click', async ()=>{
   $('last_action_msg').textContent = 'Zerodha login...';
+  const headers = { 'Content-Type':'application/json', ...authHeader() };
   try{
-    // POST to /api/kite/login
-    const headers = { 'Content-Type':'application/json', ...getAuthHeader() };
     const r = await fetch('/api/kite/login', { method:'POST', headers, body: JSON.stringify({}) });
     const j = await r.json();
-    $('raw_responses').textContent = JSON.stringify(j)+'\n\n'+$('raw_responses').textContent;
-    if(j.ok){
-      showToast('Login OK');
-      fetchState();
-    } else {
-      showToast('Login returned: ' + (j.error || JSON.stringify(j)));
-    }
-  }catch(e){
-    showToast('Login failed: ' + (e.message || e));
-  }
+    $('raw_responses').textContent = JSON.stringify(j) + '\n\n' + $('raw_responses').textContent;
+    if(j.ok) showToast('Zerodha login OK');
+    else showToast('Zerodha login: ' + (j.error || 'failed'));
+  }catch(e){ showToast('Login failed: '+e.message); }
 });
 
-/* ---------- refresh buttons ---------- */
-$('refresh_state')?.addEventListener('click', ()=> loadAll());
-$('refresh_stats')?.addEventListener('click', ()=> { fetchState(); fetchFundsAndMtm(); });
+$('refresh_state').addEventListener('click', ()=> { fetchState(); fetchFunds(); });
+$('refresh_stats').addEventListener('click', ()=> { fetchState(); fetchFunds(); });
 
-/* ---------- page navigation (swipe + buttons) ---------- */
-const pagesEl = $('pages');
-$('prev_page')?.addEventListener('click', ()=>{
-  if(!pagesEl) return;
-  pagesEl.scrollBy({ left: -window.innerWidth, behavior:'smooth' });
-});
-$('next_page')?.addEventListener('click', ()=>{
-  if(!pagesEl) return;
-  pagesEl.scrollBy({ left: window.innerWidth, behavior:'smooth' });
-});
+/* pager nav */
+$('prev_page').addEventListener('click', ()=> { const p=$('pages'); p.scrollBy({ left: -window.innerWidth, behavior:'smooth' }); });
+$('next_page').addEventListener('click', ()=> { const p=$('pages'); p.scrollBy({ left: window.innerWidth, behavior:'smooth' }); });
 
-/* ---------- main load ---------- */
-async function loadAll(){
-  await fetchState();
-  await fetchFundsAndMtm();
-}
+/* initial load */
 window.addEventListener('load', ()=>{
-  // load token into input
-  const t = localStorage.getItem('admin_token'); if(t) $('admin_token').value = t;
-  setAdminEnabled(!!t);
-  loadAll();
-  // update clock
-  setInterval(()=> $('now').textContent = nowTime(), 1000);
+  // if token stored, keep masked placeholder
+  applyTokenUI();
+  fetchState();
+  fetchFunds();
+  setInterval(()=> $('now').textContent = nowTime(),1000);
 });
-
-/* ---------- small sanity helpers ---------- */
-async function safeFetchJson(path, opts = {}) {
-  try {
-    const r = await fetch(path, opts);
-    return await r.json();
-  } catch(e) {
-    console.warn('fetch failed', path, e);
-    return { ok:false, error: String(e) };
-  }
-}
 </script>
 </body>
 </html>
