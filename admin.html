@@ -158,8 +158,8 @@
     <section class="card" id="actions_card">
       <h3 style="margin-top:0">Admin Actions</h3>
       <div class="row" style="margin-top:8px">
-        <button id="acquire_lock" class="btn ghost">Acquire Lock</button>
-        <button id="release_lock" class="btn ghost">Release Lock</button>
+        <button id="acquire_lock" class="btn ghost" disabled>Acquire Lock</button>
+        <button id="release_lock" class="btn ghost" disabled>Release Lock</button>
         <button id="enforce_now" class="btn ok">Enforce Now</button>
         <button id="kill_close" class="btn warn">Kill (Close)</button>
       </div>
@@ -216,19 +216,77 @@ async function fetchGet(url){
   }catch(e){ return {status:0, error: e.message}; }
 }
 
-/* ---------- login fallback (try POST, if 405 try GET) ---------- */
-async function doZerodhaLogin(){
-  safeLog('Zerodha login: trying POST /api/kite/login');
-  const attemptPost = await fetchPost('/api/kite/login', {});
-  safeLog('/api/kite/login (POST) => ' + JSON.stringify(attemptPost));
-  if(attemptPost.status === 405){
-    safeLog('POST returned 405 — falling back to GET /api/kite/login');
-    const attemptGet = await fetchGet('/api/kite/login');
-    safeLog('/api/kite/login (GET) => ' + JSON.stringify(attemptGet));
-    return attemptGet.json || attemptGet.text || attemptGet;
-  } else {
-    return attemptPost.json || attemptPost.text || attemptPost;
+/* ---------- robust login: try several endpoints & methods ---------- */
+const LOGIN_CANDIDATES = [
+  { method: 'POST', path: '/api/kite/login', body: {} },
+  { method: 'GET', path: '/api/kite/login' },
+  // fallback alternative paths sometimes used
+  { method: 'POST', path: '/api/login', body: {} },
+  { method: 'GET', path: '/api/login' },
+  { method: 'POST', path: '/api/kite/login2', body: {} },
+];
+
+async function doZerodhaLoginRobust(){
+  safeLog('Zerodha login: starting attempts...');
+  for(const c of LOGIN_CANDIDATES){
+    try{
+      safeLog(`Attempt ${c.method} ${c.path}`);
+      const attempt = (c.method === 'POST') ? await fetchPost(c.path, c.body || {}) : await fetchGet(c.path);
+      safeLog(`${c.path} => ${JSON.stringify(attempt)}`);
+      // treat 200 + ok:true as success; treat 2xx with json.ok as success
+      if(attempt && attempt.status >= 200 && attempt.status < 300){
+        const respJson = attempt.json || null;
+        if(respJson){
+          if(respJson.ok) return { ok:true, detail: respJson, attempted: c };
+          // some servers return {ok:false, error:'Method not allowed'} — but 200 status could still be returned; we log and continue
+          return { ok: !!respJson.ok, detail: respJson, attempted: c };
+        } else {
+          // if not JSON, return text
+          return { ok: false, detail: attempt.text || attempt, attempted: c };
+        }
+      }
+      // if server returns 405 or 404 — continue trying next candidate
+      if(attempt && (attempt.status === 405 || attempt.status === 404)){
+        safeLog(`Candidate ${c.path} returned ${attempt.status}, trying next`);
+        continue;
+      }
+      // other statuses: log and continue
+    }catch(e){
+      safeLog(`Attempt error ${c.path}: ${e.message}`);
+    }
   }
+  return { ok:false, error:'All login attempts failed' };
+}
+
+/* ---------- robust cancel: try several endpoints & methods ---------- */
+const CANCEL_CANDIDATES = [
+  { method:'POST', path:'/api/admin/cancel', body:{ cancel_all:true } },
+  { method:'POST', path:'/api/admin/cancel-all', body:{ cancel_all:true } },
+  { method:'POST', path:'/api/admin/cancel_all', body:{ cancel_all:true } },
+  { method:'GET', path:'/api/admin/cancel?cancel_all=1' },
+  { method:'POST', path:'/api/admin/cancelOrders', body:{ cancel_all:true } },
+];
+
+async function doCancelRobust(){
+  safeLog('Cancel all: starting attempts...');
+  for(const c of CANCEL_CANDIDATES){
+    try{
+      safeLog(`Attempt ${c.method} ${c.path}`);
+      const attempt = (c.method === 'POST') ? await fetchPost(c.path, c.body || {}) : await fetchGet(c.path);
+      safeLog(`${c.path} => ${JSON.stringify(attempt)}`);
+      if(attempt && attempt.status >=200 && attempt.status < 300){
+        if(attempt.json && attempt.json.ok) return { ok:true, detail:attempt.json, attempted:c };
+        return { ok: !!(attempt.json && attempt.json.ok), detail: attempt.json || attempt.text, attempted:c };
+      }
+      if(attempt && (attempt.status === 405 || attempt.status === 404)) {
+        safeLog(`Candidate ${c.path} returned ${attempt.status}, trying next`);
+        continue;
+      }
+    }catch(e){
+      safeLog(`Attempt error ${c.path}: ${e.message}`);
+    }
+  }
+  return { ok:false, error:'All cancel attempts failed' };
 }
 
 /* ---------- handlers ---------- */
@@ -253,21 +311,27 @@ $('toggle_token').addEventListener('click', ()=>{
   else { cur.type = 'password'; $('toggle_token').textContent = 'Show'; }
 });
 
-/* login zerodha button tries multiple methods */
+/* login zerodha uses robust function */
 $('login_zerodha').addEventListener('click', async ()=>{
   $('action_status').textContent = 'Zerodha login...';
-  const res = await doZerodhaLogin();
-  safeLog('Zerodha login final => ' + JSON.stringify(res));
+  const res = await doZerodhaLoginRobust();
+  safeLog('Zerodha final => ' + JSON.stringify(res));
   if(res && res.ok) { $('action_status').textContent = 'Zerodha login OK'; }
-  else { $('action_status').textContent = 'Zerodha login returned: ' + (res.error || JSON.stringify(res)); }
+  else $('action_status').textContent = 'Zerodha login failed: ' + (res.error || (res.detail && JSON.stringify(res.detail)));
   setTimeout(()=> fetchState(), 800);
 });
 
-/* refresh */
-$('refresh_state').addEventListener('click', ()=> fetchState());
-$('refresh_stats').addEventListener('click', ()=> fetchState());
+/* cancel all uses robust function */
+$('cancel_all').addEventListener('click', async ()=>{
+  $('action_status').textContent = 'Cancel all...';
+  const res = await doCancelRobust();
+  safeLog('Cancel final => ' + JSON.stringify(res));
+  if(res && res.ok) $('action_status').textContent = 'Cancel OK';
+  else $('action_status').textContent = 'Cancel failed: ' + (res.error || (res.detail && JSON.stringify(res.detail)));
+  setTimeout(()=> fetchState(), 700);
+});
 
-/* actions (POST) */
+/* other admin actions (enforce and kill kept as-is) */
 async function postAction(path, body = {}) {
   $('action_status').textContent = 'Posting ' + path + '...';
   const r = await fetchPost(path, body);
@@ -283,11 +347,12 @@ $('kill_close').addEventListener('click', ()=> {
   if(!confirm('Kill (close) — Are you sure?')) return;
   postAction('/api/admin/kill', {});
 });
-$('cancel_all').addEventListener('click', ()=> postAction('/api/admin/cancel', { cancel_all: true }));
-$('acquire_lock').addEventListener('click', ()=> postAction('/api/admin/lock', {}));
-$('release_lock').addEventListener('click', ()=> postAction('/api/admin/release', {}));
-$('take_snapshot').addEventListener('click', ()=> postAction('/api/admin/snapshot', {}));
-$('reset_consec').addEventListener('click', ()=> postAction('/api/admin/reset-consecutive', {}));
+
+/* other helpers */
+$('refresh_state').addEventListener('click', ()=> fetchState());
+$('refresh_stats').addEventListener('click', ()=> fetchState());
+
+/* save rules */
 $('save_rules').addEventListener('click', async ()=>{
   const payload = {
     max_loss_pct: Number($('rule_max_loss_pct').value || 0),
@@ -298,16 +363,14 @@ $('save_rules').addEventListener('click', async ()=>{
   await postAction('/api/admin/rules-set', payload);
 });
 
-/* ---------- Admin capital override ---------- */
+/* override capital */
 $('apply_cap_override').addEventListener('click', async ()=>{
   const v = Number($('override_capital').value);
   if(!v || isNaN(v)) { alert('Enter numeric capital'); return; }
-  // store locally
   setCapOverride(v);
   $('cap_override_note').textContent = 'Override active: ' + formatINR(v) + ' (attempting server update...)';
   safeLog('Local capital override set: ' + v);
 
-  // try multiple likely endpoints on server (best-effort)
   const candidates = [
     '/api/admin/capital-set',
     '/api/admin/override-capital',
@@ -320,10 +383,8 @@ $('apply_cap_override').addEventListener('click', async ()=>{
     if(r && r.json && r.json.ok){ $('cap_override_note').textContent = 'Server acknowledged override via ' + ep; break; }
     if(r && r.status === 405){ $('cap_override_note').textContent = 'Server ' + ep + ' returned 405; trying next'; continue; }
   }
-  // re-render KPIs using override locally for immediate effect
   renderOverride();
 });
-
 $('clear_cap_override').addEventListener('click', ()=>{
   setCapOverride(null);
   $('cap_override_note').textContent = 'No override active';
@@ -332,35 +393,28 @@ $('clear_cap_override').addEventListener('click', ()=>{
 });
 
 /* ---------- read state & paint ---------- */
-function setText(id, txt){ const el = $(id); if(!el) return; el.textContent = txt; }
-
 async function fetchState(){
   try{
-    // include admin header when token exists (safe)
     const headers = authHeader();
     const res = await fetch('/api/state?t=' + Date.now(), { headers });
     const j = await res.json();
     safeLog('/api/state => ' + JSON.stringify(j));
     if(!j.ok) { setText('action_status','/api/state returned error'); return; }
-    // top meta
     setText('kite_status', 'Kite: ' + (j.kite_status || '—'));
     setText('guard_status', (j.admin ? 'admin' : 'read-only'));
     setText('now', new Date().toLocaleTimeString('en-IN',{hour12:false}));
 
     const s = j.state || {};
-    // fill UI inputs if empty (do not overwrite manual edits)
     if($('rule_max_loss_pct').value === '') $('rule_max_loss_pct').value = s.max_loss_pct ?? '';
     if($('rule_trail_step').value === '') $('rule_trail_step').value = s.trail_step_profit ?? '';
     if($('rule_cooldown_min').value === '') $('rule_cooldown_min').value = s.cooldown_min ?? '';
     if($('rule_max_consec').value === '') $('rule_max_consec').value = s.max_consecutive_losses ?? '';
 
-    // basic state fields
     setText('pnl_info', formatINR(s.realised ?? 0) + ' / ' + formatINR(s.unrealised ?? 0) + ' / ' + formatINR((Number(s.realised||0) + Number(s.unrealised||0))));
     setText('max_loss', formatINR(Math.round((s.capital_day_915 || 0) * ((s.max_loss_pct||10)/100))));
     setText('max_loss_pct', 'Max Loss %: ' + (s.max_loss_pct ?? 10) + '%');
     setText('active_floor', formatINR(s.active_floor || 0));
 
-    // funds endpoint
     try {
       const fr = await fetch('/api/kite/funds?t=' + Date.now(), { headers });
       const fj = await fr.json();
@@ -372,12 +426,8 @@ async function fetchState(){
         av = s.current_balance;
       }
       setText('live_funds', formatINR(av));
-    } catch(e){
-      safeLog('/api/kite/funds ERROR: ' + e.message);
-      setText('live_funds', 'ERR');
-    }
+    } catch(e){ safeLog('/api/kite/funds ERROR: ' + e.message); setText('live_funds', 'ERR'); }
 
-    // positions for live MTM
     try {
       const pr = await fetch('/api/kite/positions?t=' + Date.now(), { headers });
       const pj = await pr.json();
@@ -388,12 +438,8 @@ async function fetchState(){
       } else {
         setText('live_mtm', formatINR(s.unrealised || 0));
       }
-    } catch(e){
-      safeLog('/api/kite/positions ERROR: ' + e.message);
-      setText('live_mtm', formatINR(s.unrealised || 0));
-    }
+    } catch(e){ safeLog('/api/kite/positions ERROR: ' + e.message); setText('live_mtm', formatINR(s.unrealised || 0)); }
 
-    // apply capital override if present (local)
     renderOverride();
   }catch(e){
     safeLog('/api/state ERROR: ' + e.message);
@@ -407,8 +453,6 @@ function renderOverride(){
     $('capital915').textContent = formatINR(override) + ' (OVERRIDE)';
     $('cap_override_note').textContent = 'Override active: ' + formatINR(override);
   } else {
-    // if no override, show server value from latest state (call /api/state again for guarantee)
-    // fallback: read stored displayed value, but best is to call state
     (async ()=> {
       try{
         const res = await fetch('/api/state?t=' + Date.now(), { headers: authHeader() });
@@ -425,22 +469,22 @@ function renderOverride(){
 
 /* ---------- utilities ---------- */
 function formatINR(v){ if(v==null || isNaN(Number(v))) return '—'; return '₹' + Number(v).toLocaleString('en-IN',{maximumFractionDigits:0}); }
+function setText(id, txt){ const el = $(id); if(!el) return; el.textContent = txt; }
 
 /* ---------- init ---------- */
 (function init(){
-  // UI state depending on whether token is present
   if(getToken()) {
     $('admin_token').value = '********';
     setAdminUI(true);
   } else setAdminUI(false);
 
-  fetchState(); // initial
+  fetchState();
   setInterval(fetchState, 10000);
 })();
 
 /* enable/disable admin controls (only UI-level) */
 function setAdminUI(enabled){
-  const adminOnlyEls = document.querySelectorAll('[data-admin-only], #rules_card input, #rules_card button, #actions_card button');
+  const adminOnlyEls = document.querySelectorAll('#rules_card input, #rules_card button, #actions_card button');
   if(enabled){
     adminOnlyEls.forEach(e=>e.removeAttribute('disabled'));
     document.getElementById('rules_card').style.opacity = '1';
@@ -450,15 +494,6 @@ function setAdminUI(enabled){
     document.getElementById('rules_card').style.opacity = '0.6';
     document.getElementById('actions_card').style.opacity = '0.6';
   }
-}
-
-/* ---------- fallback fetch helpers for GET version if needed (not used mostly) ---------- */
-async function tryGet(path){
-  try{
-    const r = await fetch(path, { method:'GET', headers: authHeader() });
-    const txt = await r.text();
-    try{ return JSON.parse(txt); } catch(e){ return { ok:false, text:txt }; }
-  }catch(e){ return { ok:false, error: e.message }; }
 }
 </script>
 </body>
