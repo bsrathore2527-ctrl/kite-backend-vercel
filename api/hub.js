@@ -1,260 +1,263 @@
 // api/hub.js
-import { instance } from "./_lib/kite.js";
-import { kv, todayKey, getState, setState, IST } from "./_lib/kv.js";
+// Single gateway for the UI -> kite & admin endpoints.
 
-function send(res, code, body) { res.status(code).setHeader("Cache-Control","no-store").json(body); }
-const ok   = (res, body={}) => send(res, 200, { ok: true, ...body });
-const bad  = (res, msg="Bad request") => send(res, 400, { ok:false, error: msg });
-const unauth = (res) => send(res, 401, { ok:false, error:"Unauthorized" });
-const nope = (res) => send(res, 405, { ok:false, error:"Method not allowed" });
+import { instance as kiteInstance, loginUrl } from "./_lib/kite.js";
+import { kv, todayKey, getState as kvGetState, setState as kvSetState } from "./_lib/kv.js";
 
+/* small response helpers */
+function send(res, code, body = {}) {
+  res.status(code).setHeader("Cache-Control", "no-store").json(body);
+}
+const ok = (res, body = {}) => send(res, 200, { ok: true, ...body });
+const bad = (res, msg = "Bad request") => send(res, 400, { ok: false, error: msg });
+const nope = (res) => bad(res, "Method not allowed");
+const unauth = (res) => send(res, 401, { ok: false, error: "Unauthorized" });
+
+/* admin check: expects Authorization: Bearer <ADMIN_TOKEN> */
 function isAdmin(req) {
   const a = req.headers.authorization || "";
-  const token = a.startsWith("Bearer ") ? a.slice(7) : "";
-  return !!process.env.ADMIN_TOKEN && token === process.env.ADMIN_TOKEN;
+  const token = a.startsWith("Bearer ") ? a.slice(7) : a;
+  return token && process.env.ADMIN_TOKEN && token === process.env.ADMIN_TOKEN;
 }
 
-async function kite() { return await instance(); }
-function istNow() {
-  return new Date(new Date().toLocaleString("en-US", { timeZone: IST }));
+/* Kite helpers */
+async function safeInstance() {
+  // Creates/returns kite instance (throws if can't connect)
+  return await kiteInstance();
 }
 
-// ---- Robust funds parser (works across Zerodha payload variants)
-function pickEquityFunds(margins) {
-  // Zerodha returns { equity: { available: { cash, live_balance, ... }, net, cash, balance, ... } }
-  const eq = margins?.equity ?? margins ?? {};
-  const avail = eq.available ?? {};
-  const balance = Number(
-    avail.live_balance ??
-    eq.net ??
-    avail.cash ??
-    eq.cash ??
-    eq.balance ??
-    0
-  );
-  return { raw: margins, equity: eq, balance };
-}
-
-// ---------- helpers ----------
-async function getOrdersSafe(kc){ try{ return await kc.getOrders(); }catch{ return []; } }
-
-async function cancelAllPendings(kc){
-  const orders = await getOrdersSafe(kc);
-  const pend = orders.filter(o => ["OPEN","TRIGGER PENDING"].includes(o.status));
-  let canceled = 0;
-  for (const o of pend) {
-    try {
-      try { await kc.cancelOrder(o.variety || "regular", o.order_id); }
-      catch { await kc.cancelOrder(o.order_id, o.variety || "regular"); }
-      canceled++;
-    } catch {}
+async function cancelPending(kc) {
+  try {
+    const orders = await kc.getOrders();
+    const pending = (orders || []).filter(o => {
+      const s = (o.status || "").toUpperCase();
+      return s === "OPEN" || s.includes("TRIGGER");
+    });
+    let cancelled = 0;
+    for (const o of pending) {
+      try {
+        await kc.cancelOrder(o.variety || "regular", o.order_id);
+        cancelled++;
+      } catch (e) {
+        // ignore per-order failure
+      }
+    }
+    return cancelled;
+  } catch (e) {
+    return 0;
   }
-  return canceled;
 }
 
-async function exitAllNetPositions(kc){
-  const pos = await kc.getPositions(); // {net:[]}
-  const net = pos?.net || [];
-  let squared = 0;
-  for (const p of net) {
-    const qty = Number(p.quantity ?? p.net_quantity ?? 0);
-    if (!qty) continue;
-    const side = qty > 0 ? "SELL" : "BUY";
-    const absQty = Math.abs(qty);
-    try {
-      await kc.placeOrder("regular", {
-        exchange: p.exchange || "NSE",
-        tradingsymbol: p.tradingsymbol,
-        transaction_type: side,
-        quantity: absQty,
-        product: p.product || "MIS",
-        order_type: "MARKET",
-        validity: "DAY"
-      });
-      squared++;
-    } catch {}
-  }
-  return squared;
-}
-
-async function getLiveMtm(kc){
+async function squareOffAll(kc) {
   try {
     const pos = await kc.getPositions();
     const net = pos?.net || [];
-    return net.reduce((a,p)=> a + Number(p.pnl || 0), 0);
-  } catch { return 0; }
-}
-
-function computeActiveFloor(s){
-  const cap = Number(s.capital_day_915 || 0);
-  const maxPct = s.max_loss_pct ?? 10;
-  const step = s.trail_step_profit ?? 5000;
-  const realised = Number(s.realised || 0);
-  const baseFloor = -(cap * (maxPct/100));
-  const steps = Math.max(0, Math.floor(Math.max(0, realised) / step));
-  const trailFloor = -(steps * step);
-  return Math.max(baseFloor, trailFloor); // negative
-}
-
-async function enforceShutdown(kc, reason = "limit"){
-  const key = `risk:${todayKey()}`;
-  const guardKey = `${key}:enforcing`;
-  if (await kv.get(guardKey)) return { skipped:true, reason:"in_progress" };
-  await kv.set(guardKey, Date.now(), { ex: 60 }); // 60s guard
-
-  try {
-    const canceled = await cancelAllPendings(kc);
-    const squared_off = await exitAllNetPositions(kc);
-    const s = await getState();
-    s.tripped_day = true;
-    s.block_new_orders = true;
-    s.last_enforce_at = Date.now();
-    s.last_enforce_reason = reason;
-    await setState(s);
-    return { canceled, squared_off };
-  } finally {
-    // guard auto-expires
+    let squared = 0;
+    for (const p of net) {
+      const qty = Number(p.net_quantity ?? p.quantity ?? 0);
+      if (!qty) continue;
+      const side = qty > 0 ? "SELL" : "BUY";
+      const absQty = Math.abs(qty);
+      try {
+        await kc.placeOrder("regular", {
+          exchange: p.exchange || "NSE",
+          tradingsymbol: p.tradingsymbol || p.trading_symbol,
+          transaction_type: side,
+          quantity: absQty,
+          order_type: "MARKET",
+          product: p.product || "MIS",
+          validity: "DAY"
+        });
+        squared++;
+      } catch (e) {
+        // ignore per-symbol failure
+      }
+    }
+    return squared;
+  } catch (e) {
+    return 0;
   }
 }
 
-// ---------- handler ----------
+/* administrative enforcement: cancel pending + square-off + mark state */
+async function enforceShutdown(kc, meta = {}) {
+  const cancelled = await cancelPending(kc);
+  const squared = await squareOffAll(kc);
+  const key = `risk:${todayKey()}`;
+  const cur = (await kv.get(key)) || {};
+  const next = { ...cur, tripped_day: true, last_enforced_at: Date.now(), enforcement_meta: meta };
+  await kv.set(key, next);
+  return { cancelled, squared, state: next };
+}
+
+/* serve request */
 export default async function handler(req, res) {
   try {
-    const url = new URL(req.url, "http://x");
+    const url = new URL(req.url, "http://x"); // base doesn't matter
     const path = url.pathname;
+    const method = req.method || "GET";
 
-    // KITE group (live calls)
-    if (path.startsWith("/api/kite/")) {
-      const seg = path.replace("/api/kite/", "");
-      const kc = await kite();
-
-      if (req.method === "GET" && seg === "funds") {
-        try {
-          const m = await (kc.getMargins?.() ?? kc.margins?.());
-          const { balance, equity } = pickEquityFunds(m);
-          return ok(res, { funds: equity, balance });
-        } catch (e) { return bad(res, e.message || "Funds fetch failed"); }
-      }
-
-      if (req.method === "GET" && seg === "positions") {
-        const p = await kc.getPositions();
-        return ok(res, { positions: p });
-      }
-
-      if (req.method === "GET" && seg === "orders") {
-        const o = await kc.getOrders();
-        return ok(res, { orders: o });
-      }
-
-      if (req.method === "GET" && seg === "profile") {
-        try {
-          const prof = await kc.getProfile?.();
-          return ok(res, { profile: prof || true });
-        } catch (e) { return bad(res, e.message || "Profile fetch failed"); }
-      }
-
-      if (req.method === "POST" && seg === "cancel-all") {
-        if (!isAdmin(req)) return unauth(res);
-        const canceled = await cancelAllPendings(kc);
-        return ok(res, { canceled });
-      }
-
-      if (req.method === "POST" && seg === "exit-all") {
-        if (!isAdmin(req)) return unauth(res);
-        const resu = await enforceShutdown(kc, "manual_exit_all");
-        return ok(res, resu);
-      }
-
-      return nope(res);
-    }
-
-    // ADMIN group
-    if (path.startsWith("/api/admin/")) {
-      if (!isAdmin(req)) return unauth(res);
-      const seg = path.replace("/api/admin/", "");
-      const cur = await getState();
-
-      if (req.method === "POST" && seg === "rules-set") {
-        const b = req.body || {};
-        const next = { ...cur };
-        [
-          "max_loss_pct","trail_step_profit","cooldown_min",
-          "max_consecutive_losses","allow_new_after_lock10",
-          "expiry_flag","week_max_loss_pct","month_max_loss_pct"
-        ].forEach(k => { if (b[k] !== undefined) next[k] = b[k]; });
-        await setState(next);
-        return ok(res, { saved:true });
-      }
-
-      if (req.method === "POST" && seg === "kill") {
-        await setState({ tripped_day:true, block_new_orders:true });
-        const kc = await kite();
-        const resu = await enforceShutdown(kc, "kill");
-        return ok(res, { message:"Day killed. New orders blocked. Auto-enforcement executed.", ...resu });
-      }
-
-      if (req.method === "POST" && seg === "unlock") {
-        const next = { ...cur, block_new_orders:false, tripped_day:false };
-        await setState(next);
-        return ok(res, { message:"New orders allowed (per rules)." });
-      }
-
-      return nope(res);
-    }
-
-    // GUARDIAN cron — auto-capture capital @ 09:15 IST; cache current balance; enforce daily loss
-    if (path === "/api/guardian") {
-      const s = await getState();
-      const now = istNow();
-
-      // 1) Police revenge orders if blocked
+    // === /api/login -> redirect to Zerodha login page ===
+    if (path === "/api/login") {
+      if (method !== "GET") return nope(res);
       try {
-        if (s.block_new_orders) {
-          const kc = await kite();
-          await cancelAllPendings(kc);
-        }
-      } catch {}
-
-      try {
-        const kc = await kite();
-
-        // 2) Cache current balance + auto set capital at first valid tick ≥ 09:15
-        try {
-          const m = await (kc.getMargins?.() ?? kc.margins?.());
-          const { balance } = pickEquityFunds(m);
-          if (balance > 0) {
-            await setState({ current_balance: balance });
-          }
-          if (!s.capital_day_915) {
-            const hour = now.getHours(), min = now.getMinutes();
-            const after915 = (hour > 9) || (hour === 9 && min >= 15);
-            if (after915 && balance > 0) {
-              await setState({ capital_day_915: balance });
-            }
-          }
-        } catch {}
-
-        // 3) Daily loss enforcement (no profit-lock enforcement)
-        const unreal = await getLiveMtm(kc);
-        const realised = Number((await getState()).realised || 0); // re-read
-        const totalPnL = realised + unreal;
-        const floor = computeActiveFloor(await getState());
-
-        if (totalPnL <= floor) {
-          const resu = await enforceShutdown(kc, "daily_loss");
-          return ok(res, { tick: now.toISOString(), breached:true, floor, totalPnL, ...resu });
-        }
-
-        await setState({ unrealised: unreal });
-        return ok(res, { tick: now.toISOString(), breached:false, floor, totalPnL });
+        const u = loginUrl();
+        // prefer redirect to open in browser; UI might also use fetch to get URL.
+        res.writeHead(302, { Location: u });
+        return res.end();
       } catch (e) {
-        // Not logged in: still tick; UI will use cached current_balance/unrealised
-        return ok(res, { tick: now.toISOString(), note:"kite not connected or error", error: e.message });
+        return send(res, 500, { ok: false, error: e.message || String(e) });
       }
     }
 
-    return bad(res, "Unknown route");
-  } catch (e) {
-    return send(res, 500, { ok:false, error: e.message || String(e) });
+    // === /api/state -> returns stored state (from kv) ===
+    if (path === "/api/state") {
+      if (method !== "GET") return nope(res);
+      try {
+        const key = `risk:${todayKey()}`;
+        const state = (await kv.get(key)) || {};
+        return ok(res, { state, time: new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour12: false }), admin: isAdmin(req), kite_status: "unknown" });
+      } catch (e) {
+        return send(res, 500, { ok: false, error: e.message || String(e) });
+      }
+    }
+
+    // === /api/kite/* endpoints (public + admin actions) ===
+    if (path.startsWith("/api/kite")) {
+      const seg = path.replace(/^\/api\/kite\/?/, "").replace(/\/$/, "");
+      // /api/kite/login - return login URL when called via GET, or POST allowed too
+      if (seg === "login" || path === "/api/kite/login") {
+        if (method === "GET") {
+          try {
+            const u = loginUrl();
+            return ok(res, { url: u });
+          } catch (e) { return send(res, 500, { ok:false, error: String(e) }); }
+        }
+        // if UI POSTs, allow it as well and return url
+        if (method === "POST") {
+          try {
+            const u = loginUrl();
+            return ok(res, { url: u });
+          } catch (e) { return send(res, 500, { ok:false, error: String(e) }); }
+        }
+        return nope(res);
+      }
+
+      // /api/kite/funds - try to get funds via kite instance (GET)
+      if (seg === "funds" || path === "/api/kite/funds") {
+        if (method !== "GET") return nope(res);
+        try {
+          const kc = await safeInstance();
+          const funds = await kc.getFunds();
+          return ok(res, { funds });
+        } catch (e) {
+          return send(res, 200, { ok: false, error: "Kite not connected", message: e.message || String(e) });
+        }
+      }
+
+      // /api/kite/positions
+      if (seg === "positions" || path === "/api/kite/positions") {
+        if (method !== "GET") return nope(res);
+        try {
+          const kc = await safeInstance();
+          const positions = await kc.getPositions();
+          return ok(res, { positions });
+        } catch (e) {
+          return send(res, 200, { ok: false, error: "Kite not connected", message: e.message || String(e) });
+        }
+      }
+
+      // admin-style kite actions that require a connected kite instance:
+      // cancel-all, exit-all (POST)
+      if (seg === "cancel-all" || seg === "cancel_all" || seg === "cancelorders" || seg === "cancel-orders") {
+        if (method !== "POST") return nope(res);
+        try {
+          const kc = await safeInstance();
+          const cancelled = await cancelPending(kc);
+          return ok(res, { cancelled });
+        } catch (e) {
+          return send(res, 200, { ok: false, error: "Kite not connected", message: e.message || String(e) });
+        }
+      }
+
+      if (seg === "exit-all" || seg === "square-off" || seg === "exit_all" || seg === "square_off") {
+        if (method !== "POST") return nope(res);
+        try {
+          const kc = await safeInstance();
+          const squared = await squareOffAll(kc);
+          return ok(res, { squared });
+        } catch (e) {
+          return send(res, 200, { ok: false, error: "Kite not connected", message: e.message || String(e) });
+        }
+      }
+
+      // if not matched, return not found to avoid accidental 405s
+      return send(res, 404, { ok: false, error: "Not found" });
+    }
+
+    // === /api/admin/* endpoints (require admin token) ===
+    if (path.startsWith("/api/admin")) {
+      const seg = path.replace(/^\/api\/admin\/?/, "").replace(/\/$/, "");
+      if (!isAdmin(req)) return unauth(res);
+
+      // /api/admin/enforce -> cancel pending and square-off, mark tripped
+      if (seg === "enforce" || seg === "enforce-now") {
+        if (method !== "POST" && method !== "GET") return nope(res);
+        try {
+          const kc = await safeInstance();
+          const r = await enforceShutdown(kc, { by: "admin", time: Date.now() });
+          return ok(res, r);
+        } catch (e) {
+          return send(res, 200, { ok: false, error: "Kite not connected", message: e.message || String(e) });
+        }
+      }
+
+      // /api/admin/cancel -> cancel pending orders
+      if (seg === "cancel" || seg === "cancel_all" || seg === "cancel-all" || seg === "cancelOrders" || seg === "cancelOrdersAll") {
+        if (method !== "POST") return nope(res);
+        try {
+          const kc = await safeInstance();
+          const cancelled = await cancelPending(kc);
+          return ok(res, { cancelled });
+        } catch (e) {
+          return send(res, 200, { ok: false, error: "Kite not connected", message: e.message || String(e) });
+        }
+      }
+
+      // /api/admin/kill -> full enforcement (alias of enforce)
+      if (seg === "kill" || seg === "kill-all") {
+        if (method !== "POST" && method !== "GET") return nope(res);
+        try {
+          const kc = await safeInstance();
+          const r = await enforceShutdown(kc, { by: "admin_kill", time: Date.now() });
+          return ok(res, r);
+        } catch (e) {
+          return send(res, 200, { ok: false, error: "Kite not connected", message: e.message || String(e) });
+        }
+      }
+
+      // /api/admin/unlock or /api/admin/allow -> clear block_new_orders
+      if (seg === "unlock" || seg === "allow" || seg === "allow_new") {
+        if (method !== "POST") return nope(res);
+        try {
+          const key = `risk:${todayKey()}`;
+          const cur = (await kv.get(key)) || {};
+          const next = { ...cur, block_new_orders: false };
+          await kv.set(key, next);
+          return ok(res, { state: next });
+        } catch (e) {
+          return send(res, 500, { ok: false, error: e.message || String(e) });
+        }
+      }
+
+      // unknown admin endpoint
+      return send(res, 404, { ok: false, error: "Admin endpoint not found" });
+    }
+
+    // nothing matched
+    return send(res, 404, { ok: false, error: "Not found" });
+  } catch (err) {
+    console.error("hub error:", err);
+    return send(res, 500, { ok: false, error: err.message || String(err) });
   }
 }
