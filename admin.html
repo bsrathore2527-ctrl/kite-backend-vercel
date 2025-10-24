@@ -6,38 +6,41 @@
 <title>Guardian — Admin</title>
 <style>
   :root{
-    --bg:#071022; --card:#0f1724; --muted:#93a0b3; --accent:#2f6df6;
+    --bg:#041026; --card:#0b1420; --muted:#98a7bb; --accent:#2f6df6;
     --success:#1f7a2f; --danger:#b93131; --glass: rgba(255,255,255,0.03);
     --glass-2: rgba(255,255,255,0.02); --radius:14px;
+    --card-border: rgba(255,255,255,0.03);
   }
-  html,body{height:100%;margin:0;background:linear-gradient(180deg,#061123 0%, #071022 40%, #05060a 100%);font-family:Inter,Arial;color:#e6eef8}
+  html,body{height:100%;margin:0;background:linear-gradient(180deg,#061123 0%, #041026 50%, #000511 100%);font-family:Inter,Arial,Helvetica;color:#e6eef8}
   .wrap{max-width:1100px;margin:14px auto;padding:18px;}
   header{display:flex;align-items:center;gap:18px;margin-bottom:14px}
   .logo{width:64px;height:64px;border-radius:12px;background:linear-gradient(135deg,#061428,#0f1b2b);display:grid;place-items:center;font-weight:700}
   h1{margin:0;font-size:28px}
   .meta{margin-left:auto;display:flex;gap:12px;align-items:center;color:var(--muted)}
-  .card{background:linear-gradient(180deg,var(--glass),var(--glass-2));border-radius:var(--radius);padding:16px;margin:14px 0;box-shadow:0 6px 28px rgba(0,0,0,0.6);border:1px solid rgba(255,255,255,0.03)}
+  .card{background:linear-gradient(180deg,var(--glass),var(--glass-2));border-radius:var(--radius);padding:16px;margin:14px 0;box-shadow:0 6px 28px rgba(0,0,0,0.6);border:1px solid var(--card-border)}
   .admin-grid{display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center}
   .label{color:var(--muted);font-size:13px;margin-bottom:6px}
   .token-wrap{display:flex;align-items:center;gap:8px}
   input[type="password"], input[type="text"]{width:100%;padding:12px;border-radius:10px;background:transparent;border:1px solid rgba(255,255,255,0.06);color:inherit}
-  .btn{padding:10px 18px;border-radius:10px;border:none;background:var(--accent);color:white;font-weight:600;cursor:pointer}
+  .btn{padding:10px 18px;border-radius:10px;border:none;background:var(--accent);color:white;font-weight:700;cursor:pointer}
   .btn.ghost{background:transparent;border:1px solid rgba(255,255,255,0.06)}
   .btn.warn{background:var(--danger)}
   .btn.ok{background:var(--success)}
   .row{display:flex;gap:10px;flex-wrap:wrap}
   .muted{color:var(--muted);font-size:13px}
   .stats{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
-  .stat{padding:14px;border-radius:12px;background:rgba(0,0,0,0.18);border:1px solid rgba(255,255,255,0.02)}
+  .stat{padding:14px;border-radius:12px;background:rgba(0,0,0,0.12);border:1px solid rgba(255,255,255,0.02)}
   .stat h3{margin:0;font-size:12px;color:var(--muted)}
   .stat .val{font-weight:800;font-size:20px;margin-top:8px}
-  .pages{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;gap:18px;padding-bottom:12px}
-  .page{min-width:100%;scroll-snap-align:center}
-  .pager-nav{display:flex;gap:8px;justify-content:center;margin-top:8px}
   .small{font-size:13px;padding:8px 12px;border-radius:8px}
   .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:22px;background:rgba(0,0,0,0.78);color:#fff;padding:10px 14px;border-radius:8px;box-shadow:0 8px 30px rgba(0,0,0,0.6);display:none}
   .toast.show{display:block}
-  .input-eye{cursor:pointer;padding:6px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:var(--muted)}
+  pre#raw_responses{white-space:pre-wrap;color:#ffdede;background:rgba(0,0,0,0.12);padding:12px;border-radius:8px;margin-top:8px;max-height:240px;overflow:auto}
+  label.switch{display:inline-flex;align-items:center;gap:6px;color:var(--muted)}
+  .controls {display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px}
+  .muted-block {color:var(--muted);margin-top:8px}
+  .input-eye{cursor:pointer;padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:var(--muted)}
+  @media (max-width:640px){ .stats{grid-template-columns:1fr} }
 </style>
 </head>
 <body>
@@ -56,437 +59,327 @@
   </header>
 
   <!-- ADMIN CARD -->
-  <section class="card">
-    <div style="display:flex;flex-direction:column;gap:10px">
-      <div>
-        <div class="label">Admin token (keeps UI read-only unless saved)</div>
-        <div class="token-wrap">
-          <!-- token is a password field, masked by default -->
-          <input id="admin_token" type="password" placeholder="Enter admin token" aria-label="Admin token" />
-          <button id="toggle_token" class="input-eye" title="Show / Hide token">Show</button>
-          <button id="save_token" class="btn">Save</button>
-          <button id="clear_token" class="btn ghost">Clear</button>
-        </div>
-        <div class="muted" style="margin-top:8px">Token is stored locally only and will not be displayed anywhere (we show ****** only).</div>
+  <section class="card" id="admin_card">
+    <div>
+      <div class="label">Admin token (keeps UI read-only unless saved)</div>
+      <div class="token-wrap" style="gap:10px">
+        <input id="admin_token" type="password" placeholder="Enter admin token" aria-label="Admin token" />
+        <button id="toggle_token" class="input-eye">Show</button>
+        <button id="save_token" class="btn">Save</button>
+        <button id="clear_token" class="btn ghost">Clear</button>
       </div>
-
-      <div style="display:flex;gap:10px;align-items:center">
-        <button id="login_zerodha" class="btn ghost small">Login Zerodha</button>
-        <button id="refresh_state" class="btn ghost small">Refresh</button>
-        <div style="margin-left:auto" class="muted">Admin controls unlock after saving token</div>
-      </div>
+      <div class="muted-block">Token stored locally only. We will not display the real token; only masked placeholder will be shown.</div>
     </div>
 
-    <hr style="border:none;height:12px;background:transparent">
+    <div class="controls">
+      <button id="login_zerodha" class="btn ghost small">Login Zerodha</button>
+      <button id="refresh_state" class="btn ghost small">Refresh</button>
+      <div style="flex:1"></div>
+      <label class="muted">Admin controls unlock after saving token</label>
+    </div>
 
-    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+    <div style="height:8px"></div>
+
+    <div class="controls">
       <button id="enforce_btn" class="btn ok">Enforce Now</button>
       <button id="kill_btn" class="btn warn">Kill (Close)</button>
-      <label style="margin-left:8px" class="muted">Cancel All</label>
-      <input id="cancel_checkbox" type="checkbox" style="transform:scale(1.2);margin-left:6px" />
-      <label style="margin-left:auto" class="muted"><input id="allow_new_checkbox" type="checkbox" /> Allow New Orders</label>
+      <button id="cancel_all_btn" class="btn ghost">Cancel All</button>
+
+      <label style="margin-left:auto" class="switch"><input id="allow_new_checkbox" type="checkbox" /> Allow New Orders</label>
     </div>
 
-    <div style="margin-top:10px;color:#f7c6c6" id="last_action_msg"></div>
+    <div id="last_action_msg" style="margin-top:12px;color:#ffbcbc">—</div>
   </section>
 
-  <!-- swipeable pages -->
-  <div class="pages" id="pages">
-    <div class="page card">
-      <h2 style="margin-top:0">Live overview <button id="refresh_stats" class="btn ghost small" style="float:right">Refresh</button></h2>
-      <div class="stats" id="stats_grid">
-        <div class="stat">
-          <h3>Capital @ 09:15</h3>
-          <div class="val" id="capital915">—</div>
-          <div class="muted">Base for daily limits</div>
-        </div>
-        <div class="stat">
-          <h3>Current Balance (live/fallback)</h3>
-          <div class="val" id="live_funds">—</div>
-          <div class="muted">Uses cached if offline</div>
-        </div>
-        <div class="stat">
-          <h3>Live MTM</h3>
-          <div class="val" id="live_mtm">—</div>
-          <div class="muted">Sum of position PnL</div>
-        </div>
-        <div class="stat">
-          <h3>PnL (R/UR/Total)</h3>
-          <div class="val" id="pnl_info">—</div>
-          <div class="muted">Realtime</div>
-        </div>
-        <div class="stat">
-          <h3>Max Loss (₹)</h3>
-          <div class="val" id="max_loss">—</div>
-          <div class="muted" id="max_loss_pct">—</div>
-        </div>
-        <div class="stat">
-          <h3>Active Loss Floor (₹)</h3>
-          <div class="val" id="active_floor">—</div>
-          <div class="muted">Trail rules</div>
-        </div>
+  <!-- STATS CARD -->
+  <section class="card">
+    <h2 style="margin-top:0">Live overview <button id="refresh_stats" class="btn ghost small" style="float:right">Refresh</button></h2>
+    <div class="stats" id="stats_grid">
+      <div class="stat">
+        <h3>Capital @ 09:15</h3>
+        <div class="val" id="capital915">—</div>
+        <div class="muted">Base for daily limits</div>
+      </div>
+      <div class="stat">
+        <h3>Current Balance (live/fallback)</h3>
+        <div class="val" id="live_funds">—</div>
+        <div class="muted">Uses cached if offline</div>
+      </div>
+      <div class="stat">
+        <h3>Live MTM</h3>
+        <div class="val" id="live_mtm">—</div>
+        <div class="muted">Sum of position PnL</div>
+      </div>
+      <div class="stat">
+        <h3>PnL (R/UR/Total)</h3>
+        <div class="val" id="pnl_info">—</div>
+        <div class="muted">Realtime</div>
+      </div>
+      <div class="stat">
+        <h3>Consecutive Losses</h3>
+        <div class="val" id="consec_losses">—</div>
+        <div class="muted">Count for today</div>
+      </div>
+      <div class="stat">
+        <h3>Cooldown Until</h3>
+        <div class="val" id="cooldown_until">—</div>
+        <div class="muted">Locked until</div>
       </div>
     </div>
+  </section>
 
-    <div class="page card">
-      <h2 style="margin-top:0">Rules (editable by admin)</h2>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-        <div>
-          <label class="muted">Max Loss %</label>
-          <input id="rule_max_loss_pct" type="text" placeholder="10" />
-        </div>
-        <div>
-          <label class="muted">Trailing step (₹)</label>
-          <input id="rule_trail_step" type="text" placeholder="5000" />
-        </div>
-        <div>
-          <label class="muted">Cooldown (min)</label>
-          <input id="rule_cooldown_min" type="text" placeholder="15" />
-        </div>
-        <div>
-          <label class="muted">Max consecutive losses</label>
-          <input id="rule_max_consec" type="text" placeholder="3" />
-        </div>
-      </div>
+  <!-- LOGS & ACTIONS CARD -->
+  <section class="card">
+    <h2 style="margin-top:0">Logs & last responses</h2>
+    <div class="muted">Server responses for last actions are shown here (keeps a running history)</div>
+    <pre id="raw_responses">—</pre>
+  </section>
 
-      <div style="margin-top:12px" class="muted">Only editable when admin token is saved.</div>
-    </div>
-
-    <div class="page card">
-      <h2 style="margin-top:0">Logs & actions</h2>
-      <div class="muted">Quick action buttons and last responses</div>
-      <div style="display:flex;gap:8px;margin-top:10px">
-        <button id="enforce_trades_btn" class="btn small ghost">Enforce Trades (POST)</button>
-        <button id="cancel_all_btn" class="btn small ghost">Cancel All (POST)</button>
-        <button id="kill_btn2" class="btn warn small">Kill</button>
-      </div>
-
-      <div style="margin-top:12px">
-        <div class="muted">Last responses</div>
-        <pre id="raw_responses" style="white-space:pre-wrap;color:#ffdede;background:rgba(0,0,0,0.15);padding:12px;border-radius:8px;margin-top:8px;max-height:240px;overflow:auto">—</pre>
-      </div>
-    </div>
-  </div>
-
-  <div class="pager-nav">
-    <button id="prev_page" class="small btn ghost">⟨ Prev</button>
-    <button id="next_page" class="small btn ghost">Next ⟩</button>
-  </div>
 </div>
 
 <div id="toast" class="toast"></div>
 
-<!-- ===== START: SCRIPT (replace only this block if updating existing file) ===== -->
 <script>
-/* Hardened admin client script
-   - Uses masked token and stores it in localStorage (never displays real token except briefly on demand)
-   - Attempts POST then falls back to GET for endpoints (avoids 405)
-   - Logs to #raw_responses and console
-   - Defensive element binding
-*/
+/* --------------------------
+   Small helpers & UI utils
+   -------------------------- */
+const $ = id => document.getElementById(id);
+const toastEl = $('toast');
+function showToast(msg, t = 2500){ toastEl.textContent = msg; toastEl.classList.add('show'); setTimeout(()=>toastEl.classList.remove('show'), t); }
+function nowTime(){ return new Date().toLocaleTimeString('en-IN', { timeZone:'Asia/Kolkata', hour12:false }); }
+function safeStringify(j){ try{return JSON.stringify(j);}catch(e){return String(j);} }
 
-(function(){
-  // helpers
-  const qs = id => document.getElementById(id);
-  const nowTime = ()=> new Date().toLocaleTimeString('en-IN',{timeZone:'Asia/Kolkata',hour12:false});
-  const safeJSON = v => { try { return JSON.stringify(v); } catch(e) { return String(v); } };
+/* --------------------------
+   Token storage / UI
+   -------------------------- */
+const tokenInput = $('admin_token');
+const toggleBtn = $('toggle_token');
+const saveBtn = $('save_token');
+const clearBtn = $('clear_token');
 
-  function pushLog(msg){
-    console.log(msg);
-    const pre = qs('raw_responses');
-    const line = '[' + nowTime() + '] ' + msg + '\n\n';
-    if(pre){
-      if(pre.textContent === '—') pre.textContent = line;
-      else pre.textContent = line + pre.textContent;
-    }
+function getStoredToken(){ return localStorage.getItem('admin_token') || ''; }
+function setStoredToken(v){ if(v) localStorage.setItem('admin_token', v); else localStorage.removeItem('admin_token'); }
+
+function applyTokenUI(){
+  const t = getStoredToken();
+  if(t){
+    tokenInput.value = '********';          // always mask in UI
+    tokenInput.dataset.saved = '1';
+    tokenInput.type = 'password';
+  } else {
+    tokenInput.value = '';
+    tokenInput.dataset.saved = '0';
+    tokenInput.type = 'password';
   }
+  setAdminEnabled(!!t);
+}
+applyTokenUI();
 
-  // global error catchers (visible in UI)
-  window.addEventListener('error', ev => {
-    pushLog('JS_ERROR: ' + (ev && ev.message ? ev.message : String(ev)));
-  });
-  window.addEventListener('unhandledrejection', ev => {
-    pushLog('UNHANDLED_PROMISE: ' + (ev && ev.reason ? safeJSON(ev.reason) : String(ev)));
-  });
-
-  // admin token storage (local only)
-  function getStoredToken(){ return localStorage.getItem('admin_token') || ''; }
-  function setStoredToken(v){ if(v) localStorage.setItem('admin_token', v); else localStorage.removeItem('admin_token'); }
-  function authHeader(){ const t = getStoredToken(); if(!t) return {}; return { 'Authorization': t.startsWith('Bearer ') ? t : ('Bearer ' + t) }; }
-
-  // defensive element getter
-  function getEl(id, fallbackSelector){
-    let el = qs(id);
-    if(!el && fallbackSelector) el = document.querySelector(fallbackSelector);
-    if(!el) pushLog('MISSING_ELEMENT: ' + id + (fallbackSelector ? ' (fallback: ' + fallbackSelector + ')' : ''));
-    return el;
+toggleBtn.addEventListener('click', () => {
+  // If a real token is saved, reveal it briefly (not kept)
+  const saved = getStoredToken();
+  if(!saved){
+    // toggle visibility of typed input
+    tokenInput.type = tokenInput.type === 'password' ? 'text' : 'password';
+    toggleBtn.textContent = tokenInput.type === 'password' ? 'Show' : 'Hide';
+    return;
   }
+  tokenInput.type = 'text';
+  tokenInput.value = saved;
+  toggleBtn.textContent = 'Hide';
+  setTimeout(()=>{ tokenInput.type = 'password'; tokenInput.value = '********'; toggleBtn.textContent = 'Show'; }, 3500);
+});
 
-  // ensure raw_responses exists
-  if(!qs('raw_responses')){
-    const pre = document.createElement('pre');
-    pre.id = 'raw_responses';
-    pre.textContent = '—';
-    pre.style.cssText = 'white-space:pre-wrap;color:#ffdede;background:rgba(0,0,0,0.15);padding:12px;border-radius:8px;margin-top:8px;max-height:240px;overflow:auto';
-    document.body.appendChild(pre);
-  }
+saveBtn.addEventListener('click', () => {
+  const typed = tokenInput.value.trim();
+  const alreadySaved = tokenInput.dataset.saved === '1';
+  if(alreadySaved && typed === '********'){ showToast('Token already saved'); return; }
+  if(!typed){ showToast('Enter token first'); return; }
+  setStoredToken(typed);
+  applyTokenUI();
+  showToast('Token saved');
+});
 
-  // robust fetch that tries a list of methods (POST then GET)
-  async function fetchTry(path, body=null, tryMethods=['POST','GET']){
-    for(const method of tryMethods){
-      try {
-        const headers = { 'Content-Type': 'application/json', ...authHeader() };
-        const opts = { method, headers };
-        if(body && method !== 'GET') opts.body = JSON.stringify(body);
-        pushLog('REQ -> ' + path + ' method=' + method + ' headers=' + safeJSON(headers) + (opts.body? ' body=' + opts.body : ''));
-        const res = await fetch(path, opts);
-        const text = await res.text().catch(()=>null);
-        let parsed;
-        try { parsed = text ? JSON.parse(text) : null; } catch(e) { parsed = { ok:false, error:'invalid-json', raw:text }; }
-        pushLog('RESP <- ' + path + ' status=' + res.status + ' body=' + safeJSON(parsed));
-        // If the server returned 405 for this method, continue to next method
-        if(res.status === 405) continue;
-        return parsed ?? { ok:true, status: res.status };
-      } catch (err) {
-        pushLog('FETCH_ERROR ' + path + ' method=' + method + ' : ' + String(err));
-      }
-    }
-    return { ok:false, error:'no-successful-method' };
-  }
+clearBtn.addEventListener('click', () => {
+  setStoredToken('');
+  applyTokenUI();
+  showToast('Token cleared');
+});
 
-  // UI controls
-  const tokenInput = getEl('admin_token');
-  const toggleTokenBtn = getEl('toggle_token');
-  const saveTokenBtn = getEl('save_token');
-  const clearTokenBtn = getEl('clear_token');
-
-  const loginBtn = getEl('login_zerodha');
-  const refreshStateBtn = getEl('refresh_state');
-  const enforceBtn = getEl('enforce_btn');
-  const killBtn = getEl('kill_btn');
-  const cancelAllBtn = getEl('cancel_all_btn');
-  const enforceTradesBtn = getEl('enforce_trades_btn'); // secondary
-  const killBtn2 = getEl('kill_btn2');
-  const allowNewCheckbox = getEl('allow_new_checkbox');
-  const cancelCheckbox = getEl('cancel_checkbox');
-  const lastActionMsg = getEl('last_action_msg');
-
-  // token UI helpers
-  function applyTokenUI(){
-    const t = getStoredToken();
-    if(!tokenInput) return;
-    if(t){
-      tokenInput.value = '********';
-      tokenInput.dataset.saved = '1';
-      tokenInput.type = 'password';
-      tokenInput.title = 'Saved token (masked)';
-      if(saveTokenBtn) { saveTokenBtn.textContent = 'Saved'; setTimeout(()=> saveTokenBtn.textContent = 'Save', 1200); }
-      setAdminEnabled(true);
-    } else {
-      tokenInput.value = '';
-      tokenInput.dataset.saved = '0';
-      setAdminEnabled(false);
-    }
-  }
-
-  // toggle reveal (temporary)
-  if(toggleTokenBtn){
-    toggleTokenBtn.addEventListener('click', ()=>{
-      const stored = getStoredToken();
-      if(!stored){
-        // if no stored token, allow toggling typed content
-        if(tokenInput) {
-          tokenInput.type = (tokenInput.type === 'password') ? 'text' : 'password';
-          toggleTokenBtn.textContent = (tokenInput.type === 'password') ? 'Show' : 'Hide';
-        }
-        return;
-      }
-      // show real stored token briefly
-      tokenInput.type = 'text';
-      tokenInput.value = stored;
-      toggleTokenBtn.textContent = 'Hide';
-      setTimeout(()=>{
-        tokenInput.type = 'password';
-        tokenInput.value = '********';
-        toggleTokenBtn.textContent = 'Show';
-      }, 3500);
-    });
-  }
-
-  if(saveTokenBtn){
-    saveTokenBtn.addEventListener('click', ()=>{
-      if(!tokenInput) return;
-      const typed = tokenInput.value.trim();
-      const alreadySaved = tokenInput.dataset.saved === '1';
-      if(alreadySaved && typed === '********'){
-        pushLog('Token already saved; use Clear to replace.');
-        showToast('Token already saved; use Clear to replace.');
-        return;
-      }
-      if(!typed){
-        showToast('Enter token first');
-        return;
-      }
-      setStoredToken(typed);
-      applyTokenUI();
-      showToast('Token saved (masked)');
-    });
-  }
-
-  if(clearTokenBtn){
-    clearTokenBtn.addEventListener('click', ()=>{
-      setStoredToken('');
-      applyTokenUI();
-      showToast('Token cleared');
-    });
-  }
-
-  // enable/disable admin-only inputs
-  function setAdminEnabled(v){
-    const enabled = !!v;
-    const inputs = ['rule_max_loss_pct','rule_trail_step','rule_cooldown_min','rule_max_consec'];
-    inputs.forEach(id => { const el = getEl(id); if(el) el.disabled = !enabled; });
-    const btns = ['enforce_btn','kill_btn','cancel_all_btn','enforce_trades_btn','login_zerodha'];
-    btns.forEach(id => { const el = getEl(id); if(el) el.disabled = !enabled; });
-  }
-
-  // show toast minimal
-  function showToast(msg, t=1800){
-    const el = qs('toast');
+/* --------------------------
+   Admin enable/disable UI
+   -------------------------- */
+let adminEnabled = false;
+function setAdminEnabled(v){
+  adminEnabled = !!v;
+  // which buttons should be disabled when no token
+  ['enforce_btn','kill_btn','cancel_all_btn','login_zerodha'].forEach(id => {
+    const el = $(id);
     if(!el) return;
-    el.textContent = msg;
-    el.classList.add('show');
-    clearTimeout(el._hideTimer);
-    el._hideTimer = setTimeout(()=> el.classList.remove('show'), t);
-  }
-
-  // button behaviors (defensive)
-  if(enforceBtn){
-    enforceBtn.addEventListener('click', async (ev)=>{
-      ev.preventDefault();
-      if(lastActionMsg) lastActionMsg.textContent = 'Enforcing...';
-      const allowNew = allowNewCheckbox ? !!allowNewCheckbox.checked : false;
-      const resp = await fetchTry('/api/admin/enforce', { allow_new: allowNew }, ['POST','GET']);
-      pushLog('ENFORCE_RESULT: ' + safeJSON(resp));
-      if(lastActionMsg) lastActionMsg.textContent = (resp && resp.ok) ? 'Enforced' : ('Enforce failed: ' + (resp.error || 'unknown'));
-      if(resp && resp.ok) showToast('Enforce succeeded');
-    });
-  }
-  if(enforceTradesBtn){
-    enforceTradesBtn.addEventListener('click', ()=> { if(enforceBtn) enforceBtn.click(); });
-  }
-
-  if(cancelAllBtn){
-    cancelAllBtn.addEventListener('click', async (ev)=>{
-      ev.preventDefault();
-      if(lastActionMsg) lastActionMsg.textContent = 'Cancelling...';
-      const cancelAll = cancelCheckbox ? !!cancelCheckbox.checked : false;
-      const resp = await fetchTry('/api/admin/cancel', { cancel_all: cancelAll }, ['POST','GET']);
-      pushLog('CANCEL_RESULT: ' + safeJSON(resp));
-      if(lastActionMsg) lastActionMsg.textContent = (resp && resp.ok) ? 'Cancelled' : ('Cancel failed: ' + (resp.error || 'unknown'));
-      if(resp && resp.ok) showToast('Cancel succeeded');
-    });
-  }
-
-  if(killBtn){
-    killBtn.addEventListener('click', async (ev)=>{
-      ev.preventDefault();
-      if(lastActionMsg) lastActionMsg.textContent = 'Killing...';
-      const resp = await fetchTry('/api/admin/kill', {}, ['POST','GET']);
-      pushLog('KILL_RESULT: ' + safeJSON(resp));
-      if(lastActionMsg) lastActionMsg.textContent = (resp && resp.ok) ? 'Killed' : ('Kill failed: ' + (resp.error || 'unknown'));
-      if(resp && resp.ok) showToast('Kill succeeded');
-    });
-  }
-  if(killBtn2){ killBtn2.addEventListener('click', ()=> killBtn && killBtn.click()); }
-
-  if(loginBtn){
-    loginBtn.addEventListener('click', async (ev)=>{
-      ev.preventDefault();
-      if(lastActionMsg) lastActionMsg.textContent = 'Zerodha login...';
-      // try POST then GET
-      const resp = await fetchTry('/api/kite/login', {}, ['POST','GET']);
-      pushLog('LOGIN_RESULT: ' + safeJSON(resp));
-      if(lastActionMsg) lastActionMsg.textContent = (resp && resp.ok) ? 'Login OK' : ('Login failed: ' + (resp.error || 'unknown'));
-      if(resp && resp.ok) showToast('Zerodha login OK');
-    });
-  }
-
-  // refresh state/funds
-  async function fetchState(){
-    try{
-      const r = await fetch('/api/state?t=' + Date.now());
-      const j = await r.json();
-      if(!j.ok) { pushLog('STATE_LOAD_FAILED: ' + safeJSON(j)); return; }
-      qs('now').textContent = j.time || nowTime();
-      qs('kite_status').textContent = 'Kite: ' + (j.kite_status || '—');
-      qs('guard_status').textContent = (j.admin ? 'admin' : 'read-only');
-      const s = j.state || {};
-      qs('capital915').textContent = formatINR(s.capital_day_915 || 0);
-      qs('max_loss').textContent = formatINR(calcMaxLoss(s));
-      qs('max_loss_pct').textContent = 'Max Loss %: ' + (s.max_loss_pct ?? 10) + '%';
-      window._state = s;
-    }catch(e){
-      pushLog('FETCH_STATE_ERROR: ' + String(e));
-    }
-  }
-  async function fetchFunds(){
-    try{
-      const r = await fetch('/api/kite/funds');
-      const j = await r.json();
-      if(j.ok){
-        const av = Number(j.funds?.available?.live_balance ?? j.funds?.available?.cash ?? j.balance ?? j.funds?.cash || 0);
-        qs('live_funds').textContent = formatINR(av);
-      } else {
-        qs('live_funds').textContent = 'ERR';
-        pushLog('FUNDS_ERR: ' + safeJSON(j));
-      }
-    }catch(e){
-      qs('live_funds').textContent = 'ERR';
-      pushLog('FETCH_FUNDS_ERROR: ' + String(e));
-    }
-  }
-
-  function calcMaxLoss(s){ const cap = Number(s.capital_day_915 || 0); const pct = Number(s.max_loss_pct ?? 10); return Math.round(cap * pct / 100); }
-  function formatINR(v){ if(v==null || isNaN(Number(v))) return '—'; return '₹' + Number(v).toLocaleString('en-IN',{maximumFractionDigits:0}); }
-
-  // pager controls
-  const prevBtn = getEl('prev_page'), nextBtn = getEl('next_page'), pagesWrap = getEl('pages');
-  if(prevBtn) prevBtn.addEventListener('click', ()=> pagesWrap && pagesWrap.scrollBy({ left: -window.innerWidth, behavior:'smooth' }));
-  if(nextBtn) nextBtn.addEventListener('click', ()=> pagesWrap && pagesWrap.scrollBy({ left: window.innerWidth, behavior:'smooth' }));
-
-  // refresh buttons
-  if(refreshStateBtn) refreshStateBtn.addEventListener('click', ()=> { fetchState(); fetchFunds(); });
-  const refreshStatsBtn = getEl('refresh_stats');
-  if(refreshStatsBtn) refreshStatsBtn.addEventListener('click', ()=> { fetchState(); fetchFunds(); });
-
-  // initial UI setup and expose debug helpers
-  try{
-    applyTokenUI();
-  }catch(e){ pushLog('APPLY_TOKEN_UI_ERROR: ' + String(e)); }
-
-  // make sure admin controls are enabled for testing if token exists
-  if(getStoredToken()) setAdminEnabled(true);
-
-  // ping once on load
-  window.addEventListener('load', ()=>{
-    try{ fetchState(); fetchFunds(); } catch(e){ pushLog('LOAD_FETCH_ERROR: ' + String(e)); }
-    setInterval(()=> { const el = qs('now'); if(el) el.textContent = nowTime(); }, 1000);
+    el.disabled = !adminEnabled;
+    el.classList.toggle('ghost', !adminEnabled);
   });
+}
+setAdminEnabled(!!getStoredToken());
 
-  // add a small debug object to window so you can call from console
-  window._admin_debug = {
-    fetchTry,
-    pushLog,
-    getStoredToken,
-    setStoredToken,
-    authHeader
-  };
+/* --------------------------
+   Response history UI
+   -------------------------- */
+function pushResponse(text){
+  const pre = $('raw_responses');
+  const ts = new Date().toLocaleTimeString('en-IN',{timeZone:'Asia/Kolkata', hour12:false});
+  const entry = `[${ts}] ${text}\n\n`;
+  pre.textContent = entry + pre.textContent;
+  console.log('ADMIN RESPONSE:', text);
+}
 
-  pushLog('ADMIN_CLIENT_READY');
-})();
+/* --------------------------
+   Auth header helper
+   -------------------------- */
+function authHeaders(){
+  const t = getStoredToken();
+  if(!t) return {};
+  const hv = t.startsWith('Bearer ') ? t : 'Bearer ' + t;
+  return { 'Authorization': hv };
+}
+
+/* --------------------------
+   fetchWithFallback: try GET first, if 405 -> try POST
+   returns parsed JSON or { ok:false, error:... }
+   -------------------------- */
+async function fetchWithFallback(path, body = null, prefer = ['GET','POST']){
+  // prefer is array of methods to attempt in order; default GET then POST
+  const methods = Array.isArray(prefer) ? prefer : ['GET','POST'];
+  const headersBase = { ...authHeaders() };
+  // try methods sequentially
+  for(const method of methods){
+    try{
+      let opts = { method, headers: { ...headersBase } };
+      if(method === 'POST' || method === 'PUT' || method === 'PATCH'){
+        opts.headers['Content-Type'] = 'application/json';
+        opts.body = body ? JSON.stringify(body) : JSON.stringify({});
+      }
+      // For GET we append a cache-busting query param to avoid cached results
+      const url = method === 'GET' && body ? `${path}?_=${Date.now()}` : path;
+      const resp = await fetch(url, opts);
+      // If server returns 405 (Method Not Allowed), try next method
+      if(resp.status === 405){
+        // push a short note to responses and continue
+        pushResponse(`${path} => 405 Method Not Allowed for ${method}, trying next method`);
+        continue;
+      }
+      // parse JSON safely
+      let j;
+      try { j = await resp.json(); } catch(e) { j = { ok:false, error:'invalid_json', status: resp.status }; }
+      // attach method & status info
+      const out = { _method: method, _status: resp.status, _raw: j, ... (typeof j === 'object' ? j : { result: j }) };
+      return out;
+    } catch(err){
+      // network or fetch error - record and try next method
+      pushResponse(`${path} => fetch error (${method}): ${err.message}`);
+      continue;
+    }
+  }
+  return { ok:false, error:'all_methods_failed' };
+}
+
+/* --------------------------
+   UI actions - bind handlers
+   -------------------------- */
+
+$('refresh_state').addEventListener('click', () => { loadState(); loadFunds(); showToast('Refreshed'); });
+$('refresh_stats').addEventListener('click', () => { loadState(); loadFunds(); showToast('Refreshed'); });
+
+$('enforce_btn').addEventListener('click', async () => {
+  $('last_action_msg').textContent = 'Enforcing...';
+  const allowNew = !!$('allow_new_checkbox').checked;
+  const res = await fetchWithFallback('/api/admin/enforce', { allow_new: allowNew }, ['GET','POST']);
+  pushResponse(`/api/admin/enforce -> ${safeStringify(res)}`);
+  $('last_action_msg').textContent = res.ok ? 'Enforced' : `Enforce failed: ${res.error || res._raw?.error || res._status}`;
+  await loadState();
+});
+
+$('cancel_all_btn').addEventListener('click', async () => {
+  $('last_action_msg').textContent = 'Cancelling...';
+  const res = await fetchWithFallback('/api/admin/cancel', { cancel_all: true }, ['GET','POST']);
+  pushResponse(`/api/admin/cancel -> ${safeStringify(res)}`);
+  $('last_action_msg').textContent = res.ok ? 'Cancelled' : `Cancel failed: ${res.error || res._raw?.error || res._status}`;
+  await loadState();
+});
+
+$('kill_btn').addEventListener('click', async () => {
+  $('last_action_msg').textContent = 'Killing...';
+  const res = await fetchWithFallback('/api/admin/kill', {}, ['GET','POST']);
+  pushResponse(`/api/admin/kill -> ${safeStringify(res)}`);
+  $('last_action_msg').textContent = res.ok ? 'Killed' : `Kill failed: ${res.error || res._raw?.error || res._status}`;
+  await loadState();
+});
+
+$('login_zerodha').addEventListener('click', async () => {
+  $('last_action_msg').textContent = 'Zerodha login...';
+  const res = await fetchWithFallback('/api/kite/login', {}, ['GET','POST']);
+  pushResponse(`/api/kite/login -> ${safeStringify(res)}`);
+  $('last_action_msg').textContent = res.ok ? 'Zerodha login OK' : `Zerodha login failed: ${res.error || res._raw?.error || res._status}`;
+  await loadState();
+});
+
+/* --------------------------
+   Load state & funds
+   -------------------------- */
+async function loadState(){
+  try{
+    const r = await fetch('/api/state?_=' + Date.now());
+    const j = await r.json().catch(()=>({ ok:false }));
+    if(!j.ok){ pushResponse(`/api/state -> error`); return; }
+    $('now').textContent = j.time || nowTime();
+    $('kite_status').textContent = 'Kite: ' + (j.kite_status || '—');
+    $('guard_status').textContent = (j.admin ? 'admin' : 'read-only');
+    const s = j.state || {};
+    $('capital915').textContent = formatINR(s.capital_day_915 || 0);
+    $('live_mtm').textContent = formatINR(s.unrealised || 0);
+    $('pnl_info').textContent = `${formatINR(s.realised||0)} / ${formatINR(s.unrealised||0)} / ${formatINR((s.realised||0)+(s.unrealised||0))}`;
+    $('consec_losses').textContent = (s.consecutive_losses ?? 0);
+    $('cooldown_until').textContent = s.cooldown_until ? new Date(s.cooldown_until).toLocaleString() : '—';
+    window._state = s;
+  }catch(e){ console.error('loadState', e); pushResponse('/api/state fetch failed: '+e.message); }
+}
+
+async function loadFunds(){
+  try{
+    const r = await fetch('/api/kite/funds?_=' + Date.now());
+    const j = await r.json().catch(()=>({ ok:false }));
+    if(!j.ok){ $('live_funds').textContent = 'ERR'; pushResponse('/api/kite/funds -> error'); return; }
+    // prefer live_balance -> net -> available.cash -> funds.balance
+    const av = Number(j.funds?.available?.live_balance ?? j.funds?.net ?? j.funds?.available?.cash ?? j.balance ?? j.funds?.cash || 0);
+    $('live_funds').textContent = formatINR(av);
+  }catch(e){ console.error('loadFunds', e); $('live_funds').textContent = 'ERR'; pushResponse('/api/kite/funds fetch failed: '+e.message); }
+}
+
+/* --------------------------
+   Small formatters
+   -------------------------- */
+function formatINR(v){
+  if(v==null || isNaN(Number(v))) return '—';
+  const n = Number(v);
+  if(Math.abs(n) >= 1000) return '₹' + n.toLocaleString('en-IN', { maximumFractionDigits: 0 });
+  return '₹' + n.toFixed(2);
+}
+
+/* --------------------------
+   Initial load
+   -------------------------- */
+window.addEventListener('load', async () => {
+  applyTokenUI();
+  await loadState();
+  await loadFunds();
+  setInterval(()=> $('now').textContent = nowTime(), 1000);
+});
+
+/* debug helper: expose for console debugging */
+window.guardianAdmin = {
+  fetchWithFallback, getStoredToken, setStoredToken, loadState, loadFunds, pushResponse
+};
+
 </script>
-<!-- ===== END: SCRIPT ===== -->
-
 </body>
 </html>
