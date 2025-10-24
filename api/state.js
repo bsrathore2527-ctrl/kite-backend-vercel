@@ -14,22 +14,40 @@ export default async function handler(req, res) {
     const s = await getState();
     const tok = await getAccessToken();
 
+    // attempt to expose a sensible live_balance if stored in state
+    // prefer live_balance (set by funds fetch) -> current_balance (cached) -> 0
+    const liveBalance =
+      (s.live_balance !== undefined && s.live_balance !== null)
+        ? Number(s.live_balance)
+        : (s.current_balance !== undefined && s.current_balance !== null)
+          ? Number(s.current_balance)
+          : 0;
+
+    // compute cooldown_active boolean
+    const nowTs = Date.now();
+    const cooldownUntil = Number(s.cooldown_until || 0);
+    const cooldownActive = cooldownUntil > nowTs;
+
     // safe view with defaults
     const safe = {
       capital_day_915: s.capital_day_915 || 0,
       realised: s.realised || 0,
       unrealised: s.unrealised || 0,
-      current_balance: s.current_balance || 0, // latest cached balance (fallback for UI)
+      current_balance: s.current_balance || 0, // cached balance (fallback for UI)
+      live_balance: liveBalance,
       tripped_day: !!s.tripped_day,
       tripped_week: !!s.tripped_week,
       tripped_month: !!s.tripped_month,
       block_new_orders: !!s.block_new_orders,
       consecutive_losses: s.consecutive_losses || 0,
-      cooldown_until: s.cooldown_until || 0,
+      cooldown_until: cooldownUntil,
+      cooldown_active: !!cooldownActive,
+      last_trade_time: s.last_trade_time || 0,
+      last_trade_pnl: (typeof s.last_trade_pnl === "number" ? s.last_trade_pnl : (s.last_trade_pnl ? Number(s.last_trade_pnl) : 0)),
       profit_lock_10: !!s.profit_lock_10,
       profit_lock_20: !!s.profit_lock_20,
       expiry_flag: !!s.expiry_flag,
-      // rules
+      // rules (expose for admin UI)
       max_loss_pct: s.max_loss_pct ?? 10,
       trail_step_profit: s.trail_step_profit ?? 5000,
       cooldown_min: s.cooldown_min ?? 15,
