@@ -7,25 +7,25 @@
   <style>
     :root{
       --bg:#0b1220; --card:#0f1720; --muted:#9aa3b2; --accent:#3b5df0; --danger:#c84a4a;
-      color: #e8eef6; font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+      color:#e8eef6;font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial;
     }
-    body{margin:0;background:linear-gradient(180deg,#07111a, #071020 60%);padding:18px;}
-    .wrap{max-width:980px;margin:0 auto;}
+    body{margin:0;background:linear-gradient(180deg,#07111a,#071020 60%);padding:18px;}
+    .wrap{max-width:960px;margin:0 auto;}
     .header{display:flex;gap:12px;align-items:center;justify-content:space-between}
-    .title{font-size:28px;font-weight:700}
-    .status-badges{display:flex;gap:8px;align-items:center}
+    .title{font-size:26px;font-weight:700}
     .badge{background:#071425;padding:8px 12px;border-radius:20px;color:var(--muted);font-weight:600}
-    .card{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));border-radius:14px;padding:18px;margin-top:18px;box-shadow:0 8px 24px rgba(2,6,23,0.6)}
-    .row{display:flex;gap:12px;flex-wrap:wrap}
-    .input{flex:1;min-width:180px;padding:12px;border-radius:10px;background:transparent;border:1px solid rgba(255,255,255,0.04);color:var(--muted)}
+    .card{background:linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.01));
+          border-radius:14px;padding:18px;margin-top:18px;box-shadow:0 8px 24px rgba(2,6,23,0.6)}
+    .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+    .input{flex:1;min-width:160px;padding:10px;border-radius:10px;background:transparent;
+           border:1px solid rgba(255,255,255,0.04);color:var(--muted)}
     .btn{background:var(--accent);padding:10px 16px;border-radius:10px;color:#fff;border:none;font-weight:700;cursor:pointer}
     .btn-ghost{background:transparent;border:1px solid rgba(255,255,255,0.06);color:var(--muted);padding:10px 14px;border-radius:10px;cursor:pointer}
     .btn-danger{background:var(--danger);padding:10px 14px;border-radius:10px;color:#fff;border:none;cursor:pointer}
-    .stat-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:14px}
+    .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin-top:14px}
     .stat{background:rgba(255,255,255,0.02);padding:14px;border-radius:10px}
     .muted{color:var(--muted);font-size:13px}
     pre{white-space:pre-wrap;color:#ffbaba;background:#2b2222;padding:10px;border-radius:8px}
-    label{font-size:13px;color:var(--muted);display:block;margin-bottom:6px}
     .small{font-size:12px;color:var(--muted)}
   </style>
 </head>
@@ -34,16 +34,16 @@
     <div class="header">
       <div>
         <div class="title">Guardian — Admin</div>
-        <div class="small muted">Risk automation & enforcement</div>
+        <div class="small muted">Risk Automation Control</div>
       </div>
-      <div class="status-badges">
+      <div style="display:flex;gap:8px;align-items:center">
         <div id="kite_status" class="badge">Kite: —</div>
         <div id="guardian_status" class="badge">Guardian: —</div>
         <div id="time" class="badge">—</div>
       </div>
     </div>
 
-    <div class="card" id="admin_card">
+    <div class="card">
       <div class="row">
         <input id="admin_token" class="input" placeholder="ADMIN_TOKEN" />
         <button id="save_token" class="btn">Save</button>
@@ -51,31 +51,20 @@
         <button id="clear_token" class="btn-ghost">Clear</button>
       </div>
 
-      <div class="row" style="margin-top:12px;align-items:center">
-        <button id="acquire_lock" class="btn-ghost">Acquire Lock</button>
-        <button id="release_lock" class="btn-ghost">Release Lock</button>
-        <button id="take_snap" class="btn-ghost">Take 09:15 Snapshot</button>
-        <button id="enforce_now" class="btn" style="background:linear-gradient(90deg,#1e8a3a,#1842a6)">Enforce Now</button>
+      <div class="row" style="margin-top:12px;">
+        <button id="enforce_now" class="btn">Enforce Now</button>
         <button id="kill" class="btn-danger">Kill (Close)</button>
-      </div>
-
-      <div class="row" style="margin-top:12px;align-items:center">
-        <label style="margin:0 12px 0 0" class="small">Cancel All</label>
-        <input id="allow_new" type="checkbox" />
-        <label class="small" style="margin-left:8px">Allow New Orders</label>
-
         <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
-          <input id="set_capital" class="input" placeholder="Set capital (₹) — admin only" style="max-width:180px" />
+          <input id="set_capital" class="input" placeholder="Set Capital (₹) — Admin only" style="max-width:180px" />
           <button id="save_capital" class="btn-ghost">Set</button>
         </div>
       </div>
-
       <div id="admin_message" style="margin-top:12px"></div>
     </div>
 
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center">
-        <div style="font-weight:700">Live overview</div>
+        <div style="font-weight:700">Live Overview</div>
         <button id="refresh" class="btn-ghost">Refresh</button>
       </div>
 
@@ -83,176 +72,91 @@
         <div class="stat">
           <div class="muted">Capital @ 09:15</div>
           <div id="capital_val" style="font-weight:800;font-size:20px">—</div>
-          <div class="muted">Base for daily limits</div>
         </div>
-
         <div class="stat">
-          <div class="muted">Current Balance (live/fallback)</div>
+          <div class="muted">Current Balance</div>
           <div id="live_funds" style="font-weight:800;font-size:20px">—</div>
-          <div class="muted">Uses cached if offline</div>
         </div>
-
         <div class="stat">
-          <div class="muted">Live MTM</div>
-          <div id="live_mtm" style="font-weight:800;font-size:20px">—</div>
-          <div class="muted">Sum of position PnL</div>
-        </div>
-
-        <div class="stat">
-          <div class="muted">PnL (R/UR/Total)</div>
+          <div class="muted">PnL (R/UR/T)</div>
           <div id="pnl" style="font-weight:800;font-size:20px">—</div>
-          <div class="muted">Realised / Unrealised / Total</div>
         </div>
-
         <div class="stat">
           <div class="muted">Consecutive Losses</div>
           <div id="consecutive" style="font-weight:800;font-size:20px">0</div>
         </div>
-
         <div class="stat">
           <div class="muted">Cooldown Until</div>
           <div id="cooldown" style="font-weight:800;font-size:20px">—</div>
         </div>
       </div>
     </div>
-
-    <div style="height:32px"></div>
   </div>
 
   <script>
-    // ---------- small helpers ----------
-    function el(id){ return document.getElementById(id); }
-    function setText(id, txt){ const e = el(id); if(e) e.textContent = txt; }
-    function inr(n){ if(n === null || n === undefined) return "—"; return "₹" + Number(n).toLocaleString('en-IN', { maximumFractionDigits: 2 }); }
-    function showMsg(msg, ok=true){
-      const m = el('admin_message');
-      m.innerHTML = '<pre>' + (ok ? '' : '') + msg + '</pre>';
-      setTimeout(()=>{ m.innerHTML = ''; }, 7000);
-    }
-    async function postJSON(path, body={}, extraHeaders={}) {
-      const headers = { 'Content-Type': 'application/json', ...extraHeaders };
-      const r = await fetch(path, { method: 'POST', headers, body: JSON.stringify(body) });
-      const j = await r.json().catch(()=>({ ok:false, error: 'invalid json' }));
-      return { status: r.status, body: j };
+    const el = id => document.getElementById(id);
+    const setText = (id, txt) => { const e=el(id); if(e) e.textContent=txt; };
+    const inr = n => n==null ? "—" : "₹"+Number(n).toLocaleString("en-IN",{maximumFractionDigits:2});
+    const showMsg = (m,ok=true)=>{const e=el('admin_message');e.innerHTML='<pre>'+m+'</pre>';setTimeout(()=>e.innerHTML='',6000);};
+    const postJSON = async (path,body={},hdr={})=>{
+      const h={'Content-Type':'application/json',...hdr};
+      const r=await fetch(path,{method:'POST',headers:h,body:JSON.stringify(body)});
+      const j=await r.json().catch(()=>({ok:false,error:'invalid json'}));
+      return {status:r.status,body:j};
+    };
+    const getAuthHeader=()=>{
+      const t=localStorage.getItem('ADMIN_TOKEN')||el('admin_token').value.trim();
+      return t? 'Bearer '+t : null;
+    };
+
+    async function fetchState(){
+      try{
+        const r=await fetch('/api/state?t='+Date.now());
+        const j=await r.json();
+        if(!j.ok) throw new Error(j.error||'state error');
+        setText('time',j.time||'—');
+        el('kite_status').textContent='Kite: '+(j.kite_status||'—');
+        el('guardian_status').textContent='Guardian: '+(j.admin?'admin':'online');
+        const s=j.state||{};
+        setText('capital_val',inr(s.capital_day_915||0));
+        setText('pnl',`${inr(s.realised||0)} / ${inr(s.unrealised||0)} / ${inr((s.realised||0)+(s.unrealised||0))}`);
+        setText('consecutive',s.consecutive_losses||0);
+        setText('cooldown',s.cooldown_until?new Date(s.cooldown_until).toLocaleTimeString():'—');
+      }catch(e){console.error(e);}
     }
 
-    // ---------- state & funds logic ----------
-    async function fetchState() {
-      try {
-        const r = await fetch('/api/state?t=' + Date.now());
-        const j = await r.json();
-        if (!j.ok) throw new Error(j.error || 'bad state');
-        // show time
-        setText('time', j.time || '—');
-        // kite status
-        el('kite_status').textContent = 'Kite: ' + (j.kite_status || '—');
-        el('guardian_status').textContent = 'Guardian: ' + (j.admin ? 'admin' : 'online');
-        // safe values
-        const st = j.state || {};
-        setText('capital_val', inr(st.capital_day_915 ?? 0));
-        setText('pnl', `${inr(st.realised ?? 0)} / ${inr(st.unrealised ?? 0)} / ${inr((st.realised||0)+(st.unrealised||0))}`);
-        setText('consecutive', (st.consecutive_losses ?? 0));
-        setText('cooldown', st.cooldown_until ? new Date(st.cooldown_until).toLocaleTimeString() : '—');
-      } catch (e) {
-        console.error('fetchState', e);
-      }
+    async function fetchFunds(){
+      try{
+        const r=await fetch('/api/kite/funds',{headers:{Authorization:getAuthHeader()||''}});
+        const j=await r.json();
+        const av=Number(j?.funds?.available?.live_balance??j?.funds?.net??j?.funds?.available?.cash??j?.balance??0);
+        setText('live_funds',inr(av));
+      }catch(e){console.error(e);setText('live_funds','—');}
     }
 
-    async function fetchFunds(tokenHeader=null) {
-      try {
-        const headers = {};
-        if (tokenHeader) headers['Authorization'] = tokenHeader;
-        const r = await fetch('/api/kite/funds', { headers });
-        if (r.status === 400 || r.status === 401) {
-          const j = await r.json().catch(()=>({ok:false, error:'invalid json'}));
-          setText('live_funds', 'ERR: ' + (j.error || 'unauthorized'));
-          return;
-        }
-        const j = await r.json();
-        // choose the most relevant value:
-        // prefer funds.funds.available.live_balance -> funds.funds.net -> funds.funds.available.cash -> funds.balance -> funds.funds?.cash
-        const av = Number(
-          (j?.funds?.available?.live_balance ?? j?.funds?.net ?? j?.funds?.available?.cash ?? j?.balance ?? j?.funds?.cash ?? 0)
-        );
-        if (!Number.isNaN(av)) {
-          setText('live_funds', inr(av));
-        } else {
-          // fallback to cached in state
-          const s = await fetch('/api/state?t=' + Date.now()).then(r=>r.json()).catch(()=>null);
-          const cached = s?.state?.current_balance ?? s?.state?.capital_day_915 ?? null;
-          setText('live_funds', cached ? inr(cached) : '—');
-        }
-      } catch (e) {
-        console.error('fetchFunds', e);
-        setText('live_funds', '—');
-      }
+    function saveToken(){const v=el('admin_token').value.trim();if(!v)return;localStorage.setItem('ADMIN_TOKEN',v);showMsg('Token saved');}
+    function clearToken(){localStorage.removeItem('ADMIN_TOKEN');el('admin_token').value='';showMsg('Token cleared');}
+
+    async function callAdmin(path,body={}){
+      const h=getAuthHeader();if(!h)return showMsg('Admin token missing',false);
+      const res=await postJSON(path,body,{Authorization:h});
+      showMsg(JSON.stringify(res.body,null,2),res.body.ok);fetchState();fetchFunds();
     }
 
-    // ---------- admin token management ----------
-    function saveAdminToken() {
-      const v = el('admin_token').value.trim();
-      if(!v) return showMsg('Enter token to save', false);
-      localStorage.setItem('ADMIN_TOKEN', v);
-      showMsg('Admin token saved (local)');
-    }
-    function clearAdminToken() {
-      localStorage.removeItem('ADMIN_TOKEN');
-      el('admin_token').value = '';
-      showMsg('Admin token cleared (local)');
-    }
-    function getAuthHeader() {
-      const t = localStorage.getItem('ADMIN_TOKEN') || el('admin_token').value.trim();
-      if (!t) return null;
-      // backend checks for bare token or Bearer — use Bearer to be explicit
-      return 'Bearer ' + t;
-    }
-
-    // ---------- admin actions ----------
-    async function callAdmin(path, body={}) {
-      const token = getAuthHeader();
-      if (!token) return showMsg('Admin token missing', false);
-      const res = await postJSON(path, body, { Authorization: token });
-      if (!res.body.ok) {
-        showMsg(JSON.stringify(res.body), false);
-      } else {
-        showMsg(JSON.stringify(res.body), true);
-      }
-      return res.body;
-    }
-
-    // buttons
-    document.addEventListener('DOMContentLoaded', ()=> {
-      el('save_token').addEventListener('click', saveAdminToken);
-      el('clear_token').addEventListener('click', clearAdminToken);
-      el('refresh').addEventListener('click', ()=>{ fetchState(); fetchFunds(); });
-      el('save_capital').addEventListener('click', async ()=>{
-        const cap = Number(el('set_capital').value || '');
-        if (!cap && cap !== 0) return showMsg('Enter numeric capital', false);
-        const res = await callAdmin('/api/admin/set_capital', { capital: cap });
-        if (res?.ok) {
-          setText('capital_val', inr(res.capital_day_915));
-        }
-      });
-      el('enforce_now').addEventListener('click', async ()=>{
-        const res = await callAdmin('/api/enforce');
-        // refresh UI
-        fetchState(); fetchFunds();
-      });
-      el('kill').addEventListener('click', async ()=>{
-        const res = await callAdmin('/api/admin/kill');
-        fetchState(); fetchFunds();
-      });
-      el('acquire_lock').addEventListener('click', async ()=> callAdmin('/api/admin/lock'));
-      el('release_lock').addEventListener('click', async ()=> callAdmin('/api/admin/release'));
-      el('login_zerodha').addEventListener('click', async ()=> {
-        // just open login endpoint in new tab to start Zerodha auth
-        window.open('/api/kite/login', '_blank');
-      });
-      // initial load
-      fetchState();
-      fetchFunds(getAuthHeader());
-      // refresh every 10s lightly
-      setInterval(()=>{ fetchState(); }, 10000);
+    document.addEventListener('DOMContentLoaded',()=>{
+      el('save_token').onclick=saveToken;
+      el('clear_token').onclick=clearToken;
+      el('refresh').onclick=()=>{fetchState();fetchFunds();};
+      el('enforce_now').onclick=()=>callAdmin('/api/enforce');
+      el('kill').onclick=()=>callAdmin('/api/admin/kill');
+      el('login_zerodha').onclick=()=>window.open('/api/kite/login','_blank');
+      el('save_capital').onclick=()=>{
+        const cap=Number(el('set_capital').value||'');
+        if(Number.isNaN(cap))return showMsg('Enter valid capital',false);
+        callAdmin('/api/admin/set_capital',{capital:cap});
+      };
+      fetchState();fetchFunds();
+      setInterval(fetchState,10000);
     });
   </script>
 </body>
