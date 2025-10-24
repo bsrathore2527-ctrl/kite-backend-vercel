@@ -38,7 +38,6 @@
   .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:22px;background:rgba(0,0,0,0.78);color:#fff;padding:10px 14px;border-radius:8px;box-shadow:0 8px 30px rgba(0,0,0,0.6);display:none}
   .toast.show{display:block}
   .input-eye{cursor:pointer;padding:6px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:var(--muted)}
-  pre#raw_responses{white-space:pre-wrap;color:#ffdede;background:rgba(0,0,0,0.15);padding:12px;border-radius:8px;margin-top:8px;max-height:240px;overflow:auto}
 </style>
 </head>
 <body>
@@ -164,7 +163,7 @@
 
       <div style="margin-top:12px">
         <div class="muted">Last responses</div>
-        <pre id="raw_responses">—</pre>
+        <pre id="raw_responses" style="white-space:pre-wrap;color:#ffdede;background:rgba(0,0,0,0.15);padding:12px;border-radius:8px;margin-top:8px;max-height:240px;overflow:auto">—</pre>
       </div>
     </div>
   </div>
@@ -177,220 +176,317 @@
 
 <div id="toast" class="toast"></div>
 
+<!-- ===== START: SCRIPT (replace only this block if updating existing file) ===== -->
 <script>
-/* helpers */
-function $(id){ return document.getElementById(id); }
-function showToast(msg,t=3000){ const tEl=$('toast'); tEl.textContent=msg; tEl.classList.add('show'); setTimeout(()=>tEl.classList.remove('show'),t); }
-function nowTime(){ return new Date().toLocaleTimeString('en-IN',{timeZone:'Asia/Kolkata',hour12:false}); }
+/* Hardened admin client script
+   - Uses masked token and stores it in localStorage (never displays real token except briefly on demand)
+   - Attempts POST then falls back to GET for endpoints (avoids 405)
+   - Logs to #raw_responses and console
+   - Defensive element binding
+*/
 
-/* token storage */
-const tokenInput = $('admin_token');
-const toggleBtn = $('toggle_token');
-const saveBtn = $('save_token');
-const clearBtn = $('clear_token');
+(function(){
+  // helpers
+  const qs = id => document.getElementById(id);
+  const nowTime = ()=> new Date().toLocaleTimeString('en-IN',{timeZone:'Asia/Kolkata',hour12:false});
+  const safeJSON = v => { try { return JSON.stringify(v); } catch(e) { return String(v); } };
 
-function getStoredToken(){ return localStorage.getItem('admin_token') || ''; }
-function setStoredToken(v){ if(v) localStorage.setItem('admin_token', v); else localStorage.removeItem('admin_token'); }
-
-/* UI token state */
-function applyTokenUI(){
-  const t = getStoredToken();
-  if(t){
-    tokenInput.value = '********';
-    tokenInput.dataset.real = '1';
-    tokenInput.type = 'password';
-    saveBtn.textContent = 'Saved';
-    setTimeout(()=> saveBtn.textContent = 'Save', 700);
-    setAdminEnabled(true);
-  } else {
-    tokenInput.value = '';
-    tokenInput.dataset.real = '0';
-    setAdminEnabled(false);
+  function pushLog(msg){
+    console.log(msg);
+    const pre = qs('raw_responses');
+    const line = '[' + nowTime() + '] ' + msg + '\n\n';
+    if(pre){
+      if(pre.textContent === '—') pre.textContent = line;
+      else pre.textContent = line + pre.textContent;
+    }
   }
-}
-applyTokenUI();
 
-toggleBtn.addEventListener('click', ()=>{
-  const saved = getStoredToken();
-  if(!saved){
-    tokenInput.type = (tokenInput.type === 'password') ? 'text' : 'password';
-    toggleBtn.textContent = (tokenInput.type === 'password') ? 'Show' : 'Hide';
-    return;
+  // global error catchers (visible in UI)
+  window.addEventListener('error', ev => {
+    pushLog('JS_ERROR: ' + (ev && ev.message ? ev.message : String(ev)));
+  });
+  window.addEventListener('unhandledrejection', ev => {
+    pushLog('UNHANDLED_PROMISE: ' + (ev && ev.reason ? safeJSON(ev.reason) : String(ev)));
+  });
+
+  // admin token storage (local only)
+  function getStoredToken(){ return localStorage.getItem('admin_token') || ''; }
+  function setStoredToken(v){ if(v) localStorage.setItem('admin_token', v); else localStorage.removeItem('admin_token'); }
+  function authHeader(){ const t = getStoredToken(); if(!t) return {}; return { 'Authorization': t.startsWith('Bearer ') ? t : ('Bearer ' + t) }; }
+
+  // defensive element getter
+  function getEl(id, fallbackSelector){
+    let el = qs(id);
+    if(!el && fallbackSelector) el = document.querySelector(fallbackSelector);
+    if(!el) pushLog('MISSING_ELEMENT: ' + id + (fallbackSelector ? ' (fallback: ' + fallbackSelector + ')' : ''));
+    return el;
   }
-  // briefly show actual token
-  tokenInput.type = 'text';
-  tokenInput.value = saved;
-  toggleBtn.textContent = 'Hide';
-  setTimeout(()=>{
-    tokenInput.type = 'password';
-    tokenInput.value = '********';
-    toggleBtn.textContent = 'Show';
-  }, 3500);
-});
 
-saveBtn.addEventListener('click', ()=>{
-  const wasSaved = tokenInput.dataset.real === '1';
-  let val = tokenInput.value.trim();
-  if(wasSaved && val === '********'){
-    showToast('Token already saved (masked). Use Clear to replace.');
-    return;
+  // ensure raw_responses exists
+  if(!qs('raw_responses')){
+    const pre = document.createElement('pre');
+    pre.id = 'raw_responses';
+    pre.textContent = '—';
+    pre.style.cssText = 'white-space:pre-wrap;color:#ffdede;background:rgba(0,0,0,0.15);padding:12px;border-radius:8px;margin-top:8px;max-height:240px;overflow:auto';
+    document.body.appendChild(pre);
   }
-  if(!val){
-    showToast('Enter token first');
-    return;
-  }
-  setStoredToken(val);
-  applyTokenUI();
-  showToast('Token saved (masked)');
-});
 
-clearBtn.addEventListener('click', ()=>{
-  setStoredToken('');
-  tokenInput.value = '';
-  tokenInput.dataset.real = '0';
-  tokenInput.type = 'password';
-  setAdminEnabled(false);
-  showToast('Token cleared');
-});
-
-/* enable/disable admin controls */
-let adminEnabled = false;
-function setAdminEnabled(v){
-  adminEnabled = !!v;
-  const inputs = ['rule_max_loss_pct','rule_trail_step','rule_cooldown_min','rule_max_consec'];
-  inputs.forEach(id => { const el=$(id); if(el) el.disabled = !adminEnabled; });
-  const btns = ['enforce_btn','kill_btn','cancel_all_btn','enforce_trades_btn','login_zerodha'];
-  btns.forEach(id => { const el=$(id); if(el) el.disabled = !adminEnabled; });
-}
-
-/* auth header builder */
-function authHeader(){
-  const t = getStoredToken();
-  if(!t) return {};
-  return { 'Authorization': t.startsWith('Bearer ') ? t : 'Bearer ' + t };
-}
-
-/* fetch fallback: try POST then fallback to GET (prevents 405) */
-async function fetchWithFallback(path, body = null, preferMethods = ['POST','GET']){
-  const headers = { 'Content-Type':'application/json', ...authHeader() };
-  let last = null;
-  for(const method of preferMethods){
-    try {
-      const res = await fetch(path, { method, headers, body: body ? JSON.stringify(body) : null });
-      const text = await res.text().catch(()=>null);
-      let json = null;
-      try{ json = text ? JSON.parse(text) : null; } catch(e){ json = { ok:false, error: text || 'Invalid JSON' }; }
-      if(res.status === 405){
-        last = { status:405, body: json };
-        continue;
+  // robust fetch that tries a list of methods (POST then GET)
+  async function fetchTry(path, body=null, tryMethods=['POST','GET']){
+    for(const method of tryMethods){
+      try {
+        const headers = { 'Content-Type': 'application/json', ...authHeader() };
+        const opts = { method, headers };
+        if(body && method !== 'GET') opts.body = JSON.stringify(body);
+        pushLog('REQ -> ' + path + ' method=' + method + ' headers=' + safeJSON(headers) + (opts.body? ' body=' + opts.body : ''));
+        const res = await fetch(path, opts);
+        const text = await res.text().catch(()=>null);
+        let parsed;
+        try { parsed = text ? JSON.parse(text) : null; } catch(e) { parsed = { ok:false, error:'invalid-json', raw:text }; }
+        pushLog('RESP <- ' + path + ' status=' + res.status + ' body=' + safeJSON(parsed));
+        // If the server returned 405 for this method, continue to next method
+        if(res.status === 405) continue;
+        return parsed ?? { ok:true, status: res.status };
+      } catch (err) {
+        pushLog('FETCH_ERROR ' + path + ' method=' + method + ' : ' + String(err));
       }
-      return { status: res.status, body: json ?? { ok:true, status:res.status } };
-    } catch(err){
-      last = { status:0, body:{ ok:false, error:String(err) } };
     }
+    return { ok:false, error:'no-successful-method' };
   }
-  return last;
-}
 
-/* update raw responses area */
-function pushResponse(path, obj){
-  const pre = $('raw_responses');
-  const now = new Date().toLocaleTimeString('en-IN',{hour12:false});
-  const line = `${now} ${path} => ${JSON.stringify(obj)}\n\n`;
-  if(pre) pre.textContent = line + (pre.textContent === '—' ? '' : pre.textContent);
-}
+  // UI controls
+  const tokenInput = getEl('admin_token');
+  const toggleTokenBtn = getEl('toggle_token');
+  const saveTokenBtn = getEl('save_token');
+  const clearTokenBtn = getEl('clear_token');
 
-/* action helpers that use fallback */
-async function doAction(path, body = {}, label = 'Action'){
-  $('last_action_msg').textContent = label + '...';
-  const res = await fetchWithFallback(path, body, ['POST','GET']);
-  const out = res ? res.body : { ok:false, error:'no response' };
-  pushResponse(path, out);
-  if(!out.ok) {
-    $('last_action_msg').textContent = `${label} failed: ${out.error || JSON.stringify(out)}`;
-  } else {
-    $('last_action_msg').textContent = `${label} OK`;
-  }
-  return out;
-}
+  const loginBtn = getEl('login_zerodha');
+  const refreshStateBtn = getEl('refresh_state');
+  const enforceBtn = getEl('enforce_btn');
+  const killBtn = getEl('kill_btn');
+  const cancelAllBtn = getEl('cancel_all_btn');
+  const enforceTradesBtn = getEl('enforce_trades_btn'); // secondary
+  const killBtn2 = getEl('kill_btn2');
+  const allowNewCheckbox = getEl('allow_new_checkbox');
+  const cancelCheckbox = getEl('cancel_checkbox');
+  const lastActionMsg = getEl('last_action_msg');
 
-/* --- button handlers --- */
-$('enforce_btn').addEventListener('click', async ()=>{
-  const allowNew = !!$('allow_new_checkbox').checked;
-  await doAction('/api/admin/enforce', { allow_new: allowNew }, 'Enforce');
-});
-
-$('enforce_trades_btn').addEventListener('click', ()=> $('enforce_btn').click());
-
-$('cancel_all_btn').addEventListener('click', async ()=>{
-  const cancelAll = !!$('cancel_checkbox').checked;
-  await doAction('/api/admin/cancel', { cancel_all: cancelAll }, 'Cancel');
-});
-
-$('kill_btn').addEventListener('click', async ()=> { await doAction('/api/admin/kill', {}, 'Kill'); });
-$('kill_btn2').addEventListener('click', ()=> $('kill_btn').click());
-
-/* Login Zerodha: try POST then GET to avoid 405 */
-$('login_zerodha').addEventListener('click', async ()=>{
-  $('last_action_msg').textContent = 'Zerodha login...';
-  const res = await fetchWithFallback('/api/kite/login', {}, ['POST','GET']);
-  const out = res ? res.body : { ok:false, error:'no response' };
-  pushResponse('/api/kite/login', out);
-  if(!out.ok) $('last_action_msg').textContent = 'Zerodha login returned: ' + (out.error || JSON.stringify(out));
-  else $('last_action_msg').textContent = 'Zerodha login OK';
-  // try refresh state after login attempt
-  fetchState();
-});
-
-/* refresh UI */
-$('refresh_state').addEventListener('click', ()=> { fetchState(); fetchFunds(); });
-$('refresh_stats').addEventListener('click', ()=> { fetchState(); fetchFunds(); });
-
-/* pager nav */
-$('prev_page').addEventListener('click', ()=> { const p=$('pages'); p.scrollBy({ left: -window.innerWidth, behavior:'smooth' }); });
-$('next_page').addEventListener('click', ()=> { const p=$('pages'); p.scrollBy({ left: window.innerWidth, behavior:'smooth' }); });
-
-/* fetch state and funds */
-async function fetchState(){
-  try{
-    const r = await fetch('/api/state?t=' + Date.now());
-    const j = await r.json();
-    if(!j.ok){ showToast('Failed to load state'); return; }
-    $('now').textContent = j.time || nowTime();
-    $('kite_status').textContent = 'Kite: ' + (j.kite_status || '—');
-    $('guard_status').textContent = (j.admin ? 'admin' : 'read-only');
-    const s = j.state || {};
-    $('capital915').textContent = formatINR(s.capital_day_915 || 0);
-    $('max_loss').textContent = formatINR(calcMaxLoss(s));
-    $('max_loss_pct').textContent = 'Max Loss %: ' + (s.max_loss_pct ?? 10) + '%';
-    $('active_floor').textContent = formatINR(s.active_loss_floor ?? 0);
-    window._state = s;
-  }catch(e){
-    console.error(e); showToast('Load state error');
-  }
-}
-async function fetchFunds(){
-  try{
-    const r = await fetch('/api/kite/funds');
-    const j = await r.json();
-    if(j.ok){
-      const av = Number(j.funds?.available?.live_balance ?? j.funds?.available?.cash ?? j.balance ?? j.funds?.cash || 0);
-      $('live_funds').textContent = formatINR(av);
+  // token UI helpers
+  function applyTokenUI(){
+    const t = getStoredToken();
+    if(!tokenInput) return;
+    if(t){
+      tokenInput.value = '********';
+      tokenInput.dataset.saved = '1';
+      tokenInput.type = 'password';
+      tokenInput.title = 'Saved token (masked)';
+      if(saveTokenBtn) { saveTokenBtn.textContent = 'Saved'; setTimeout(()=> saveTokenBtn.textContent = 'Save', 1200); }
+      setAdminEnabled(true);
     } else {
-      $('live_funds').textContent = 'ERR';
+      tokenInput.value = '';
+      tokenInput.dataset.saved = '0';
+      setAdminEnabled(false);
     }
-  }catch(e){ $('live_funds').textContent = 'ERR'; }
-}
-function calcMaxLoss(s){ const cap = Number(s.capital_day_915 || 0); const pct = Number(s.max_loss_pct ?? 10); return Math.round(cap * pct / 100); }
-function formatINR(v){ if(v==null || isNaN(Number(v))) return '—'; return '₹' + Number(v).toLocaleString('en-IN',{maximumFractionDigits:0}); }
+  }
 
-/* boot */
-window.addEventListener('load', ()=>{
-  applyTokenUI();
-  fetchState();
-  fetchFunds();
-  setInterval(()=> $('now').textContent = nowTime(),1000);
-});
+  // toggle reveal (temporary)
+  if(toggleTokenBtn){
+    toggleTokenBtn.addEventListener('click', ()=>{
+      const stored = getStoredToken();
+      if(!stored){
+        // if no stored token, allow toggling typed content
+        if(tokenInput) {
+          tokenInput.type = (tokenInput.type === 'password') ? 'text' : 'password';
+          toggleTokenBtn.textContent = (tokenInput.type === 'password') ? 'Show' : 'Hide';
+        }
+        return;
+      }
+      // show real stored token briefly
+      tokenInput.type = 'text';
+      tokenInput.value = stored;
+      toggleTokenBtn.textContent = 'Hide';
+      setTimeout(()=>{
+        tokenInput.type = 'password';
+        tokenInput.value = '********';
+        toggleTokenBtn.textContent = 'Show';
+      }, 3500);
+    });
+  }
+
+  if(saveTokenBtn){
+    saveTokenBtn.addEventListener('click', ()=>{
+      if(!tokenInput) return;
+      const typed = tokenInput.value.trim();
+      const alreadySaved = tokenInput.dataset.saved === '1';
+      if(alreadySaved && typed === '********'){
+        pushLog('Token already saved; use Clear to replace.');
+        showToast('Token already saved; use Clear to replace.');
+        return;
+      }
+      if(!typed){
+        showToast('Enter token first');
+        return;
+      }
+      setStoredToken(typed);
+      applyTokenUI();
+      showToast('Token saved (masked)');
+    });
+  }
+
+  if(clearTokenBtn){
+    clearTokenBtn.addEventListener('click', ()=>{
+      setStoredToken('');
+      applyTokenUI();
+      showToast('Token cleared');
+    });
+  }
+
+  // enable/disable admin-only inputs
+  function setAdminEnabled(v){
+    const enabled = !!v;
+    const inputs = ['rule_max_loss_pct','rule_trail_step','rule_cooldown_min','rule_max_consec'];
+    inputs.forEach(id => { const el = getEl(id); if(el) el.disabled = !enabled; });
+    const btns = ['enforce_btn','kill_btn','cancel_all_btn','enforce_trades_btn','login_zerodha'];
+    btns.forEach(id => { const el = getEl(id); if(el) el.disabled = !enabled; });
+  }
+
+  // show toast minimal
+  function showToast(msg, t=1800){
+    const el = qs('toast');
+    if(!el) return;
+    el.textContent = msg;
+    el.classList.add('show');
+    clearTimeout(el._hideTimer);
+    el._hideTimer = setTimeout(()=> el.classList.remove('show'), t);
+  }
+
+  // button behaviors (defensive)
+  if(enforceBtn){
+    enforceBtn.addEventListener('click', async (ev)=>{
+      ev.preventDefault();
+      if(lastActionMsg) lastActionMsg.textContent = 'Enforcing...';
+      const allowNew = allowNewCheckbox ? !!allowNewCheckbox.checked : false;
+      const resp = await fetchTry('/api/admin/enforce', { allow_new: allowNew }, ['POST','GET']);
+      pushLog('ENFORCE_RESULT: ' + safeJSON(resp));
+      if(lastActionMsg) lastActionMsg.textContent = (resp && resp.ok) ? 'Enforced' : ('Enforce failed: ' + (resp.error || 'unknown'));
+      if(resp && resp.ok) showToast('Enforce succeeded');
+    });
+  }
+  if(enforceTradesBtn){
+    enforceTradesBtn.addEventListener('click', ()=> { if(enforceBtn) enforceBtn.click(); });
+  }
+
+  if(cancelAllBtn){
+    cancelAllBtn.addEventListener('click', async (ev)=>{
+      ev.preventDefault();
+      if(lastActionMsg) lastActionMsg.textContent = 'Cancelling...';
+      const cancelAll = cancelCheckbox ? !!cancelCheckbox.checked : false;
+      const resp = await fetchTry('/api/admin/cancel', { cancel_all: cancelAll }, ['POST','GET']);
+      pushLog('CANCEL_RESULT: ' + safeJSON(resp));
+      if(lastActionMsg) lastActionMsg.textContent = (resp && resp.ok) ? 'Cancelled' : ('Cancel failed: ' + (resp.error || 'unknown'));
+      if(resp && resp.ok) showToast('Cancel succeeded');
+    });
+  }
+
+  if(killBtn){
+    killBtn.addEventListener('click', async (ev)=>{
+      ev.preventDefault();
+      if(lastActionMsg) lastActionMsg.textContent = 'Killing...';
+      const resp = await fetchTry('/api/admin/kill', {}, ['POST','GET']);
+      pushLog('KILL_RESULT: ' + safeJSON(resp));
+      if(lastActionMsg) lastActionMsg.textContent = (resp && resp.ok) ? 'Killed' : ('Kill failed: ' + (resp.error || 'unknown'));
+      if(resp && resp.ok) showToast('Kill succeeded');
+    });
+  }
+  if(killBtn2){ killBtn2.addEventListener('click', ()=> killBtn && killBtn.click()); }
+
+  if(loginBtn){
+    loginBtn.addEventListener('click', async (ev)=>{
+      ev.preventDefault();
+      if(lastActionMsg) lastActionMsg.textContent = 'Zerodha login...';
+      // try POST then GET
+      const resp = await fetchTry('/api/kite/login', {}, ['POST','GET']);
+      pushLog('LOGIN_RESULT: ' + safeJSON(resp));
+      if(lastActionMsg) lastActionMsg.textContent = (resp && resp.ok) ? 'Login OK' : ('Login failed: ' + (resp.error || 'unknown'));
+      if(resp && resp.ok) showToast('Zerodha login OK');
+    });
+  }
+
+  // refresh state/funds
+  async function fetchState(){
+    try{
+      const r = await fetch('/api/state?t=' + Date.now());
+      const j = await r.json();
+      if(!j.ok) { pushLog('STATE_LOAD_FAILED: ' + safeJSON(j)); return; }
+      qs('now').textContent = j.time || nowTime();
+      qs('kite_status').textContent = 'Kite: ' + (j.kite_status || '—');
+      qs('guard_status').textContent = (j.admin ? 'admin' : 'read-only');
+      const s = j.state || {};
+      qs('capital915').textContent = formatINR(s.capital_day_915 || 0);
+      qs('max_loss').textContent = formatINR(calcMaxLoss(s));
+      qs('max_loss_pct').textContent = 'Max Loss %: ' + (s.max_loss_pct ?? 10) + '%';
+      window._state = s;
+    }catch(e){
+      pushLog('FETCH_STATE_ERROR: ' + String(e));
+    }
+  }
+  async function fetchFunds(){
+    try{
+      const r = await fetch('/api/kite/funds');
+      const j = await r.json();
+      if(j.ok){
+        const av = Number(j.funds?.available?.live_balance ?? j.funds?.available?.cash ?? j.balance ?? j.funds?.cash || 0);
+        qs('live_funds').textContent = formatINR(av);
+      } else {
+        qs('live_funds').textContent = 'ERR';
+        pushLog('FUNDS_ERR: ' + safeJSON(j));
+      }
+    }catch(e){
+      qs('live_funds').textContent = 'ERR';
+      pushLog('FETCH_FUNDS_ERROR: ' + String(e));
+    }
+  }
+
+  function calcMaxLoss(s){ const cap = Number(s.capital_day_915 || 0); const pct = Number(s.max_loss_pct ?? 10); return Math.round(cap * pct / 100); }
+  function formatINR(v){ if(v==null || isNaN(Number(v))) return '—'; return '₹' + Number(v).toLocaleString('en-IN',{maximumFractionDigits:0}); }
+
+  // pager controls
+  const prevBtn = getEl('prev_page'), nextBtn = getEl('next_page'), pagesWrap = getEl('pages');
+  if(prevBtn) prevBtn.addEventListener('click', ()=> pagesWrap && pagesWrap.scrollBy({ left: -window.innerWidth, behavior:'smooth' }));
+  if(nextBtn) nextBtn.addEventListener('click', ()=> pagesWrap && pagesWrap.scrollBy({ left: window.innerWidth, behavior:'smooth' }));
+
+  // refresh buttons
+  if(refreshStateBtn) refreshStateBtn.addEventListener('click', ()=> { fetchState(); fetchFunds(); });
+  const refreshStatsBtn = getEl('refresh_stats');
+  if(refreshStatsBtn) refreshStatsBtn.addEventListener('click', ()=> { fetchState(); fetchFunds(); });
+
+  // initial UI setup and expose debug helpers
+  try{
+    applyTokenUI();
+  }catch(e){ pushLog('APPLY_TOKEN_UI_ERROR: ' + String(e)); }
+
+  // make sure admin controls are enabled for testing if token exists
+  if(getStoredToken()) setAdminEnabled(true);
+
+  // ping once on load
+  window.addEventListener('load', ()=>{
+    try{ fetchState(); fetchFunds(); } catch(e){ pushLog('LOAD_FETCH_ERROR: ' + String(e)); }
+    setInterval(()=> { const el = qs('now'); if(el) el.textContent = nowTime(); }, 1000);
+  });
+
+  // add a small debug object to window so you can call from console
+  window._admin_debug = {
+    fetchTry,
+    pushLog,
+    getStoredToken,
+    setStoredToken,
+    authHeader
+  };
+
+  pushLog('ADMIN_CLIENT_READY');
+})();
 </script>
+<!-- ===== END: SCRIPT ===== -->
+
 </body>
 </html>
