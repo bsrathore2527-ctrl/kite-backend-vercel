@@ -7,49 +7,53 @@
 <link rel="icon" href="data:;base64,iVBORw0KGgo=">
 <style>
   :root{
-    --bg1:#0b1220; --bg2:#071026; --muted:#9aa7b3;
-    --accent:#3b82f6; --accent2:#10b981; --danger:#ef4444;
-    --glass: rgba(255,255,255,0.03); --glass-2: rgba(255,255,255,0.02);
+    --bg1:#0b1220;
+    --bg2:#071026;
+    --card:#0f1720;
+    --muted:#9aa7b3;
+    --accent:#3b82f6;
+    --accent2:#10b981;
+    --danger:#ef4444;
+    --glass: rgba(255,255,255,0.03);
+    --glass-2: rgba(255,255,255,0.02);
     --radius:14px;
   }
-  html,body{height:100%;margin:0;font-family:Inter,Arial,system-ui; background: linear-gradient(180deg,var(--bg1) 0%, #051025 45%, #03121b 100%); color:#e6eef6;}
+  html,body{height:100%;margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial; background: linear-gradient(180deg,var(--bg1) 0%, #051025 45%, #03121b 100%); color:#e6eef6;}
   .wrap{max-width:980px;margin:18px auto;padding:18px;}
   header {display:flex;align-items:center;gap:18px;margin-bottom:14px}
-  .logo{width:56px;height:56px;border-radius:10px;background:linear-gradient(135deg,#0b1b2e,#071225);display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff}
+  .logo{width:56px;height:56px;border-radius:10px;background:linear-gradient(135deg,#0b1b2e,#071225);display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;box-shadow:0 6px 20px rgba(3,8,15,0.6)}
   h1{margin:0;font-size:24px}
   .status-row{margin-left:auto;display:flex;gap:12px;align-items:center}
   .badge{padding:6px 12px;border-radius:999px;background:var(--glass);font-size:13px;color:var(--muted);display:flex;gap:8px;align-items:center}
+  .badge.green{background:linear-gradient(90deg,#08321a,#07301b);color:#8ff0b2}
+  .badge.red{background:linear-gradient(90deg,#3a0610,#2b0510);color:#ffb3b3}
   .card{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01)); padding:14px;border-radius:var(--radius); box-shadow: 0 6px 24px rgba(2,6,12,0.6); margin-bottom:14px; border:1px solid rgba(255,255,255,0.02)}
   .controls {display:flex;gap:12px;flex-wrap:wrap;align-items:center}
   .token-row{display:flex;gap:12px;flex:1;min-width:260px}
   input[type=password], input[type=text]{flex:1;padding:12px 14px;border-radius:12px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:inherit;outline:none}
   .btn{padding:10px 16px;border-radius:12px;border:none;cursor:pointer;font-weight:600}
-  .btn.primary{background:linear-gradient(90deg,var(--accent),#2b6df6);color:white}
+  .btn.primary{background:linear-gradient(90deg,var(--accent),#2b6df6);color:white;box-shadow:0 6px 18px rgba(43,109,246,0.12)}
   .btn.ghost{background:transparent;border:1px solid rgba(255,255,255,0.04);color:var(--muted)}
   .btn.warn{background:linear-gradient(90deg,#2f6f18,var(--accent2));color:white}
   .btn.danger{background:linear-gradient(90deg,#b42323,var(--danger));color:white}
   .row{display:flex;gap:16px;flex-wrap:wrap}
   .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
   .info {padding:12px;border-radius:12px;background:linear-gradient(180deg, rgba(255,255,255,0.01), rgba(255,255,255,0.02));border:1px solid rgba(255,255,255,0.02)}
+  .info h3{margin:0;font-size:18px}
+  .info p{margin:6px 0 0;color:var(--muted);font-size:13px}
   .value{font-size:20px;font-weight:700;margin-top:8px}
   .muted{color:var(--muted);font-size:13px}
+  footer{margin-top:18px;color:var(--muted);font-size:13px;text-align:center}
   .small{font-size:12px;color:var(--muted);margin-top:8px}
-  .pages{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;gap:18px;padding-bottom:12px;scroll-behavior:smooth}
-  .page{min-width:100%;scroll-snap-align:center;box-sizing:border-box}
-  .pager-nav{display:flex;gap:8px;justify-content:center;margin-top:8px}
-  .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:18px;background:rgba(0,0,0,0.7);padding:12px 18px;border-radius:10px;color:white;z-index:999;box-shadow:0 6px 18px rgba(0,0,0,0.6)}
-  pre#raw {background:rgba(0,0,0,0.16);padding:10px;border-radius:8px;max-height:280px;overflow:auto;color:#ffdede;white-space:pre-wrap}
-  .controls .hint{font-size:12px;color:var(--muted);margin-top:6px}
-  .set-capital-row { display:flex; gap:8px; align-items:center; margin-top:8px; }
   @media (max-width:720px){
     .grid{grid-template-columns:repeat(1,1fr)}
     header{flex-wrap:wrap}
     .status-row{margin-left:0}
-    /* stack set-capital on small screens to avoid overlap */
-    .set-capital-row { flex-direction:column; align-items:stretch; }
-    .set-capital-row input { width:100%; }
-    .set-capital-row button { width:100%; }
   }
+  .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:18px;background:rgba(0,0,0,0.7);padding:12px 18px;border-radius:10px;color:white;z-index:999;box-shadow:0 6px 18px rgba(0,0,0,0.6)}
+  .hint{font-size:12px;color:var(--muted);margin-top:8px}
+  .two-col{display:flex;gap:12px;flex-wrap:wrap}
+  pre.debug{white-space:pre-wrap;color:#ffdede;background:rgba(0,0,0,0.15);padding:12px;border-radius:8px;margin-top:8px;max-height:260px;overflow:auto}
 </style>
 </head>
 <body>
@@ -60,6 +64,7 @@
       <h1>Guardian — Admin</h1>
       <div class="muted">Risk automation & enforcement</div>
     </div>
+
     <div class="status-row">
       <div id="kite_status" class="badge">Kite: —</div>
       <div id="guardian_status" class="badge">Guardian: —</div>
@@ -67,229 +72,311 @@
     </div>
   </header>
 
-  <!-- ADMIN CARD -->
-  <section class="card">
-    <div style="display:flex;flex-direction:column;gap:8px">
-      <div class="muted">Read-only mode. Enter admin token to enable changes.</div>
-      <div class="controls">
-        <div class="token-row">
-          <input id="admin_token" type="password" placeholder="Enter admin token" aria-label="Admin token" />
-          <button id="save_token" class="btn primary">Save</button>
-          <button id="clear_token" class="btn ghost">Clear</button>
-        </div>
-        <div style="display:flex;gap:8px;align-items:center">
-          <button id="login_zerodha" class="btn ghost" title="Open Kite login (calls /api/kite/login)">Login Zerodha</button>
-          <button id="refresh_state" class="btn ghost">Refresh</button>
-        </div>
-      </div>
-      <div class="hint">Token stored locally only. We will display ****** when saved.</div>
-    </div>
-
-    <hr style="border:none;height:10px;background:transparent">
-
-    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
-      <button id="enforce_btn" class="btn warn">Enforce Now</button>
-      <button id="kill_btn" class="btn danger">Kill (Close)</button>
-      <button id="cancel_btn" class="btn ghost">Cancel All</button>
-      <label style="margin-left:auto" class="muted"><input id="allow_new" type="checkbox" /> Allow New Orders</label>
-    </div>
-
-    <div style="margin-top:12px" id="last_action" class="small"></div>
-  </section>
-
-  <!-- PAGES (swipe left/right) -->
-  <div class="pages" id="pages">
-    <!-- Page 1: Live overview -->
-    <div class="page card">
-      <div style="display:flex;justify-content:space-between;align-items:center">
-        <h3 style="margin:0">Live overview</h3>
-        <div><button id="refresh_top" class="btn ghost">Refresh</button></div>
-      </div>
-      <div class="grid" style="margin-top:12px">
-        <div class="info"><div class="muted">Capital @ 09:15</div><div id="capital915" class="value">—</div><div class="small">Base for daily limits</div></div>
-        <div class="info"><div class="muted">Current Balance (live/fallback)</div><div id="live_balance" class="value">—</div><div class="small">Uses cached if offline</div></div>
-        <div class="info"><div class="muted">Live MTM</div><div id="live_mtm" class="value">—</div><div class="small">Sum of position PnL</div></div>
-        <div class="info"><div class="muted">PnL (Real/Unreal/Total)</div><div id="pnl_info" class="value">—</div><div class="small">Realtime</div></div>
-        <div class="info"><div class="muted">Max Loss (₹)</div><div id="max_loss" class="value">—</div><div class="small" id="max_loss_pct">—</div></div>
-        <div class="info"><div class="muted">Max Profit (₹)</div><div id="max_profit" class="value">—</div><div class="small">Best gain</div></div>
-      </div>
-    </div>
-
-    <!-- Page 2: Rules & overrides -->
-    <div class="page card">
-      <h3 style="margin:0">Rules & admin overrides</h3>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
-        <div class="info">
-          <div class="muted">Max consecutive losses</div>
-          <input id="rule_max_consec" type="text" placeholder="3" style="margin-top:8px;padding:8px;border-radius:8px;background:transparent;border:1px solid rgba(255,255,255,0.03)" />
-        </div>
-        <div class="info">
-          <div class="muted">Cooldown (minutes)</div>
-          <input id="rule_cooldown" type="text" placeholder="15" style="margin-top:8px;padding:8px;border-radius:8px;background:transparent;border:1px solid rgba(255,255,255,0.03)" />
-        </div>
-        <div class="info">
-          <div class="muted">Trailing step (₹)</div>
-          <input id="rule_trail_step" type="text" placeholder="5000" style="margin-top:8px;padding:8px;border-radius:8px;background:transparent;border:1px solid rgba(255,255,255,0.03)" />
-        </div>
-        <div class="info">
-          <div class="muted">Admin override capital (₹)</div>
-          <div class="set-capital-row">
-            <input id="override_capital" type="text" placeholder="100000" style="flex:1;padding:8px;border-radius:8px;background:transparent;border:1px solid rgba(255,255,255,0.03)" />
-            <button id="set_capital_btn" class="btn primary">Set</button>
+  <!-- ADMIN CONTROLS -->
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;">
+      <div style="flex:1">
+        <div class="muted">Read-only mode. Enter admin token to enable changes.</div>
+        <div class="controls" style="margin-top:10px;">
+          <div class="token-row">
+            <input id="admin_token" type="password" placeholder="ADMIN_TOKEN (password)" />
+            <button id="save_token" class="btn primary">Save</button>
+            <button id="clear_token" class="btn ghost">Clear</button>
           </div>
-          <div class="small">Calls <code>/api/admin/set-capital</code> (change endpoint in config if different).</div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <button id="login_kite" class="btn ghost">Login Zerodha</button>
+            <button id="refresh_btn" class="btn ghost">Refresh</button>
+          </div>
         </div>
+        <div class="hint">Admin-only controls unlock the action buttons below. Token is stored locally only.</div>
       </div>
-      <div class="small muted" style="margin-top:10px">Editable when admin token is saved.</div>
     </div>
 
-    <!-- Page 3: Logs & actions -->
-    <div class="page card">
-      <h3 style="margin:0">Logs & actions</h3>
-      <div style="display:flex;gap:8px;margin-top:10px">
-        <button id="enforce_trades_btn" class="btn ghost">Enforce Trades</button>
-        <button id="cancel_all_btn" class="btn ghost">Cancel All</button>
-        <button id="kill_btn2" class="btn danger">Kill</button>
+    <!-- admin actions (hidden until unlocked) -->
+    <div id="admin_actions" style="margin-top:14px;display:none;">
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px">
+        <button id="enforce_btn" class="btn warn">Enforce Now</button>
+        <button id="kill_btn" class="btn danger">Kill (Close)</button>
+        <button id="cancel_btn" class="btn ghost">Cancel All</button>
+        <label style="display:flex;align-items:center;gap:8px;color:var(--muted);margin-left:6px;">
+          <input id="allow_new" type="checkbox" /> <span class="muted">Allow New Orders</span>
+        </label>
+      </div>
+      <div id="admin_resp" class="small" style="margin-top:8px;">—</div>
+    </div>
+  </div>
+
+  <!-- LIVE overview -->
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <h3 style="margin:0">Live overview</h3>
+      <div><button id="refresh_top" class="btn ghost">Refresh</button></div>
+    </div>
+
+    <div class="grid" style="margin-top:12px">
+      <div class="info">
+        <div class="muted">Capital @ 09:15</div>
+        <div id="capital915" class="value">—</div>
+        <div class="small">Base for daily limits</div>
       </div>
 
-      <div style="margin-top:12px">
-        <div class="muted">Raw request & server responses (useful for debugging)</div>
-        <pre id="raw" style="white-space:pre-wrap">—</pre>
+      <div class="info">
+        <div class="muted">Current Balance (live/fallback)</div>
+        <div id="live_balance" class="value">—</div>
+        <div class="small">Uses cached if offline</div>
+      </div>
+
+      <div class="info">
+        <div class="muted">Live MTM</div>
+        <div id="live_mtm" class="value">—</div>
+        <div class="small">Sum of position PnL</div>
+      </div>
+
+      <div class="info">
+        <div class="muted">PnL (R/UR/Total)</div>
+        <div id="pnl_box" class="value">—</div>
+        <div class="small" id="pnl_hint">—</div>
+      </div>
+
+      <div class="info">
+        <div class="muted">Max Loss (₹)</div>
+        <div id="max_loss" class="value">—</div>
+        <div class="small" id="max_loss_pct">—</div>
+      </div>
+
+      <div class="info">
+        <div class="muted">Active Loss Floor (₹)</div>
+        <div id="active_floor" class="value">—</div>
+        <div class="small" id="floor_hint">—</div>
+      </div>
+
+      <div class="info">
+        <div class="muted">Remaining to Max Loss (₹)</div>
+        <div id="remaining_loss" class="value">—</div>
+        <div class="small">Room left before floor</div>
+      </div>
+
+      <div class="info">
+        <div class="muted">10% Profit Lock (₹)</div>
+        <div id="p10" class="value">—</div>
+        <div class="small" id="p10_hint">—</div>
       </div>
     </div>
   </div>
 
-  <div class="pager-nav">
-    <button id="prev_page" class="btn ghost">⟨ Prev</button>
-    <button id="next_page" class="btn ghost">Next ⟩</button>
+  <div class="card">
+    <h3 style="margin:0">More</h3>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:12px">
+      <div class="info" style="flex:1;min-width:220px">
+        <div class="muted">Consecutive Losses</div>
+        <div id="consec_losses" class="value">0</div>
+      </div>
+      <div class="info" style="flex:1;min-width:220px">
+        <div class="muted">Cooldown Until</div>
+        <div id="cooldown_until" class="value">—</div>
+      </div>
+      <div class="info" style="flex:1;min-width:220px">
+        <div class="muted">Expiry Flag</div>
+        <div id="expiry_flag" class="value">—</div>
+      </div>
+      <div class="info" style="flex:1;min-width:220px">
+        <div class="muted">Broker Balance (live)</div>
+        <div id="broker_balance" class="value">—</div>
+        <div class="small" id="broker_hint">From Zerodha funds</div>
+      </div>
+    </div>
   </div>
 
-  <footer style="margin-top:18px;color:var(--muted);text-align:center">Guardian • admin console</footer>
+  <div class="card">
+    <h3 style="margin:0">Logs & actions</h3>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:12px">
+      <button id="enforce_trades_btn" class="btn ghost">Enforce Trades</button>
+      <button id="cancel_all_btn" class="btn ghost">Cancel All</button>
+      <button id="kill_btn2" class="btn danger">Kill</button>
+    </div>
+
+    <div class="muted" style="margin-top:10px">Raw request & server responses (useful for debugging)</div>
+    <pre id="raw_responses" class="debug">—</pre>
+  </div>
+
+  <footer>Guardian • admin console</footer>
 </div>
 
-<div id="toast" class="toast" style="display:none"></div>
+<div id="toast" style="display:none" class="toast"></div>
 
 <script>
-/* ---------- CONFIG ---------- */
+/* ---------- Endpoint auto-detection & helpers ---------- */
+
+/* Candidate path lists (adjust if you have other known routes) */
+const CANDIDATE_PATHS = {
+  state: ['/api/guardian','/api/state','/api/admin/state','/api/admin/guardian'],
+  kite_login: ['/api/kite/login','/api/login','/api/kite/login','/api/kite/login/'],
+  kite_funds: ['/api/kite/funds','/api/funds','/api/kite/funds','/api/kite/funds/'],
+  enforce: ['/api/admin/enforce','/api/enforce','/api/enforce-trades','/api/admin/enforce','/api/enforce-trades'],
+  kill: ['/api/admin/kill','/api/kill','/api/admin/kill/'],
+  cancel: ['/api/admin/cancel','/api/admin/cancel_all','/api/admin/cancelOrders','/api/admin/cancel','/api/admin/cancel-all']
+};
+
+/* default ENDPOINTS — will be updated by detectEndpoints() */
 const ENDPOINTS = {
   state: '/api/state',
   kite_login: '/api/kite/login',
   kite_funds: '/api/kite/funds',
-  enforce: '/api/admin/enforce',
+  enforce: '/api/enforce',
   kill: '/api/admin/kill',
-  cancel: '/api/admin/cancel',
-  set_capital: '/api/admin/set-capital'
+  cancel: '/api/admin/cancel'
 };
 
-/* ---------- HELPERS ---------- */
-const $ = id => document.getElementById(id);
-function elSetText(id, text){
-  const e = $(id);
-  if(!e) return; // defensive
-  e.textContent = text;
-}
-const toast = (msg, t=3000) => {
-  const el = $('toast'); if(!el) return;
-  el.textContent = msg; el.style.display='block';
-  clearTimeout(el._t); el._t = setTimeout(()=>el.style.display='none', t);
-};
-const nowIST = () => new Date().toLocaleTimeString('en-IN',{timeZone:'Asia/Kolkata',hour12:false});
-const fmtINR = v => {
-  if (v === null || v === undefined || Number.isNaN(Number(v))) return '—';
-  return '₹' + Number(Math.round(Number(v))).toLocaleString('en-IN');
-};
-function authHeader() {
-  const t = localStorage.getItem('ADMIN_TOKEN') || '';
-  if (!t) return {};
-  return { 'Authorization': (t.startsWith('Bearer ') ? t : 'Bearer ' + t) };
-}
-function logRaw(text){
-  const pre = $('raw');
-  if(!pre) return;
-  pre.textContent = '[' + new Date().toLocaleTimeString() + '] ' + text + '\n\n' + pre.textContent;
-}
-
-/* try fetch with GET/POST fallback. returns { res, method, json } */
-async function tryFetchWithMethods(url, methods=['GET','POST'], options={}) {
-  for (const m of methods) {
-    try {
-      const headers = Object.assign({}, options.headers || {}, authHeader());
-      const fetchOpts = { method: m, headers };
-      if (options.body) {
-        fetchOpts.body = (typeof options.body === 'string') ? options.body : JSON.stringify(options.body);
-        if (!fetchOpts.headers['Content-Type']) fetchOpts.headers['Content-Type'] = 'application/json';
-      }
-      const res = await fetch(url, fetchOpts);
-      if (res.status === 405) { logRaw(`Tried ${m} ${url} -> 405`); continue; }
-      let json = null;
-      try { json = await res.json(); } catch(e){ json = { ok:false, error:'invalid json', status:res.status }; }
-      return { res, method: m, json };
-    } catch (err) {
-      logRaw(`Network err ${m} ${url}: ${err.message || err}`);
-    }
-  }
-  return { res:null, method:null, json:{ ok:false, error:'All methods failed or all returned 405' } };
-}
-
-/* ---------- UI control helpers ---------- */
-function applyTokenUI(){
-  const t = localStorage.getItem('ADMIN_TOKEN');
-  if (t) {
-    const tok = $('admin_token'); if(tok){ tok.value = '********'; tok.dataset.real='1'; }
-    showAdminControls(true);
-  } else {
-    const tok = $('admin_token'); if(tok){ tok.value=''; tok.dataset.real='0'; }
-    showAdminControls(false);
-  }
-}
-function showAdminControls(enabled){
-  // enable/disable buttons that may not be present
-  const ids = ['enforce_btn','kill_btn','cancel_btn','enforce_trades_btn','cancel_all_btn','kill_btn2','enforce_trades_btn','set_capital_btn'];
-  ids.forEach(id => { const el = $(id); if(!el) return; el.disabled = !enabled; });
-}
-
-/* ---------- ACTIONS ---------- */
-async function loadState(){
+/* Try a GET quickly; accept any response that is not 404 as evidence the path exists.
+   (405/401/400 are accepted because server may respond with method not allowed or unauthorized). */
+async function pathExists(p) {
   try {
-    const r = await fetch(ENDPOINTS.state, { method:'GET' });
-    const j = await r.json().catch(()=>({ ok:false, error:'invalid json' }));
-    logRaw(`GET ${ENDPOINTS.state} => ${JSON.stringify(j)}`);
-    if (!j || !j.ok) { toast('Load state error'); return; }
-    elSetText('now_time', j.time || nowIST());
-    elSetText('guardian_status', j.admin ? 'admin' : 'online');
-    elSetText('kite_status', j.kite_status === 'ok' ? 'Kite: Connected' : (j.kite_status || 'not_logged_in'));
-    const s = j.state || {};
-    elSetText('capital915', fmtINR(s.capital_day_915 ?? 0));
-    const realised = Number(s.realised ?? 0), unreal = Number(s.unrealised ?? 0);
-    elSetText('pnl_info', `${fmtINR(realised)} / ${fmtINR(unreal)} / ${fmtINR(realised+unreal)}`);
-    elSetText('live_mtm', fmtINR(s.live_mtm ?? 0));
-    elSetText('max_loss', fmtINR(((s.capital_day_915||0) * ((s.max_loss_pct ?? 10)/100)) || 0));
-    elSetText('max_loss_pct', `Max Loss %: ${(s.max_loss_pct ?? 10)}%`);
-    elSetText('max_profit', fmtINR(s.max_profit ?? 0));
-    elSetText('consec_losses', (s.consecutive_losses ?? 0).toString());
-    elSetText('cooldown_until', s.cooldown_until ? new Date(s.cooldown_until).toLocaleString() : '—');
-    elSetText('expiry_flag', s.expiry_flag ? 'YES' : 'NO');
-    if (j.admin) {
-      localStorage.setItem('ADMIN_ACCEPTED','1');
-      showAdminControls(true);
-    }
+    const r = await fetch(p, { method: 'GET' });
+    if (r.status !== 404) return true;
   } catch (e) {
-    logRaw(`State fetch error: ${e.message || e}`);
+    // network or other error -> treat as not present
+  }
+  return false;
+}
+
+/* find first working path from a list */
+async function findWorkingPath(list) {
+  for (const p of list) {
+    if (await pathExists(p)) return p;
+  }
+  return null;
+}
+
+/* Probe all candidate groups and update ENDPOINTS accordingly */
+async function detectEndpoints() {
+  try {
+    const keys = Object.keys(CANDIDATE_PATHS);
+    for (const k of keys) {
+      const found = await findWorkingPath(CANDIDATE_PATHS[k]);
+      if (found) {
+        if (k === 'state') ENDPOINTS.state = found;
+        if (k === 'kite_login') ENDPOINTS.kite_login = found;
+        if (k === 'kite_funds') ENDPOINTS.kite_funds = found;
+        if (k === 'enforce') ENDPOINTS.enforce = found;
+        if (k === 'kill') ENDPOINTS.kill = found;
+        if (k === 'cancel') ENDPOINTS.cancel = found;
+      }
+    }
+    console.info('Detected ENDPOINTS:', ENDPOINTS);
+  } catch (e) {
+    console.warn('detectEndpoints failed', e);
+  }
+}
+
+/* Try GET first; if server returns 405/400 we'll retry with POST.
+   Returns fetch Response or throws. */
+async function callEndpointTryMethods(path, opts = {}) {
+  const { headers = {}, body = null, preferPost = false } = opts;
+  // if preferPost then try POST first
+  if (preferPost) {
+    try {
+      const rpost = await fetch(path, { method: 'POST', headers: { 'Content-Type':'application/json', ...headers }, body: body ? JSON.stringify(body) : '{}' });
+      return rpost;
+    } catch (e) { /* fallthrough to GET */ }
+  }
+  // try GET
+  try {
+    const rget = await fetch(path, { method: 'GET', headers });
+    // accept 200/401/405/400 etc as a response to inspect
+    if (rget.ok || rget.status === 401 || rget.status === 405 || rget.status === 400) return rget;
+    // otherwise try POST fallback
+  } catch (e) {
+    // GET failed, try POST fallback
+  }
+  const rpost = await fetch(path, { method: 'POST', headers: { 'Content-Type':'application/json', ...headers }, body: body ? JSON.stringify(body) : '{}' });
+  return rpost;
+}
+
+/* ---------- small UI helpers ---------- */
+const $ = id => document.getElementById(id);
+function toast(msg, t=3500) {
+  const el = $('toast'); el.textContent = msg; el.style.display='block';
+  clearTimeout(el._t); el._t = setTimeout(()=>el.style.display='none', t);
+}
+function fmtINR(v) {
+  if (v === null || v === undefined || Number.isNaN(Number(v))) return '—';
+  return new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:0}).format(Math.round(Number(v)));
+}
+function nowIST(){ return new Date().toLocaleTimeString('en-IN',{timeZone:'Asia/Kolkata',hour12:false}); }
+function setText(id, txt){ const e=$(id); if(e) e.textContent = (txt===null||txt===undefined)?'—':txt; }
+
+/* ---------- Authorization (admin token) ---------- */
+function getAuthHeader() {
+  const tk = localStorage.getItem('ADMIN_TOKEN') || '';
+  if (!tk) return {};
+  // allow token already including Bearer prefix
+  if (tk.trim().toLowerCase().startsWith('bearer ')) return { 'Authorization': tk.trim() };
+  return { 'Authorization': 'Bearer ' + tk.trim() };
+}
+
+/* ---------- Network actions (use ENDPOINTS discovered) ---------- */
+
+async function loadState() {
+  try {
+    const headers = getAuthHeader();
+    const r = await callEndpointTryMethods(ENDPOINTS.state, { headers });
+    let j = {};
+    try { j = await r.json(); } catch(e) { j = { ok:false, error:'invalid json' }; }
+    if (!j || !j.ok) {
+      // show partial info and show message
+      setText('guardian_status', (j && j.admin) ? 'admin' : '—');
+      setText('kite_status', (j && j.kite_status) ? j.kite_status : '—');
+      $('admin_resp').textContent = 'State fetch error: ' + (j && j.error ? j.error : r.statusText || 'failed');
+      toast('Load state error');
+      return;
+    }
+    // populate UI
+    setText('now_time', j.time || nowIST());
+    setText('guardian_status', j.admin ? 'admin' : 'online');
+    setText('kite_status', j.kite_status === 'ok' ? 'Kite: Connected' : (j.kite_status || 'not_logged_in'));
+
+    const s = j.state || {};
+    setText('capital915', fmtINR(s.capital_day_915 ?? 0));
+    setText('consec_losses', (s.consecutive_losses ?? 0).toString());
+    setText('cooldown_until', s.cooldown_until ? new Date(s.cooldown_until).toLocaleString() : '—');
+    setText('expiry_flag', s.expiry_flag ? 'YES' : 'NO');
+
+    const realised = Number(s.realised ?? 0);
+    const unreal = Number(s.unrealised ?? 0);
+    const total = realised + unreal;
+    setText('pnl_box', `${fmtINR(realised)} / ${fmtINR(unreal)} / ${fmtINR(total)}`);
+    setText('pnl_hint', total < 0 ? 'In loss' : (total>0?'In profit':'—'));
+
+    setText('max_loss', fmtINR(((s.capital_day_915||0) * ((s.max_loss_pct ?? 10)/100)) || 0));
+    setText('max_loss_pct', `Max Loss %: ${(s.max_loss_pct ?? 10).toFixed(2)}%`);
+    setText('active_floor', fmtINR(s.active_loss_floor ?? 0));
+    setText('remaining_loss', fmtINR((s.capital_day_915 ?? 0) - Math.abs(total)));
+    setText('p10', fmtINR(s.p10 || 0));
+
+    // enable admin actions if server reports admin allowed
+    if (j.admin) unlockAdmin(); else lockAdmin();
+    $('admin_resp').textContent = 'State loaded';
+  } catch (e) {
+    console.error('loadState error', e);
+    $('admin_resp').textContent = 'State fetch error: ' + (e.message||e);
     toast('Load state error');
   }
 }
 
-async function loadFunds(){
+async function loadFunds() {
   try {
-    const r = await fetch(ENDPOINTS.kite_funds, { method:'GET', headers: authHeader() });
-    const j = await r.json().catch(()=>({ ok:false, error:'invalid json' }));
-    logRaw(`GET ${ENDPOINTS.kite_funds} => ${JSON.stringify(j)}`);
-    if(!j || j.ok === false){
-      // fallback: use cached state
-      const cached = await fetch(ENDPOINTS.state).then(r=>r.json()).catch(()=>null);
+    const headers = getAuthHeader();
+    // call endpoint; allow GET or POST fallback
+    const r = await callEndpointTryMethods(ENDPOINTS.kite_funds, { headers });
+    let j = {};
+    try { j = await r.json(); } catch(e) { j = { ok:false, error:'invalid json' }; }
+    // if error fallback to state values
+    if (!j || j.ok === false) {
+      const cached = await fetch(ENDPOINTS.state, { method:'GET' }).then(res=>res.json()).catch(()=>null);
       const val = cached?.state?.current_balance ?? cached?.state?.capital_day_915 ?? 0;
-      elSetText('live_balance', fmtINR(val));
-      elSetText('broker_balance', j && j.error ? 'ERR: '+j.error : '—');
+      setText('live_balance', fmtINR(val));
+      setText('broker_balance', j && j.error ? 'ERR: ' + j.error : '—');
+      $('raw_responses').textContent = `[${new Date().toLocaleTimeString()}] GET ${ENDPOINTS.kite_funds} => ${JSON.stringify(j)}\n\n` + $('raw_responses').textContent;
       return;
     }
     let av = null;
@@ -297,132 +384,175 @@ async function loadFunds(){
     else if (j.funds && typeof j.funds.net !== 'undefined') av = j.funds.net;
     else if (typeof j.balance !== 'undefined') av = j.balance;
     else if (j.funds && j.funds.available && typeof j.funds.available.cash !== 'undefined') av = j.funds.available.cash;
-    elSetText('live_balance', fmtINR(av ?? (j.balance ?? '—')));
-    const brokerEl = $('broker_balance'); if(brokerEl) brokerEl.textContent = fmtINR(av ?? (j.balance ?? 0));
+    setText('live_balance', fmtINR(av ?? (j.balance ?? '—')));
+    setText('broker_balance', fmtINR(av ?? (j.balance ?? 0)));
+    $('raw_responses').textContent = `[${new Date().toLocaleTimeString()}] GET ${ENDPOINTS.kite_funds} => ${JSON.stringify(j)}\n\n` + $('raw_responses').textContent;
   } catch (e) {
-    logRaw(`Funds fetch error: ${e.message || e}`);
-    toast('Load funds error');
+    console.warn('loadFunds fail', e);
+    const cached = await fetch(ENDPOINTS.state, { method:'GET' }).then(res=>res.json()).catch(()=>null);
+    const val = cached?.state?.current_balance ?? cached?.state?.capital_day_915 ?? 0;
+    setText('live_balance', fmtINR(val));
+    setText('broker_balance','—');
+    $('raw_responses').textContent = `[${new Date().toLocaleTimeString()}] GET ${ENDPOINTS.kite_funds} => ERROR ${e.message}\n\n` + $('raw_responses').textContent;
   }
 }
 
-async function loadAll(){
-  elSetText('now_time', nowIST());
-  await Promise.allSettled([loadState(), loadFunds()]);
-}
+/* --- admin actions --- */
 
-async function loginZerodha(){
-  const url = ENDPOINTS.kite_login; const btn = $('login_zerodha'); if(btn) btn.disabled=true;
+async function loginKite(){
+  $('login_kite').disabled = true;
   try {
-    const res = await tryFetchWithMethods(url, ['GET','POST'], {});
-    logRaw(`${res.method || '?'} ${url} => ${JSON.stringify(res.json)}`);
-    toast('Zerodha login: ' + (res.json?.ok ? 'ok' : (res.json?.error || 'failed')));
-    // if server returned url to redirect, open it
-    if (res.json && res.json.url) {
-      window.open(res.json.url, '_blank');
+    const headers = getAuthHeader();
+    const r = await callEndpointTryMethods(ENDPOINTS.kite_login, { headers, preferPost:false });
+    let j = {};
+    try { j = await r.json(); } catch(e) { j = { ok:false, error:'invalid json' }; }
+    $('raw_responses').textContent = `[${new Date().toLocaleTimeString()}] ${r.method || 'REQ'} ${ENDPOINTS.kite_login} => ${JSON.stringify(j)}\n\n` + $('raw_responses').textContent;
+    if (j.ok && j.url) {
+      // open kite login URL in new tab/window
+      window.open(j.url, '_blank');
+      toast('Opening Kite login (new tab)');
+    } else {
+      // show message returned by server
+      toast('Zerodha login: ' + (j.error || JSON.stringify(j)));
     }
     await loadAll();
   } catch (e) {
-    logRaw('Login error: '+(e.message||e));
-    toast('Login failed');
-  } finally { if(btn) btn.disabled=false; }
+    toast('Login failed: ' + (e.message||e));
+  } finally {
+    $('login_kite').disabled = false;
+  }
 }
 
 async function enforceNow(){
-  const btn = $('enforce_btn'); if(btn) btn.disabled=true;
+  $('enforce_btn').disabled = true;
   try {
-    const allow_new = !!($('allow_new') && $('allow_new').checked);
-    const res = await tryFetchWithMethods(ENDPOINTS.enforce, ['GET','POST'], { body: { allow_new } });
-    logRaw(`${res.method||'?'} ${ENDPOINTS.enforce} => ${JSON.stringify(res.json)}`);
-    elSetText('last_action', 'Enforce: ' + (res.json?.ok ? 'ok' : (res.json?.error || 'failed')));
-    toast('Enforce: ' + (res.json?.ok ? 'ok' : 'failed'));
+    const headers = getAuthHeader();
+    // enforce endpoint may be GET - try GET then POST
+    const r = await callEndpointTryMethods(ENDPOINTS.enforce, { headers });
+    let j = {};
+    try { j = await r.json(); } catch(e) { j = { ok:false, error:'invalid json' }; }
+    $('raw_responses').textContent = `[${new Date().toLocaleTimeString()}] ${r.status} ${ENDPOINTS.enforce} => ${JSON.stringify(j)}\n\n` + $('raw_responses').textContent;
+    $('admin_resp').textContent = 'Enforce response: ' + (j.ok ? 'ok' : (j.error || JSON.stringify(j)));
+    toast('Enforce: ' + (j.ok ? 'ok' : (j.error || 'failed')));
     await loadAll();
   } catch (e) {
-    logRaw('Enforce exception: '+(e.message||e));
-    toast('Enforce failed');
-  } finally { if(btn) btn.disabled=false; }
+    $('admin_resp').textContent = 'Enforce failed: ' + (e.message||e);
+    toast('Enforce failed: ' + (e.message||e));
+  } finally { $('enforce_btn').disabled = false; }
 }
 
 async function killNow(){
   if(!confirm('Kill will attempt to close running positions. Proceed?')) return;
-  const btn = $('kill_btn'); if(btn) btn.disabled=true;
+  $('kill_btn').disabled = true;
   try {
-    const res = await tryFetchWithMethods(ENDPOINTS.kill, ['POST','GET'], { body: { force:true } });
-    logRaw(`${res.method||'?'} ${ENDPOINTS.kill} => ${JSON.stringify(res.json)}`);
-    toast('Kill: ' + (res.json?.ok ? 'ok' : (res.json?.error || 'failed')));
+    const headers = { 'Content-Type':'application/json', ...getAuthHeader() };
+    const r = await fetch(ENDPOINTS.kill, { method:'POST', headers, body: JSON.stringify({force:true}) });
+    let j = {};
+    try { j = await r.json(); } catch(e) { j = { ok:false, error:'invalid json' }; }
+    $('raw_responses').textContent = `[${new Date().toLocaleTimeString()}] POST ${ENDPOINTS.kill} => ${JSON.stringify(j)}\n\n` + $('raw_responses').textContent;
+    $('admin_resp').textContent = 'Kill response: ' + (j.ok ? 'ok' : (j.error || JSON.stringify(j)));
+    toast('Kill: ' + (j.ok ? 'ok' : (j.error || 'failed')));
     await loadAll();
-  } catch(e){
-    logRaw('Kill error: ' + (e.message||e));
-    toast('Kill failed');
-  } finally { if(btn) btn.disabled=false; }
+  } catch(e) {
+    $('admin_resp').textContent = 'Kill failed: ' + (e.message||e);
+    toast('Kill failed: ' + (e.message||e));
+  } finally { $('kill_btn').disabled = false; }
 }
 
 async function cancelAll(){
   if(!confirm('Cancel all pending orders?')) return;
-  const btn = $('cancel_btn'); if(btn) btn.disabled=true;
+  $('cancel_btn').disabled = true;
   try {
-    const res = await tryFetchWithMethods(ENDPOINTS.cancel, ['POST','GET'], { body: {} });
-    logRaw(`${res.method||'?'} ${ENDPOINTS.cancel} => ${JSON.stringify(res.json)}`);
-    toast('Cancel: ' + (res.json?.ok ? 'ok' : (res.json?.error || 'failed')));
+    const headers = { 'Content-Type':'application/json', ...getAuthHeader() };
+    // try POST cancel with fallback
+    const r = await callEndpointTryMethods(ENDPOINTS.cancel, { headers, body: {} , preferPost:true });
+    let j = {};
+    try { j = await r.json(); } catch(e) { j = { ok:false, error:'invalid json' }; }
+    $('raw_responses').textContent = `[${new Date().toLocaleTimeString()}] ${r.status} ${ENDPOINTS.cancel} => ${JSON.stringify(j)}\n\n` + $('raw_responses').textContent;
+    $('admin_resp').textContent = 'Cancel response: ' + (j.ok ? 'ok' : (j.error || JSON.stringify(j)));
+    toast('Cancel: ' + (j.ok ? 'ok' : (j.error || 'failed')));
     await loadAll();
-  } catch(e){
-    logRaw('Cancel error: ' + (e.message||e));
-    toast('Cancel failed');
-  } finally { if(btn) btn.disabled=false; }
+  } catch(e) {
+    $('admin_resp').textContent = 'Cancel failed: ' + (e.message||e);
+    toast('Cancel failed: ' + (e.message||e));
+  } finally { $('cancel_btn').disabled = false; }
 }
 
-async function setCapitalOverride(){
-  const v = ($('override_capital') && $('override_capital').value || '').trim();
-  if(!v || isNaN(Number(v))) { toast('Enter numeric capital'); return; }
-  const btn = $('set_capital_btn'); if(btn) btn.disabled=true;
-  try {
-    const res = await tryFetchWithMethods(ENDPOINTS.set_capital, ['POST','GET'], { body: { capital: Number(v) } });
-    logRaw(`${res.method||'?'} ${ENDPOINTS.set_capital} => ${JSON.stringify(res.json)}`);
-    toast('Set capital: ' + (res.json?.ok ? 'ok' : (res.json?.error || 'failed')));
-    await loadAll();
-  } catch(e){
-    logRaw('Set capital error: ' + (e.message||e));
-    toast('Set capital failed');
-  } finally { if(btn) btn.disabled=false; }
+/* ---------- UI token helpers ---------- */
+function unlockAdmin(){
+  $('admin_actions').style.display = 'block';
+  $('admin_token').type = 'password';
 }
 
-/* ---------- PAGER ---------- */
-$('prev_page')?.addEventListener('click', ()=>{ const p=$('pages'); if(p) p.scrollBy({ left:-window.innerWidth, behavior:'smooth' }); });
-$('next_page')?.addEventListener('click', ()=>{ const p=$('pages'); if(p) p.scrollBy({ left:window.innerWidth, behavior:'smooth' }); });
+function lockAdmin(){
+  $('admin_actions').style.display = 'none';
+}
 
-/* ---------- WIRING ---------- */
-document.addEventListener('DOMContentLoaded', ()=>{
-  // wire buttons safely (only if exist)
-  $('save_token')?.addEventListener('click', ()=>{
-    const v = $('admin_token') ? $('admin_token').value.trim() : '';
-    if(!v){ toast('Enter admin token'); return; }
-    localStorage.setItem('ADMIN_TOKEN', v);
-    if($('admin_token')){ $('admin_token').value='********'; $('admin_token').dataset.real='1'; }
-    showAdminControls(true);
-    toast('Admin token saved (masked)');
-    loadAll();
-  });
-  $('clear_token')?.addEventListener('click', ()=>{
-    localStorage.removeItem('ADMIN_TOKEN');
-    if($('admin_token')){ $('admin_token').value=''; $('admin_token').dataset.real='0'; }
-    showAdminControls(false);
-    toast('Admin token cleared');
-    loadAll();
-  });
-  $('login_zerodha')?.addEventListener('click', loginZerodha);
-  $('refresh_state')?.addEventListener('click', loadAll);
-  $('refresh_top')?.addEventListener('click', loadAll);
-  $('enforce_btn')?.addEventListener('click', enforceNow);
-  $('enforce_trades_btn')?.addEventListener('click', enforceNow);
-  $('kill_btn')?.addEventListener('click', killNow);
-  $('kill_btn2')?.addEventListener('click', killNow);
-  $('cancel_btn')?.addEventListener('click', cancelAll);
-  $('cancel_all_btn')?.addEventListener('click', cancelAll);
-  $('set_capital_btn')?.addEventListener('click', setCapitalOverride);
-
-  applyTokenUI();
+function saveToken(){
+  const v = $('admin_token').value.trim();
+  if (!v) { toast('Enter admin token to save'); return; }
+  localStorage.setItem('ADMIN_TOKEN', v);
+  unlockAdmin();
+  toast('Admin token saved locally (masked)');
   loadAll();
-  setInterval(()=> elSetText('now_time', nowIST()), 1000);
-});
+}
+
+function clearToken(){
+  localStorage.removeItem('ADMIN_TOKEN');
+  $('admin_token').value = '';
+  lockAdmin();
+  toast('Admin token cleared');
+  loadAll();
+}
+
+/* ---------- Init wiring ---------- */
+async function loadAll(){
+  // load state + funds concurrently
+  await Promise.allSettled([ loadState(), loadFunds() ]);
+}
+
+async function init(){
+  // 1) detect endpoints
+  await detectEndpoints();
+
+  // 2) wire DOM events
+  $('save_token').addEventListener('click', saveToken);
+  $('clear_token').addEventListener('click', clearToken);
+  $('refresh_btn').addEventListener('click', loadAll);
+  $('refresh_top').addEventListener('click', loadAll);
+  $('login_kite').addEventListener('click', loginKite);
+  $('enforce_btn').addEventListener('click', enforceNow);
+  $('enforce_trades_btn')?.addEventListener('click', enforceNow);
+  $('kill_btn').addEventListener('click', killNow);
+  $('kill_btn2').addEventListener('click', killNow);
+  $('cancel_btn').addEventListener('click', cancelAll);
+  $('cancel_all_btn')?.addEventListener('click', cancelAll);
+  $('cancel_all_btn')?.addEventListener('click', cancelAll);
+  $('cancel_all_btn')?.addEventListener('click', cancelAll);
+
+  // wire quick logs buttons
+  $('enforce_trades_btn')?.addEventListener('click', enforceNow);
+  $('cancel_all_btn')?.addEventListener('click', cancelAll);
+  $('kill_btn2')?.addEventListener('click', killNow);
+
+  // show saved token in masked mode (we never print the real token in UI)
+  const stored = localStorage.getItem('ADMIN_TOKEN');
+  if (stored) {
+    $('admin_token').value = '******';
+    unlockAdmin();
+  } else {
+    lockAdmin();
+  }
+
+  // initial loads
+  await loadAll();
+  setInterval(()=> setText('now_time', nowIST()), 1000);
+}
+
+document.addEventListener('DOMContentLoaded', init);
+
+/* Optional: expose ENDPOINTS for debugging in console */
+window._ENDPOINTS = ENDPOINTS;
 </script>
 </body>
 </html>
