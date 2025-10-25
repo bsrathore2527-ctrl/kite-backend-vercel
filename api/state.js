@@ -1,5 +1,5 @@
 // api/state.js — public/admin state (read-only unless admin uses /api/admin/*)
-import { getState, todayKey } from "./_lib/kv.js";
+import { getState, todayKey, kv } from "./_lib/kv.js";
 import { getAccessToken } from "./_lib/kite.js";
 
 function isAdmin(req) {
@@ -11,10 +11,22 @@ function isAdmin(req) {
 export default async function handler(req, res) {
   try {
     const admin = isAdmin(req);
-    const s = await getState();
+    const s = await getState(); // primary state object
     const tok = await getAccessToken();
 
-    // attempt to expose a sensible live_balance if stored in state
+    // Check for an admin override stored in risk:{today}
+    let override = null;
+    try {
+      const riskKey = `risk:${todayKey()}`;
+      const r = await kv.get(riskKey);
+      if (r && typeof r === "object" && (typeof r.capital_day_915 !== "undefined")) {
+        override = r;
+      }
+    } catch (err) {
+      // ignore kv read errors - not fatal
+      console.warn("state: override check failed", err && err.message);
+    }
+
     // prefer live_balance (set by funds fetch) -> current_balance (cached) -> 0
     const liveBalance =
       (s.live_balance !== undefined && s.live_balance !== null)
@@ -28,9 +40,15 @@ export default async function handler(req, res) {
     const cooldownUntil = Number(s.cooldown_until || 0);
     const cooldownActive = cooldownUntil > nowTs;
 
+    // apply admin override capital if present
+    const capitalValue = (override && typeof override.capital_day_915 !== "undefined")
+      ? Number(override.capital_day_915)
+      : (s.capital_day_915 || 0);
+
     // safe view with defaults
     const safe = {
-      capital_day_915: s.capital_day_915 || 0,
+      capital_day_915: Number(capitalValue || 0),
+      admin_override_capital: !!(override && override.admin_override_capital),
       realised: s.realised || 0,
       unrealised: s.unrealised || 0,
       current_balance: s.current_balance || 0, // cached balance (fallback for UI)
