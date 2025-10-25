@@ -3,347 +3,383 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Guardian â€¢ Admin / Trader</title>
-<meta name="color-scheme" content="dark light" />
+<title>Guardian — Admin</title>
 <style>
   :root{
-    --bg:#0b0d14; --bg2:#0d111a; --card:#121a2d; --line:#20283a; --fg:#eef3ff; --muted:#98a3b3;
-    --accent:#3b82f6; --ok:#22c55e; --warn:#f59e0b; --bad:#ef4444;
-    --r:12px; --pad:12px; --gap:12px;
+    --bg:#041026; --card:#0b1420; --muted:#98a7bb; --accent:#2f6df6;
+    --success:#1f7a2f; --danger:#b93131; --glass: rgba(255,255,255,0.03);
+    --glass-2: rgba(255,255,255,0.02); --radius:14px;
+    --card-border: rgba(255,255,255,0.03);
   }
-  html,body{height:100%}
-  body{
-    margin:0;color:var(--fg);font-family: ui-rounded,system-ui,"SF Pro Rounded",Segoe UI,Roboto,Ubuntu,Arial,sans-serif;
-    background:
-      radial-gradient(900px 560px at 12% -10%, rgba(59,130,246,.18), transparent 60%),
-      radial-gradient(700px 420px at 95% 8%, rgba(34,197,94,.10), transparent 60%),
-      linear-gradient(180deg, var(--bg2) 0%, var(--bg) 100%);
-    -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale;
-  }
-  .wrap{max-width:1080px;margin:0 auto;padding:14px}
-  .muted{color:var(--muted)} .tiny{font-size:12px}
-
-  .header{display:flex;align-items:center;gap:10px;margin-bottom:10px}
-  .title{font-weight:800;font-size:18px;display:flex;align-items:center;gap:8px}
-  .badge{display:inline-flex;align-items:center;gap:6px;padding:5px 9px;border-radius:999px;border:1px solid var(--line);
-    background:linear-gradient(180deg,#141a2b,#0f1524);color:#cfe3ff;font-size:12px}
-  .dot{width:8px;height:8px;border-radius:50%}
-  .b-ok{border-color:#1d2f24}.b-warn{border-color:#3d2e10}.b-bad{border-color:#3a1616}
-
-  .banner{
-    display:grid;grid-template-columns:1fr auto auto auto auto;gap:10px;align-items:center;
-    background:linear-gradient(180deg,#131a2d,#0f1525);border:1px solid var(--line);border-radius:12px;padding:10px;margin-bottom:10px
-  }
-  .banner .mode{grid-column:1/-1;font-size:12px;color:#dbe5f2}
-  .banner input,.banner button{
-    padding:10px;border-radius:10px;border:1px solid var(--line);
-    background:linear-gradient(180deg,#0f1523,#0d111a);color:var(--fg)
-  }
-  .btn{background:linear-gradient(180deg,#1e40af,#19399b);font-weight:700;border-color:#1c3692;cursor:pointer}
-  .ghost{background:linear-gradient(180deg,#0f1523,#0d111a)}
-  @media (max-width:760px){.banner{grid-template-columns:1fr 1fr 1fr}.banner input{grid-column:1/-1}}
-
-  .grid{display:grid;gap:var(--gap);grid-template-columns:repeat(12,minmax(0,1fr))}
-  .card{grid-column:span 12;background:linear-gradient(180deg,#131a2d,#0f1525);border:1px solid var(--line);
-    border-radius:12px;padding:var(--pad);box-shadow:0 10px 28px rgba(0,0,0,.28)}
-  .card h3{margin:0 0 8px;font-size:13px;font-weight:800}
-  @media (min-width:900px){.span-6{grid-column:span 6}}
-
-  .kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
-  @media (max-width:720px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
-  @media (max-width:380px){.kpis{grid-template-columns:1fr}}
-  .kpi{background:linear-gradient(180deg,#111a33,#0e1527);border:1px solid #1a2236;border-radius:10px;padding:8px}
-  .kpi .hd{font-size:11px;color:#9aa3ad;margin-bottom:3px}
-  .kpi .vl{font-size:16px;font-weight:800}
-  .kpi .sub{font-size:11px;color:#9aa3ad;margin-top:2px}
-
-  label{display:block;font-size:11px;color:var(--muted);margin:6px 0 5px}
-  input,select,button{width:100%;padding:11px;border-radius:10px;border:1px solid var(--line);
-    background:linear-gradient(180deg,#101523,#0d111a);color:var(--fg);outline:none}
-  input:focus,select:focus{border-color:#2856b8;box-shadow:0 0 0 3px rgba(59,130,246,.18)}
-  .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-  @media (max-width:760px){.row{grid-template-columns:1fr}}
-
-  .pill{display:inline-flex;align-items:center;min-height:30px;padding:7px 10px;border:1px solid var(--line);
-    border-radius:10px;background:linear-gradient(180deg,#0f1524,#0e1421);font-size:12px;color:#dbe5f2}
-
-  .actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
-  @media (max-width:760px){.actions{grid-template-columns:1fr 1fr}}
-  @media (max-width:520px){.actions{grid-template-columns:1fr}}
-  .btn-ok{background:linear-gradient(180deg,#166534,#115c2e);border-color:#0b4d25;color:#fff;font-weight:700}
-  .btn-warn{background:linear-gradient(180deg,#7c2d12,#6b2109);border-color:#5c1a07;color:#fff;font-weight:700}
-  .btn-ghost{background:linear-gradient(180deg,#101523,#0d111a);color:#fff}
-
-  .disabled *[data-admin-only]{pointer-events:none;opacity:.55;filter:saturate(.75)}
-  .footer{margin-top:8px;color:var(--muted);font-size:11px;text-align:right}
+  html,body{height:100%;margin:0;background:linear-gradient(180deg,#061123 0%, #041026 50%, #000511 100%);font-family:Inter,Arial,Helvetica;color:#e6eef8}
+  .wrap{max-width:1100px;margin:14px auto;padding:18px;}
+  header{display:flex;align-items:center;gap:18px;margin-bottom:14px}
+  .logo{width:64px;height:64px;border-radius:12px;background:linear-gradient(135deg,#061428,#0f1b2b);display:grid;place-items:center;font-weight:700}
+  h1{margin:0;font-size:28px}
+  .meta{margin-left:auto;display:flex;gap:12px;align-items:center;color:var(--muted)}
+  .card{background:linear-gradient(180deg,var(--glass),var(--glass-2));border-radius:var(--radius);padding:16px;margin:14px 0;box-shadow:0 6px 28px rgba(0,0,0,0.6);border:1px solid var(--card-border)}
+  .admin-grid{display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center}
+  .label{color:var(--muted);font-size:13px;margin-bottom:6px}
+  .token-wrap{display:flex;align-items:center;gap:8px}
+  input[type="password"], input[type="text"]{width:100%;padding:12px;border-radius:10px;background:transparent;border:1px solid rgba(255,255,255,0.06);color:inherit}
+  .btn{padding:10px 18px;border-radius:10px;border:none;background:var(--accent);color:white;font-weight:700;cursor:pointer}
+  .btn.ghost{background:transparent;border:1px solid rgba(255,255,255,0.06)}
+  .btn.warn{background:var(--danger)}
+  .btn.ok{background:var(--success)}
+  .row{display:flex;gap:10px;flex-wrap:wrap}
+  .muted{color:var(--muted);font-size:13px}
+  .stats{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+  .stat{padding:14px;border-radius:12px;background:rgba(0,0,0,0.12);border:1px solid rgba(255,255,255,0.02)}
+  .stat h3{margin:0;font-size:12px;color:var(--muted)}
+  .stat .val{font-weight:800;font-size:20px;margin-top:8px}
+  .small{font-size:13px;padding:8px 12px;border-radius:8px}
+  .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:22px;background:rgba(0,0,0,0.78);color:#fff;padding:10px 14px;border-radius:8px;box-shadow:0 8px 30px rgba(0,0,0,0.6);display:none}
+  .toast.show{display:block}
+  pre#raw_responses{white-space:pre-wrap;color:#ffdede;background:rgba(0,0,0,0.12);padding:12px;border-radius:8px;margin-top:8px;max-height:240px;overflow:auto}
+  label.switch{display:inline-flex;align-items:center;gap:6px;color:var(--muted)}
+  .controls {display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px}
+  .muted-block {color:var(--muted);margin-top:8px}
+  .input-eye{cursor:pointer;padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:var(--muted)}
+  @media (max-width:640px){ .stats{grid-template-columns:1fr} }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <div class="header">
-    <div class="title">ðŸ›¡ Guardian</div>
-    <span id="kite-badge" class="badge"><span class="dot" style="background:#555"></span> Zerodha: â€”</span>
-    <span id="engine-badge" class="badge"><span class="dot" style="background:#555"></span> Guardian: â€”</span>
-    <div class="muted tiny" id="now" style="margin-left:auto">â€”</div>
-  </div>
+  <header>
+    <div class="logo">G</div>
+    <div>
+      <h1>Guardian — Admin</h1>
+      <div class="muted">Risk automation & enforcement</div>
+    </div>
+    <div class="meta">
+      <div id="kite_status" class="muted">Kite: —</div>
+      <div id="guard_status" class="muted">Guardian: —</div>
+      <div id="now" class="muted">--:--:--</div>
+    </div>
+  </header>
 
-  <div class="banner">
-    <div class="mode" id="modeText"><b>Read-only</b> mode. Enter token to enable changes.</div>
-    <input id="token" type="password" placeholder="ADMIN_TOKEN" autocomplete="off">
-    <button class="btn" onclick="saveToken()">Save</button>
-    <a href="/api/login"><button class="btn" type="button">Login Zerodha</button></a>
-    <button class="ghost" onclick="clearToken()">Clear</button>
-    <button class="ghost" onclick="refresh()">Refresh</button>
-  </div>
+  <!-- ADMIN CARD -->
+  <section class="card" id="admin_card">
+    <div>
+      <div class="label">Admin token (keeps UI read-only unless saved)</div>
+      <div class="token-wrap" style="gap:10px">
+        <input id="admin_token" type="password" placeholder="Enter admin token" aria-label="Admin token" />
+        <button id="toggle_token" class="input-eye">Show</button>
+        <button id="save_token" class="btn">Save</button>
+        <button id="clear_token" class="btn ghost">Clear</button>
+      </div>
+      <div class="muted-block">Token stored locally only. We will not display the real token; only masked placeholder will be shown.</div>
+    </div>
 
-  <section class="card" style="padding-top:10px;padding-bottom:10px">
-    <div class="kpis">
-      <div class="kpi"><div class="hd">Capital @ 09:15</div><div class="vl" id="k_cap">â€”</div><div class="sub">Auto from Zerodha</div></div>
-      <div class="kpi"><div class="hd">Current Balance (live/fallback)</div><div class="vl" id="k_live_balance">â€”</div><div class="sub">Uses cached if offline</div></div>
-      <div class="kpi"><div class="hd">Live MTM</div><div class="vl" id="k_live_mtm">â€”</div><div class="sub">Sum of position PnL</div></div>
+    <div class="controls">
+      <button id="login_zerodha" class="btn ghost small">Login Zerodha</button>
+      <button id="refresh_state" class="btn ghost small">Refresh</button>
+      <div style="flex:1"></div>
+      <label class="muted">Admin controls unlock after saving token</label>
+    </div>
 
-      <div class="kpi"><div class="hd">PnL (R/UR/Total)</div><div class="vl" id="k_pnl">â€”</div><div class="sub" id="k_pnl_sub">â€”</div></div>
-      <div class="kpi"><div class="hd">Max Loss (â‚¹)</div><div class="vl" id="k_maxloss_amt">â€”</div><div class="sub" id="k_maxloss_pct">â€”</div></div>
-      <div class="kpi"><div class="hd">Active Loss Floor (â‚¹)</div><div class="vl" id="k_active_floor">â€”</div><div class="sub" id="k_next_trail">â€”</div></div>
+    <div style="height:8px"></div>
 
-      <div class="kpi"><div class="hd">Remaining to Max Loss</div><div class="vl" id="k_remaining">â€”</div><div class="sub" id="k_remaining_note">â€”</div></div>
-      <div class="kpi"><div class="hd">10% Profit Lock</div><div class="vl" id="k_lock10_amt">â€”</div><div class="sub" id="k_lock10_state">â€”</div></div>
-      <div class="kpi"><div class="hd">20% Profit Lock</div><div class="vl" id="k_lock20_amt">â€”</div><div class="sub" id="k_lock20_state">â€”</div></div>
+    <div class="controls">
+      <button id="enforce_btn" class="btn ok">Enforce Now</button>
+      <button id="kill_btn" class="btn warn">Kill (Close)</button>
+      <button id="cancel_all_btn" class="btn ghost">Cancel All</button>
 
-      <div class="kpi"><div class="hd">Trailing Step (â‚¹)</div><div class="vl" id="k_trail_step">â€”</div><div class="sub">Loss floor trails by step</div></div>
+      <label style="margin-left:auto" class="switch"><input id="allow_new_checkbox" type="checkbox" /> Allow New Orders</label>
+    </div>
+
+    <div id="last_action_msg" style="margin-top:12px;color:#ffbcbc">—</div>
+  </section>
+
+  <!-- STATS CARD -->
+  <section class="card">
+    <h2 style="margin-top:0">Live overview <button id="refresh_stats" class="btn ghost small" style="float:right">Refresh</button></h2>
+    <div class="stats" id="stats_grid">
+      <div class="stat">
+        <h3>Capital @ 09:15</h3>
+        <div class="val" id="capital915">—</div>
+        <div class="muted">Base for daily limits</div>
+      </div>
+      <div class="stat">
+        <h3>Current Balance (live/fallback)</h3>
+        <div class="val" id="live_funds">—</div>
+        <div class="muted">Uses cached if offline</div>
+      </div>
+      <div class="stat">
+        <h3>Live MTM</h3>
+        <div class="val" id="live_mtm">—</div>
+        <div class="muted">Sum of position PnL</div>
+      </div>
+      <div class="stat">
+        <h3>PnL (R/UR/Total)</h3>
+        <div class="val" id="pnl_info">—</div>
+        <div class="muted">Realtime</div>
+      </div>
+      <div class="stat">
+        <h3>Consecutive Losses</h3>
+        <div class="val" id="consec_losses">—</div>
+        <div class="muted">Count for today</div>
+      </div>
+      <div class="stat">
+        <h3>Cooldown Until</h3>
+        <div class="val" id="cooldown_until">—</div>
+        <div class="muted">Locked until</div>
+      </div>
     </div>
   </section>
 
-  <div id="content" class="grid disabled" style="margin-top:10px">
-    <section class="card span-6">
-      <h3>Live State</h3>
-      <div class="row">
-        <div><label>Capital</label><div id="cap" class="pill">â€”</div></div>
-        <div><label>PnL</label><div id="pnl" class="pill">â€”</div></div>
-      </div>
-      <div class="row" style="margin-top:10px">
-        <div><label>Day Status</label><div id="day" class="pill">â€”</div></div>
-        <div><label>New Orders</label><div id="block" class="pill">â€”</div></div>
-      </div>
-      <div class="row" style="margin-top:10px">
-        <div><label>Consecutive Losses</label><div id="losses" class="pill">â€”</div></div>
-        <div><label>Cooldown Until</label><div id="cool" class="pill">â€”</div></div>
-      </div>
+  <!-- LOGS & ACTIONS CARD -->
+  <section class="card">
+    <h2 style="margin-top:0">Logs & last responses</h2>
+    <div class="muted">Server responses for last actions are shown here (keeps a running history)</div>
+    <pre id="raw_responses">—</pre>
+  </section>
 
-      <div class="row" style="margin-top:10px">
-        <div><label>Broker Balance (live/fallback)</label><div id="live_funds" class="pill">â€”</div></div>
-        <div><label>Live Positions MTM</label><div id="live_mtm" class="pill">â€”</div></div>
-      </div>
-    </section>
-
-    <section class="card span-6" data-admin-only>
-      <h3>Daily Rules</h3>
-      <div class="row">
-        <div><label>Max Loss %</label><input id="max_loss_pct" type="number" step="0.1" placeholder="10"></div>
-        <div><label>Trailing Step (â‚¹)</label><input id="trail_step_profit" type="number" step="100" placeholder="5000"></div>
-      </div>
-      <div class="row" style="margin-top:10px">
-        <div><label>Cooldown (min)</label><input id="cooldown_min" type="number" step="1" placeholder="15"></div>
-        <div><label>Max Consecutive Losses</label><input id="max_consecutive_losses" type="number" step="1" placeholder="3"></div>
-      </div>
-      <div class="row" style="margin-top:10px">
-        <div><label>Allow New After 10%?</label>
-          <select id="allow_new_after_lock10"><option value="false">No</option><option value="true">Yes</option></select>
-        </div>
-        <div><label>Expiry Day?</label>
-          <select id="expiry_flag"><option value="false">No</option><option value="true">Yes</option></select>
-        </div>
-      </div>
-    </section>
-
-    <section class="card span-12" data-admin-only>
-      <h3>Actions</h3>
-      <div class="actions">
-        <button class="btn-ok"   onclick="saveRules()">Save Rules</button>
-        <button class="btn-warn" onclick="postAction('/api/admin/kill')">Kill (Block + Trip)</button>
-        <button class="btn-ghost"onclick="postAction('/api/admin/unlock')">Unlock (Allow New)</button>
-        <button class="btn-ghost"onclick="postAction('/api/kite/cancel-all')">Cancel All Pending</button>
-        <button class="btn-ghost"onclick="postAction('/api/kite/exit-all')">Exit All Positions</button>
-      </div>
-    </section>
-  </div>
-
-  <div class="footer">Guardian UI â€¢ v3.4 â€¢ Auto capital, cached balance fallback, live MTM merges</div>
 </div>
 
+<div id="toast" class="toast"></div>
+
 <script>
+/* --------------------------
+   Small helpers & UI utils
+   -------------------------- */
 const $ = id => document.getElementById(id);
-const readToken = () => localStorage.getItem('ADMIN_TOKEN') || '';
+const toastEl = $('toast');
+function showToast(msg, t = 2500){ toastEl.textContent = msg; toastEl.classList.add('show'); setTimeout(()=>toastEl.classList.remove('show'), t); }
+function nowTime(){ return new Date().toLocaleTimeString('en-IN', { timeZone:'Asia/Kolkata', hour12:false }); }
+function safeStringify(j){ try{return JSON.stringify(j);}catch(e){return String(j);} }
 
-function setText(id, txt){ const el=$(id); if(el) el.textContent = txt; }
-function setMode(isAdmin){
-  const wrap = $('content');
-  const mode = $('modeText');
-  if(isAdmin){ wrap.classList.remove('disabled'); mode.innerHTML = '<b>Admin</b> mode enabled.'; }
-  else { wrap.classList.add('disabled'); mode.innerHTML = '<b>Read-only</b> mode. Enter token to enable changes.'; }
-}
-function saveToken(){ const v=$('token').value.trim(); if(!v){alert('Enter token');return;} localStorage.setItem('ADMIN_TOKEN',v); $('token').value=''; refresh(); }
-function clearToken(){ localStorage.removeItem('ADMIN_TOKEN'); refresh(); }
+/* --------------------------
+   Token storage / UI
+   -------------------------- */
+const tokenInput = $('admin_token');
+const toggleBtn = $('toggle_token');
+const saveBtn = $('save_token');
+const clearBtn = $('clear_token');
 
-function n2(v){ return Number(v||0); }
-function inr(n){ try{ return new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:0}).format(n);}catch{ return 'â‚¹'+Math.round(n);} }
-function fmtR(n){ return inr(n); }
-function setIfEmpty(id,val){ const el=$(id); if(el && el.value==='') el.value=String(val); }
+function getStoredToken(){ return localStorage.getItem('admin_token') || ''; }
+function setStoredToken(v){ if(v) localStorage.setItem('admin_token', v); else localStorage.removeItem('admin_token'); }
 
-function renderDerivedUsing(state, overrides = {}) {
-  const s = { ...state, ...overrides };
-  const cap = n2(s.capital_day_915), r = n2(s.realised), u = n2(s.unrealised);
-  const ttl = r + u;
-  const maxPct = s.max_loss_pct ?? 10, step = s.trail_step_profit ?? 5000;
-  const baseFloor = -(cap * (maxPct/100));
-  const steps = Math.max(0, Math.floor(Math.max(0, r) / step));
-  const trailFloor = -(steps * step);
-  const activeFloor = Math.max(baseFloor, trailFloor);
-  const remaining = activeFloor - ttl;
-  const l10 = cap * 0.10, l20 = cap * 0.20, nextTrail = steps * step + step;
-
-  // KPI area
-  setText('k_cap', fmtR(cap));
-  setText('k_pnl', `${fmtR(r)} / ${fmtR(u)} / ${fmtR(ttl)}`);
-  setText('k_pnl_sub', ttl >= 0 ? 'In profit' : 'In loss');
-  setText('k_maxloss_amt', fmtR(-baseFloor));
-  setText('k_maxloss_pct', `Max Loss %: ${(+maxPct).toFixed(2)}%`);
-  setText('k_active_floor', fmtR(activeFloor));
-  setText('k_next_trail', `Next trail at realised â‰¥ ${fmtR(nextTrail)} (step â‚¹${step})`);
-  setText('k_remaining', fmtR(Math.max(0, remaining)));
-  setText('k_remaining_note', remaining <= 0 ? 'Floor breached' : 'Room left before floor');
-  setText('k_trail_step', 'â‚¹' + (step || 0));
-  setText('k_lock10_amt', fmtR(l10));
-  setText('k_lock20_amt', fmtR(l20));
-
-  // mini pill PnL row
-  setText('cap', n2(s.capital_day_915).toFixed(2));
-  setText('pnl', `${n2(s.realised).toFixed(2)} / ${n2(s.unrealised).toFixed(2)} / ${ttl.toFixed(2)}`);
-}
-
-async function refresh(){
-  try{
-    const headers = readToken()? { 'Authorization':'Bearer '+readToken() } : {};
-    const j = await fetch('/api/state?t='+Date.now(), { headers }).then(r=>r.json());
-    paint(j);
-
-    // track live values for override
-    let liveMtmVal = null;
-    let liveFundsVal = null;
-
-    // Live funds (with fallback to cached)
-    try {
-      const r = await fetch('/api/kite/funds?t='+Date.now());
-      const funds = await r.json();
-      if (funds.ok) {
-        const av = Number(
-   (funds.balance ??
-   funds.funds?.available?.live_balance ??
-   funds.funds?.net ??
-   funds.funds?.available?.cash ??
-   funds.funds?.cash ??
-   0)
-);
-        if (!Number.isNaN(av)) {
-          liveFundsVal = av;
-          const txt = inr(av);
-          setText('live_funds', txt); setText('k_live_balance', txt);
-        } else {
-          const cached = (j.state && j.state.current_balance) ? inr(j.state.current_balance) : 'â€”';
-          setText('live_funds', cached); setText('k_live_balance', cached);
-        }
-      } else {
-        const cached = (j.state && j.state.current_balance) ? inr(j.state.current_balance) : 'â€”';
-        setText('live_funds', cached); setText('k_live_balance', cached);
-      }
-    } catch {
-      const cached = (j.state && j.state.current_balance) ? inr(j.state.current_balance) : 'â€”';
-      setText('live_funds', cached); setText('k_live_balance', cached);
-    }
-
-    // Live MTM (with fallback to cached unrealised)
-    try {
-      const r2 = await fetch('/api/kite/positions?t='+Date.now());
-      const pos = await r2.json();
-      if (pos.ok && pos.positions?.net) {
-        const mtm = pos.positions.net.reduce((a,p)=> a + Number(p.pnl||0), 0);
-        liveMtmVal = mtm;
-        const txt = inr(mtm);
-        setText('live_mtm', txt); setText('k_live_mtm', txt);
-      } else {
-        const cachedU = (j.state && typeof j.state.unrealised === 'number') ? inr(j.state.unrealised) : 'â€”';
-        setText('live_mtm', cachedU); setText('k_live_mtm', cachedU);
-      }
-    } catch {
-      const cachedU = (j.state && typeof j.state.unrealised === 'number') ? inr(j.state.unrealised) : 'â€”';
-      setText('live_mtm', cachedU); setText('k_live_mtm', cachedU);
-    }
-
-    // Re-render derived KPIs using live MTM when available
-    if (liveMtmVal !== null) {
-      renderDerivedUsing(j.state, { unrealised: liveMtmVal });
-    }
-
-  }catch(e){
-    alert('Failed to load state: ' + e.message);
+function applyTokenUI(){
+  const t = getStoredToken();
+  if(t){
+    tokenInput.value = '********';          // always mask in UI
+    tokenInput.dataset.saved = '1';
+    tokenInput.type = 'password';
+  } else {
+    tokenInput.value = '';
+    tokenInput.dataset.saved = '0';
+    tokenInput.type = 'password';
   }
+  setAdminEnabled(!!t);
 }
+applyTokenUI();
 
-function paint(j){
-  setText('now','Time: '+(j.time||'â€”'));
-  const kb=$('kite-badge'), eb=$('engine-badge'); kb.className='badge'; eb.className='badge';
-  if(j.kite_status==='ok'){ kb.innerHTML='<span class="dot" style="background:#22c55e"></span> Zerodha: Connected'; kb.classList.add('b-ok'); }
-  else if(j.kite_status==='invalid'){ kb.innerHTML='<span class="dot" style="background:#ef4444"></span> Zerodha: Token invalid'; kb.classList.add('b-bad'); }
-  else { kb.innerHTML='<span class="dot" style="background:#f59e0b"></span> Zerodha: Not logged in'; kb.classList.add('b-warn'); }
-  eb.innerHTML = j.ok ? '<span class="dot" style="background:#3b82f6"></span> Guardian: Online'
-                      : '<span class="dot" style="background:#ef4444"></span> Guardian: Error';
+toggleBtn.addEventListener('click', () => {
+  // If a real token is saved, reveal it briefly (not kept)
+  const saved = getStoredToken();
+  if(!saved){
+    // toggle visibility of typed input
+    tokenInput.type = tokenInput.type === 'password' ? 'text' : 'password';
+    toggleBtn.textContent = tokenInput.type === 'password' ? 'Show' : 'Hide';
+    return;
+  }
+  tokenInput.type = 'text';
+  tokenInput.value = saved;
+  toggleBtn.textContent = 'Hide';
+  setTimeout(()=>{ tokenInput.type = 'password'; tokenInput.value = '********'; toggleBtn.textContent = 'Show'; }, 3500);
+});
 
-  if(!j.ok){ alert('State error: '+(j.error||'unknown')); return; }
+saveBtn.addEventListener('click', () => {
+  const typed = tokenInput.value.trim();
+  const alreadySaved = tokenInput.dataset.saved === '1';
+  if(alreadySaved && typed === '********'){ showToast('Token already saved'); return; }
+  if(!typed){ showToast('Enter token first'); return; }
+  setStoredToken(typed);
+  applyTokenUI();
+  showToast('Token saved');
+});
 
-  const s=j.state||{};
-  setIfEmpty('max_loss_pct', s.max_loss_pct ?? '');
-  setIfEmpty('trail_step_profit', s.trail_step_profit ?? '');
-  setIfEmpty('cooldown_min', s.cooldown_min ?? '');
-  setIfEmpty('max_consecutive_losses', s.max_consecutive_losses ?? '');
-  setIfEmpty('allow_new_after_lock10', String(s.allow_new_after_lock10 ?? ''));
-  setIfEmpty('expiry_flag', String(s.expiry_flag ?? ''));
+clearBtn.addEventListener('click', () => {
+  setStoredToken('');
+  applyTokenUI();
+  showToast('Token cleared');
+});
 
-  setText('day', s.tripped_day?'TRIPPED':'ACTIVE');
-  setText('block', s.block_new_orders?'BLOCKED':'ALLOWED');
-  setText('losses', n2(s.consecutive_losses));
-  setText('cool', s.cooldown_until?new Date(s.cooldown_until).toLocaleTimeString():'â€”');
-
-  setMode(!!j.admin);
-
-  // First render with cached values; refresh() will override with live MTM if available
-  renderDerivedUsing(s);
-}
-
-async function saveRules(){
-  const t=readToken(); if(!t){alert('Enter admin token first');return;}
-  const body={}; copyNum('max_loss_pct',body); copyNum('trail_step_profit',body);
-  copyNum('cooldown_min',body); copyNum('max_consecutive_losses',body);
-  copyBool('allow_new_after_lock10',body); copyBool('expiry_flag',body);
-  const r=await fetch('/api/admin/rules-set',{
-    method:'POST',
-    headers:{'Content-Type':'application/json','Authorization':'Bearer '+t},
-    body:JSON.stringify(body)
+/* --------------------------
+   Admin enable/disable UI
+   -------------------------- */
+let adminEnabled = false;
+function setAdminEnabled(v){
+  adminEnabled = !!v;
+  // which buttons should be disabled when no token
+  ['enforce_btn','kill_btn','cancel_all_btn','login_zerodha'].forEach(id => {
+    const el = $(id);
+    if(!el) return;
+    el.disabled = !adminEnabled;
+    el.classList.toggle('ghost', !adminEnabled);
   });
-  const j=await r.json(); if(!j.ok){alert('Save failed: '+(j.error||'unknown'));return;} alert('Rules saved.'); refresh();
 }
-function copyNum(id,out){const el=$(id);if(!el)return;const v=el.value.trim();if(v==='')return;const n=Number(v);if(!Number.isNaN(n))out[id]=n;}
-function copyBool(id,out){const el=$(id);if(!el)return;const v=el.value.trim(); if(v==='true')out[id]=true; else if(v==='false')out[id]=false;}
+setAdminEnabled(!!getStoredToken());
 
-async function postAction(url){
-  const t=readToken(); if(!t){alert('Enter admin token first');return;}
-  const r=await fetch(url,{method:'POST',headers:{'Authorization':'Bearer '+t}});
-  const j=await r.json();
-  if(!j.ok){alert('Action failed: '+(j.error||'unknown'));return;}
-  alert(j.message || 'OK');
-  refresh();
+/* --------------------------
+   Response history UI
+   -------------------------- */
+function pushResponse(text){
+  const pre = $('raw_responses');
+  const ts = new Date().toLocaleTimeString('en-IN',{timeZone:'Asia/Kolkata', hour12:false});
+  const entry = `[${ts}] ${text}\n\n`;
+  pre.textContent = entry + pre.textContent;
+  console.log('ADMIN RESPONSE:', text);
 }
 
-refresh(); setInterval(refresh, 10000);
+/* --------------------------
+   Auth header helper
+   -------------------------- */
+function authHeaders(){
+  const t = getStoredToken();
+  if(!t) return {};
+  const hv = t.startsWith('Bearer ') ? t : 'Bearer ' + t;
+  return { 'Authorization': hv };
+}
+
+/* --------------------------
+   fetchWithFallback: try GET first, if 405 -> try POST
+   returns parsed JSON or { ok:false, error:... }
+   -------------------------- */
+async function fetchWithFallback(path, body = null, prefer = ['GET','POST']){
+  // prefer is array of methods to attempt in order; default GET then POST
+  const methods = Array.isArray(prefer) ? prefer : ['GET','POST'];
+  const headersBase = { ...authHeaders() };
+  // try methods sequentially
+  for(const method of methods){
+    try{
+      let opts = { method, headers: { ...headersBase } };
+      if(method === 'POST' || method === 'PUT' || method === 'PATCH'){
+        opts.headers['Content-Type'] = 'application/json';
+        opts.body = body ? JSON.stringify(body) : JSON.stringify({});
+      }
+      // For GET we append a cache-busting query param to avoid cached results
+      const url = method === 'GET' && body ? `${path}?_=${Date.now()}` : path;
+      const resp = await fetch(url, opts);
+      // If server returns 405 (Method Not Allowed), try next method
+      if(resp.status === 405){
+        // push a short note to responses and continue
+        pushResponse(`${path} => 405 Method Not Allowed for ${method}, trying next method`);
+        continue;
+      }
+      // parse JSON safely
+      let j;
+      try { j = await resp.json(); } catch(e) { j = { ok:false, error:'invalid_json', status: resp.status }; }
+      // attach method & status info
+      const out = { _method: method, _status: resp.status, _raw: j, ... (typeof j === 'object' ? j : { result: j }) };
+      return out;
+    } catch(err){
+      // network or fetch error - record and try next method
+      pushResponse(`${path} => fetch error (${method}): ${err.message}`);
+      continue;
+    }
+  }
+  return { ok:false, error:'all_methods_failed' };
+}
+
+/* --------------------------
+   UI actions - bind handlers
+   -------------------------- */
+
+$('refresh_state').addEventListener('click', () => { loadState(); loadFunds(); showToast('Refreshed'); });
+$('refresh_stats').addEventListener('click', () => { loadState(); loadFunds(); showToast('Refreshed'); });
+
+$('enforce_btn').addEventListener('click', async () => {
+  $('last_action_msg').textContent = 'Enforcing...';
+  const allowNew = !!$('allow_new_checkbox').checked;
+  const res = await fetchWithFallback('/api/admin/enforce', { allow_new: allowNew }, ['GET','POST']);
+  pushResponse(`/api/admin/enforce -> ${safeStringify(res)}`);
+  $('last_action_msg').textContent = res.ok ? 'Enforced' : `Enforce failed: ${res.error || res._raw?.error || res._status}`;
+  await loadState();
+});
+
+$('cancel_all_btn').addEventListener('click', async () => {
+  $('last_action_msg').textContent = 'Cancelling...';
+  const res = await fetchWithFallback('/api/admin/cancel', { cancel_all: true }, ['GET','POST']);
+  pushResponse(`/api/admin/cancel -> ${safeStringify(res)}`);
+  $('last_action_msg').textContent = res.ok ? 'Cancelled' : `Cancel failed: ${res.error || res._raw?.error || res._status}`;
+  await loadState();
+});
+
+$('kill_btn').addEventListener('click', async () => {
+  $('last_action_msg').textContent = 'Killing...';
+  const res = await fetchWithFallback('/api/admin/kill', {}, ['GET','POST']);
+  pushResponse(`/api/admin/kill -> ${safeStringify(res)}`);
+  $('last_action_msg').textContent = res.ok ? 'Killed' : `Kill failed: ${res.error || res._raw?.error || res._status}`;
+  await loadState();
+});
+
+$('login_zerodha').addEventListener('click', async () => {
+  $('last_action_msg').textContent = 'Zerodha login...';
+  const res = await fetchWithFallback('/api/kite/login', {}, ['GET','POST']);
+  pushResponse(`/api/kite/login -> ${safeStringify(res)}`);
+  $('last_action_msg').textContent = res.ok ? 'Zerodha login OK' : `Zerodha login failed: ${res.error || res._raw?.error || res._status}`;
+  await loadState();
+});
+
+/* --------------------------
+   Load state & funds
+   -------------------------- */
+async function loadState(){
+  try{
+    const r = await fetch('/api/state?_=' + Date.now());
+    const j = await r.json().catch(()=>({ ok:false }));
+    if(!j.ok){ pushResponse(`/api/state -> error`); return; }
+    $('now').textContent = j.time || nowTime();
+    $('kite_status').textContent = 'Kite: ' + (j.kite_status || '—');
+    $('guard_status').textContent = (j.admin ? 'admin' : 'read-only');
+    const s = j.state || {};
+    $('capital915').textContent = formatINR(s.capital_day_915 || 0);
+    $('live_mtm').textContent = formatINR(s.unrealised || 0);
+    $('pnl_info').textContent = `${formatINR(s.realised||0)} / ${formatINR(s.unrealised||0)} / ${formatINR((s.realised||0)+(s.unrealised||0))}`;
+    $('consec_losses').textContent = (s.consecutive_losses ?? 0);
+    $('cooldown_until').textContent = s.cooldown_until ? new Date(s.cooldown_until).toLocaleString() : '—';
+    window._state = s;
+  }catch(e){ console.error('loadState', e); pushResponse('/api/state fetch failed: '+e.message); }
+}
+
+async function loadFunds(){
+  try{
+    const r = await fetch('/api/kite/funds?_=' + Date.now());
+    const j = await r.json().catch(()=>({ ok:false }));
+    if(!j.ok){ $('live_funds').textContent = 'ERR'; pushResponse('/api/kite/funds -> error'); return; }
+    // prefer live_balance -> net -> available.cash -> funds.balance
+    const av = Number(j.funds?.available?.live_balance ?? j.funds?.net ?? j.funds?.available?.cash ?? j.balance ?? j.funds?.cash || 0);
+    $('live_funds').textContent = formatINR(av);
+  }catch(e){ console.error('loadFunds', e); $('live_funds').textContent = 'ERR'; pushResponse('/api/kite/funds fetch failed: '+e.message); }
+}
+
+/* --------------------------
+   Small formatters
+   -------------------------- */
+function formatINR(v){
+  if(v==null || isNaN(Number(v))) return '—';
+  const n = Number(v);
+  if(Math.abs(n) >= 1000) return '₹' + n.toLocaleString('en-IN', { maximumFractionDigits: 0 });
+  return '₹' + n.toFixed(2);
+}
+
+/* --------------------------
+   Initial load
+   -------------------------- */
+window.addEventListener('load', async () => {
+  applyTokenUI();
+  await loadState();
+  await loadFunds();
+  setInterval(()=> $('now').textContent = nowTime(), 1000);
+});
+
+/* debug helper: expose for console debugging */
+window.guardianAdmin = {
+  fetchWithFallback, getStoredToken, setStoredToken, loadState, loadFunds, pushResponse
+};
+
 </script>
 </body>
 </html>
