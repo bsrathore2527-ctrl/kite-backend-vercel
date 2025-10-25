@@ -1,62 +1,88 @@
 // api/admin/set-capital.js
-import { getState, setState, todayKey } from "../_lib/kv.js"; // adjust path if needed
+import { setState } from "../_lib/kv.js";
+
+/**
+ * Safe JSON body parser that works on Vercel Node serverless
+ * (it reads the raw request body and JSON.parse's it).
+ */
+async function parseJsonBody(req) {
+  return new Promise((resolve, reject) => {
+    let body = "";
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", () => {
+      if (!body) return resolve(null);
+      try {
+        const parsed = JSON.parse(body);
+        resolve(parsed);
+      } catch (e) {
+        reject(new Error("invalid json"));
+      }
+    });
+    req.on("error", (err) => reject(err));
+  });
+}
 
 function isAdmin(req) {
   const a = req.headers.authorization || "";
-  const token = a.startsWith("Bearer ") ? a.slice(7) : a;
+  const token = a.startsWith("Bearer ") ? a.slice(7).trim() : "";
   return !!process.env.ADMIN_TOKEN && token === process.env.ADMIN_TOKEN;
 }
 
 export default async function handler(req, res) {
   try {
-    // Only allow POST for setting capital
     if (req.method !== "POST") {
-      return res.status(405).json({ ok: false, error: "method not allowed" });
+      res.statusCode = 405;
+      res.setHeader("Content-Type", "application/json");
+      return res.end(JSON.stringify({ ok: false, error: "Method not allowed" }));
     }
 
     if (!isAdmin(req)) {
-      return res.status(401).json({ ok: false, error: "unauthorized" });
+      res.statusCode = 401;
+      res.setHeader("Content-Type", "application/json");
+      return res.end(JSON.stringify({ ok: false, error: "Unauthorized" }));
     }
 
-    // Parse JSON body safely
+    // parse JSON body (robust across runtimes)
     let body;
     try {
-      body = await req.json();
+      body = await parseJsonBody(req);
     } catch (e) {
-      return res.status(400).json({ ok: false, error: "invalid json", message: e.message });
+      res.statusCode = 400;
+      res.setHeader("Content-Type", "application/json");
+      return res.end(JSON.stringify({ ok: false, error: "invalid json", message: e.message }));
     }
 
-    const capitalRaw = body && (body.capital ?? body.amount ?? body.value);
-    if (capitalRaw === undefined || capitalRaw === null) {
-      return res.status(400).json({ ok: false, error: "missing capital" });
+    if (!body || typeof body.capital === "undefined" || body.capital === null) {
+      res.statusCode = 400;
+      res.setHeader("Content-Type", "application/json");
+      return res.end(JSON.stringify({ ok: false, error: "missing capital" }));
     }
 
-    const capital = Number(capitalRaw);
+    // normalise value
+    let capital = Number(body.capital);
     if (!Number.isFinite(capital) || capital < 0) {
-      return res.status(400).json({ ok: false, error: "invalid capital" });
+      res.statusCode = 400;
+      res.setHeader("Content-Type", "application/json");
+      return res.end(JSON.stringify({ ok: false, error: "invalid capital value" }));
     }
 
-    // load state, update and save
-    const s = await getState();
-    const newState = {
-      ...s,
+    // round to integer rupees
+    capital = Math.round(capital);
+
+    // persist using your kv.setState() helper
+    const next = await setState({
       capital_day_915: capital,
       admin_override_capital: true,
-      admin_override_capital_at: Date.now()
-    };
+      admin_override_at: Date.now(),
+      admin_override_by: process.env.ADMIN_TOKEN ? "admin" : null // avoid leaking token; just a marker
+    });
 
-    // setState must be available in your kv.js; if your API uses a different function name adapt here.
-    if (typeof setState !== "function") {
-      // If setState doesn't exist, try writing back to your KV method name (adjust if needed)
-      return res.status(500).json({ ok: false, error: "server misconfigured: setState not available" });
-    }
-
-    await setState(newState);
-
-    res.setHeader("Cache-Control", "no-store");
-    return res.json({ ok: true, capital: newState.capital_day_915 });
-  } catch (e) {
-    console.error("set-capital error:", e);
-    return res.status(500).json({ ok: false, error: e.message || String(e) });
+    res.setHeader("Content-Type", "application/json");
+    return res.end(JSON.stringify({ ok: true, capital: capital, new_state: next }));
+  } catch (err) {
+    console.error("set-capital error:", err && err.stack ? err.stack : err);
+    res.statusCode = 500;
+    res.setHeader("Content-Type", "application/json");
+    return res.end(JSON.stringify({ ok: false, error: err.message || String(err) }));
   }
 }
