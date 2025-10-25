@@ -1,37 +1,71 @@
 // api/admin/set-capital.js
-import { kv, todayKey } from "../_lib/kv.js";
+// Store an admin override for capital_day_915 in KV so api/state.js will pick it up.
+// Expects POST { capital: number } and Authorization: Bearer <ADMIN_TOKEN> header.
 
-function send(res, code, body = {}) {
-  return res.status(code).setHeader("Cache-Control", "no-store").json(body);
+import { todayKey, kv } from "../_lib/kv.js"; // adjust path if needed
+import { json } from 'micro'; // optional - if not using micro you can parse req body yourself
+
+function isAdmin(req) {
+  const a = req.headers.authorization || "";
+  const token = a.startsWith("Bearer ") ? a.slice(7) : "";
+  return !!process.env.ADMIN_TOKEN && token === process.env.ADMIN_TOKEN;
 }
 
 export default async function handler(req, res) {
   try {
-    if (req.method !== "POST") return send(res, 405, { ok: false, error: "Method not allowed" });
-
-    // simple admin token check (your other admin endpoints use Authorization header)
-    const auth = (req.headers.authorization || "").replace(/^Bearer\s+/i, "");
-    const expected = process.env.ADMIN_TOKEN || ""; // if you enforce server-side token
-    if (expected && auth !== expected) {
-      // if you store token locally only, you may allow this without server check
-      return send(res, 401, { ok: false, error: "Unauthorized" });
+    if (req.method !== "POST") {
+      res.setHeader("Allow", "POST");
+      return res.status(405).json({ ok: false, error: "Method not allowed" });
     }
 
-    const body = (req.body && typeof req.body === "object") ? req.body : JSON.parse(req.body || "{}");
-    const val = Number(body.capital);
-    if (!Number.isFinite(val) || val < 0) {
-      return send(res, 400, { ok: false, error: "Invalid capital value" });
+    if (!isAdmin(req)) {
+      return res.status(401).json({ ok: false, error: "Unauthorized" });
+    }
+
+    // parse body (compatible with Vercel / Node fetch)
+    let body = {};
+    try {
+      body = await (async () => {
+        if (req.headers["content-type"] && req.headers["content-type"].includes("application/json")) {
+          return await new Promise((resolve, reject) => {
+            let data = "";
+            req.on && req.on("data", chunk => data += chunk);
+            req.on && req.on("end", () => {
+              try { resolve(JSON.parse(data || "{}")); } catch(e) { reject(e); }
+            });
+            // in some serverless runtimes req may already be consumed - fallback:
+            if (!req.on) resolve({});
+          });
+        }
+        return {};
+      })();
+    } catch (e) {
+      // try fallback: maybe server framework already parsed body as req.body
+      body = req.body || {};
+    }
+
+    const rawCapital = body.capital;
+    if (rawCapital === undefined || rawCapital === null) {
+      return res.status(400).json({ ok: false, error: "Missing 'capital' in request body" });
+    }
+    const capital = Number(rawCapital);
+    if (!Number.isFinite(capital) || capital < 0) {
+      return res.status(400).json({ ok: false, error: "Invalid 'capital' value" });
     }
 
     const key = `risk:${todayKey()}`;
-    const state = (await kv.get(key)) || {};
-    state.capital_day_915 = val;
-    state.admin_override_capital = true;
-    state.admin_override_at = Date.now();
-    await kv.set(key, state);
+    const payload = {
+      admin_override_capital: true,
+      capital_day_915: capital,
+      set_at: Date.now()
+    };
 
-    return send(res, 200, { ok: true, capital_day_915: val });
+    // write to KV (replace previous override for today)
+    await kv.set(key, payload);
+
+    return res.status(200).json({ ok: true, capital_day_915: capital, key });
   } catch (err) {
-    return send(res, 500, { ok: false, error: err.message || String(err) });
+    console.error("set-capital error:", err);
+    return res.status(500).json({ ok: false, error: err.message || String(err) });
   }
 }
