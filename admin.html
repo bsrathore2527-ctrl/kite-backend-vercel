@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Guardian • Admin / Trader</title>
+<title>Guardian â€¢ Admin / Trader</title>
 <meta name="color-scheme" content="dark light" />
 <style>
   :root{
@@ -81,10 +81,10 @@
 <body>
 <div class="wrap">
   <div class="header">
-    <div class="title">🛡 Guardian</div>
-    <span id="kite-badge" class="badge"><span class="dot" style="background:#555"></span> Zerodha: —</span>
-    <span id="engine-badge" class="badge"><span class="dot" style="background:#555"></span> Guardian: —</span>
-    <div class="muted tiny" id="now" style="margin-left:auto">—</div>
+    <div class="title">ðŸ›¡ Guardian</div>
+    <span id="kite-badge" class="badge"><span class="dot" style="background:#555"></span> Zerodha: â€”</span>
+    <span id="engine-badge" class="badge"><span class="dot" style="background:#555"></span> Guardian: â€”</span>
+    <div class="muted tiny" id="now" style="margin-left:auto">â€”</div>
   </div>
 
   <div class="banner">
@@ -98,19 +98,19 @@
 
   <section class="card" style="padding-top:10px;padding-bottom:10px">
     <div class="kpis">
-      <div class="kpi"><div class="hd">Capital @ 09:15</div><div class="vl" id="k_cap">—</div><div class="sub">Auto from Zerodha</div></div>
-      <div class="kpi"><div class="hd">Current Balance (live/fallback)</div><div class="vl" id="k_live_balance">—</div><div class="sub">Uses cached if offline</div></div>
-      <div class="kpi"><div class="hd">Live MTM</div><div class="vl" id="k_live_mtm">—</div><div class="sub">Sum of position PnL</div></div>
+      <div class="kpi"><div class="hd">Capital @ 09:15</div><div class="vl" id="k_cap">â€”</div><div class="sub">Auto from Zerodha</div></div>
+      <div class="kpi"><div class="hd">Current Balance (live/fallback)</div><div class="vl" id="k_live_balance">â€”</div><div class="sub">Uses cached if offline</div></div>
+      <div class="kpi"><div class="hd">Live MTM</div><div class="vl" id="k_live_mtm">â€”</div><div class="sub">Sum of position PnL</div></div>
 
-      <div class="kpi"><div class="hd">PnL (R/UR/Total)</div><div class="vl" id="k_pnl">—</div><div class="sub" id="k_pnl_sub">—</div></div>
-      <div class="kpi"><div class="hd">Max Loss (₹)</div><div class="vl" id="k_maxloss_amt">—</div><div class="sub" id="k_maxloss_pct">—</div></div>
-      <div class="kpi"><div class="hd">Active Loss Floor (₹)</div><div class="vl" id="k_active_floor">—</div><div class="sub" id="k_next_trail">—</div></div>
+      <div class="kpi"><div class="hd">PnL (R/UR/Total)</div><div class="vl" id="k_pnl">â€”</div><div class="sub" id="k_pnl_sub">â€”</div></div>
+      <div class="kpi"><div class="hd">Max Loss (â‚¹)</div><div class="vl" id="k_maxloss_amt">â€”</div><div class="sub" id="k_maxloss_pct">â€”</div></div>
+      <div class="kpi"><div class="hd">Active Loss Floor (â‚¹)</div><div class="vl" id="k_active_floor">â€”</div><div class="sub" id="k_next_trail">â€”</div></div>
 
-      <div class="kpi"><div class="hd">Remaining to Max Loss</div><div class="vl" id="k_remaining">—</div><div class="sub" id="k_remaining_note">—</div></div>
-      <div class="kpi"><div class="hd">10% Profit Lock</div><div class="vl" id="k_lock10_amt">—</div><div class="sub" id="k_lock10_state">—</div></div>
-      <div class="kpi"><div class="hd">20% Profit Lock</div><div class="vl" id="k_lock20_amt">—</div><div class="sub" id="k_lock20_state">—</div></div>
+      <div class="kpi"><div class="hd">Remaining to Max Loss</div><div class="vl" id="k_remaining">â€”</div><div class="sub" id="k_remaining_note">â€”</div></div>
+      <div class="kpi"><div class="hd">10% Profit Lock</div><div class="vl" id="k_lock10_amt">â€”</div><div class="sub" id="k_lock10_state">â€”</div></div>
+      <div class="kpi"><div class="hd">20% Profit Lock</div><div class="vl" id="k_lock20_amt">â€”</div><div class="sub" id="k_lock20_state">â€”</div></div>
 
-      <div class="kpi"><div class="hd">Trailing Step (₹)</div><div class="vl" id="k_trail_step">—</div><div class="sub">Loss floor trails by step</div></div>
+      <div class="kpi"><div class="hd">Trailing Step (â‚¹)</div><div class="vl" id="k_trail_step">â€”</div><div class="sub">Loss floor trails by step</div></div>
     </div>
   </section>
 
@@ -118,21 +118,21 @@
     <section class="card span-6">
       <h3>Live State</h3>
       <div class="row">
-        <div><label>Capital</label><div id="cap" class="pill">—</div></div>
-        <div><label>PnL</label><div id="pnl" class="pill">—</div></div>
+        <div><label>Capital</label><div id="cap" class="pill">â€”</div></div>
+        <div><label>PnL</label><div id="pnl" class="pill">â€”</div></div>
       </div>
       <div class="row" style="margin-top:10px">
-        <div><label>Day Status</label><div id="day" class="pill">—</div></div>
-        <div><label>New Orders</label><div id="block" class="pill">—</div></div>
+        <div><label>Day Status</label><div id="day" class="pill">â€”</div></div>
+        <div><label>New Orders</label><div id="block" class="pill">â€”</div></div>
       </div>
       <div class="row" style="margin-top:10px">
-        <div><label>Consecutive Losses</label><div id="losses" class="pill">—</div></div>
-        <div><label>Cooldown Until</label><div id="cool" class="pill">—</div></div>
+        <div><label>Consecutive Losses</label><div id="losses" class="pill">â€”</div></div>
+        <div><label>Cooldown Until</label><div id="cool" class="pill">â€”</div></div>
       </div>
 
       <div class="row" style="margin-top:10px">
-        <div><label>Broker Balance (live/fallback)</label><div id="live_funds" class="pill">—</div></div>
-        <div><label>Live Positions MTM</label><div id="live_mtm" class="pill">—</div></div>
+        <div><label>Broker Balance (live/fallback)</label><div id="live_funds" class="pill">â€”</div></div>
+        <div><label>Live Positions MTM</label><div id="live_mtm" class="pill">â€”</div></div>
       </div>
     </section>
 
@@ -140,7 +140,7 @@
       <h3>Daily Rules</h3>
       <div class="row">
         <div><label>Max Loss %</label><input id="max_loss_pct" type="number" step="0.1" placeholder="10"></div>
-        <div><label>Trailing Step (₹)</label><input id="trail_step_profit" type="number" step="100" placeholder="5000"></div>
+        <div><label>Trailing Step (â‚¹)</label><input id="trail_step_profit" type="number" step="100" placeholder="5000"></div>
       </div>
       <div class="row" style="margin-top:10px">
         <div><label>Cooldown (min)</label><input id="cooldown_min" type="number" step="1" placeholder="15"></div>
@@ -168,7 +168,7 @@
     </section>
   </div>
 
-  <div class="footer">Guardian UI • v3.4 • Auto capital, cached balance fallback, live MTM merges</div>
+  <div class="footer">Guardian UI â€¢ v3.4 â€¢ Auto capital, cached balance fallback, live MTM merges</div>
 </div>
 
 <script>
@@ -186,7 +186,7 @@ function saveToken(){ const v=$('token').value.trim(); if(!v){alert('Enter token
 function clearToken(){ localStorage.removeItem('ADMIN_TOKEN'); refresh(); }
 
 function n2(v){ return Number(v||0); }
-function inr(n){ try{ return new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:0}).format(n);}catch{ return '₹'+Math.round(n);} }
+function inr(n){ try{ return new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:0}).format(n);}catch{ return 'â‚¹'+Math.round(n);} }
 function fmtR(n){ return inr(n); }
 function setIfEmpty(id,val){ const el=$(id); if(el && el.value==='') el.value=String(val); }
 
@@ -209,10 +209,10 @@ function renderDerivedUsing(state, overrides = {}) {
   setText('k_maxloss_amt', fmtR(-baseFloor));
   setText('k_maxloss_pct', `Max Loss %: ${(+maxPct).toFixed(2)}%`);
   setText('k_active_floor', fmtR(activeFloor));
-  setText('k_next_trail', `Next trail at realised ≥ ${fmtR(nextTrail)} (step ₹${step})`);
+  setText('k_next_trail', `Next trail at realised â‰¥ ${fmtR(nextTrail)} (step â‚¹${step})`);
   setText('k_remaining', fmtR(Math.max(0, remaining)));
   setText('k_remaining_note', remaining <= 0 ? 'Floor breached' : 'Room left before floor');
-  setText('k_trail_step', '₹' + (step || 0));
+  setText('k_trail_step', 'â‚¹' + (step || 0));
   setText('k_lock10_amt', fmtR(l10));
   setText('k_lock20_amt', fmtR(l20));
 
@@ -249,15 +249,15 @@ async function refresh(){
           const txt = inr(av);
           setText('live_funds', txt); setText('k_live_balance', txt);
         } else {
-          const cached = (j.state && j.state.current_balance) ? inr(j.state.current_balance) : '—';
+          const cached = (j.state && j.state.current_balance) ? inr(j.state.current_balance) : 'â€”';
           setText('live_funds', cached); setText('k_live_balance', cached);
         }
       } else {
-        const cached = (j.state && j.state.current_balance) ? inr(j.state.current_balance) : '—';
+        const cached = (j.state && j.state.current_balance) ? inr(j.state.current_balance) : 'â€”';
         setText('live_funds', cached); setText('k_live_balance', cached);
       }
     } catch {
-      const cached = (j.state && j.state.current_balance) ? inr(j.state.current_balance) : '—';
+      const cached = (j.state && j.state.current_balance) ? inr(j.state.current_balance) : 'â€”';
       setText('live_funds', cached); setText('k_live_balance', cached);
     }
 
@@ -271,11 +271,11 @@ async function refresh(){
         const txt = inr(mtm);
         setText('live_mtm', txt); setText('k_live_mtm', txt);
       } else {
-        const cachedU = (j.state && typeof j.state.unrealised === 'number') ? inr(j.state.unrealised) : '—';
+        const cachedU = (j.state && typeof j.state.unrealised === 'number') ? inr(j.state.unrealised) : 'â€”';
         setText('live_mtm', cachedU); setText('k_live_mtm', cachedU);
       }
     } catch {
-      const cachedU = (j.state && typeof j.state.unrealised === 'number') ? inr(j.state.unrealised) : '—';
+      const cachedU = (j.state && typeof j.state.unrealised === 'number') ? inr(j.state.unrealised) : 'â€”';
       setText('live_mtm', cachedU); setText('k_live_mtm', cachedU);
     }
 
@@ -290,7 +290,7 @@ async function refresh(){
 }
 
 function paint(j){
-  setText('now','Time: '+(j.time||'—'));
+  setText('now','Time: '+(j.time||'â€”'));
   const kb=$('kite-badge'), eb=$('engine-badge'); kb.className='badge'; eb.className='badge';
   if(j.kite_status==='ok'){ kb.innerHTML='<span class="dot" style="background:#22c55e"></span> Zerodha: Connected'; kb.classList.add('b-ok'); }
   else if(j.kite_status==='invalid'){ kb.innerHTML='<span class="dot" style="background:#ef4444"></span> Zerodha: Token invalid'; kb.classList.add('b-bad'); }
@@ -311,7 +311,7 @@ function paint(j){
   setText('day', s.tripped_day?'TRIPPED':'ACTIVE');
   setText('block', s.block_new_orders?'BLOCKED':'ALLOWED');
   setText('losses', n2(s.consecutive_losses));
-  setText('cool', s.cooldown_until?new Date(s.cooldown_until).toLocaleTimeString():'—');
+  setText('cool', s.cooldown_until?new Date(s.cooldown_until).toLocaleTimeString():'â€”');
 
   setMode(!!j.admin);
 
