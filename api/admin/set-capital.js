@@ -1,71 +1,62 @@
 // api/admin/set-capital.js
-// Store an admin override for capital_day_915 in KV so api/state.js will pick it up.
-// Expects POST { capital: number } and Authorization: Bearer <ADMIN_TOKEN> header.
-
-import { todayKey, kv } from "../_lib/kv.js"; // adjust path if needed
-import { json } from 'micro'; // optional - if not using micro you can parse req body yourself
+import { getState, setState, todayKey } from "../_lib/kv.js"; // adjust path if needed
 
 function isAdmin(req) {
   const a = req.headers.authorization || "";
-  const token = a.startsWith("Bearer ") ? a.slice(7) : "";
+  const token = a.startsWith("Bearer ") ? a.slice(7) : a;
   return !!process.env.ADMIN_TOKEN && token === process.env.ADMIN_TOKEN;
 }
 
 export default async function handler(req, res) {
   try {
+    // Only allow POST for setting capital
     if (req.method !== "POST") {
-      res.setHeader("Allow", "POST");
-      return res.status(405).json({ ok: false, error: "Method not allowed" });
+      return res.status(405).json({ ok: false, error: "method not allowed" });
     }
 
     if (!isAdmin(req)) {
-      return res.status(401).json({ ok: false, error: "Unauthorized" });
+      return res.status(401).json({ ok: false, error: "unauthorized" });
     }
 
-    // parse body (compatible with Vercel / Node fetch)
-    let body = {};
+    // Parse JSON body safely
+    let body;
     try {
-      body = await (async () => {
-        if (req.headers["content-type"] && req.headers["content-type"].includes("application/json")) {
-          return await new Promise((resolve, reject) => {
-            let data = "";
-            req.on && req.on("data", chunk => data += chunk);
-            req.on && req.on("end", () => {
-              try { resolve(JSON.parse(data || "{}")); } catch(e) { reject(e); }
-            });
-            // in some serverless runtimes req may already be consumed - fallback:
-            if (!req.on) resolve({});
-          });
-        }
-        return {};
-      })();
+      body = await req.json();
     } catch (e) {
-      // try fallback: maybe server framework already parsed body as req.body
-      body = req.body || {};
+      return res.status(400).json({ ok: false, error: "invalid json", message: e.message });
     }
 
-    const rawCapital = body.capital;
-    if (rawCapital === undefined || rawCapital === null) {
-      return res.status(400).json({ ok: false, error: "Missing 'capital' in request body" });
+    const capitalRaw = body && (body.capital ?? body.amount ?? body.value);
+    if (capitalRaw === undefined || capitalRaw === null) {
+      return res.status(400).json({ ok: false, error: "missing capital" });
     }
-    const capital = Number(rawCapital);
+
+    const capital = Number(capitalRaw);
     if (!Number.isFinite(capital) || capital < 0) {
-      return res.status(400).json({ ok: false, error: "Invalid 'capital' value" });
+      return res.status(400).json({ ok: false, error: "invalid capital" });
     }
 
-    const key = `risk:${todayKey()}`;
-    const payload = {
-      admin_override_capital: true,
+    // load state, update and save
+    const s = await getState();
+    const newState = {
+      ...s,
       capital_day_915: capital,
-      set_at: Date.now()
+      admin_override_capital: true,
+      admin_override_capital_at: Date.now()
     };
 
-    // write to KV (replace previous override for today)
-    await kv.set(key, payload);
+    // setState must be available in your kv.js; if your API uses a different function name adapt here.
+    if (typeof setState !== "function") {
+      // If setState doesn't exist, try writing back to your KV method name (adjust if needed)
+      return res.status(500).json({ ok: false, error: "server misconfigured: setState not available" });
+    }
 
-    return res.status(200).json({ ok: true, capital_day_915: capital, key });
-  } catch (err) {
-    console.error("set-capital error:", err);
-    return res.status(500).json({ ok: false, error: err.message || String(err) });
+    await setState(newState);
+
+    res.setHeader("Cache-Control", "no-store");
+    return res.json({ ok: true, capital: newState.capital_day_915 });
+  } catch (e) {
+    console.error("set-capital error:", e);
+    return res.status(500).json({ ok: false, error: e.message || String(e) });
   }
 }
