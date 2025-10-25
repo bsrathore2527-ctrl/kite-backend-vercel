@@ -1,28 +1,37 @@
-// api/admin/set_capital.js
+// api/admin/set-capital.js
 import { kv, todayKey } from "../_lib/kv.js";
-import { checkAdmin } from "../_lib/admin-utils.js";
 
 function send(res, code, body = {}) {
-  res.status(code).setHeader("Cache-Control", "no-store").json(body);
+  return res.status(code).setHeader("Cache-Control", "no-store").json(body);
 }
-const ok = (res, body = {}) => send(res, 200, { ok: true, ...body });
-const bad = (res, msg = "Bad request") => send(res, 400, { ok: false, error: msg });
 
 export default async function handler(req, res) {
   try {
-    if (!checkAdmin(req, process.env.ADMIN_TOKEN)) return send(res, 401, { ok: false, error: "unauthorized" });
     if (req.method !== "POST") return send(res, 405, { ok: false, error: "Method not allowed" });
 
-    const { capital } = req.body || {};
-    if (capital === undefined || Number.isNaN(Number(capital))) return bad(res, "invalid capital");
+    // simple admin token check (your other admin endpoints use Authorization header)
+    const auth = (req.headers.authorization || "").replace(/^Bearer\s+/i, "");
+    const expected = process.env.ADMIN_TOKEN || ""; // if you enforce server-side token
+    if (expected && auth !== expected) {
+      // if you store token locally only, you may allow this without server check
+      return send(res, 401, { ok: false, error: "Unauthorized" });
+    }
+
+    const body = (req.body && typeof req.body === "object") ? req.body : JSON.parse(req.body || "{}");
+    const val = Number(body.capital);
+    if (!Number.isFinite(val) || val < 0) {
+      return send(res, 400, { ok: false, error: "Invalid capital value" });
+    }
 
     const key = `risk:${todayKey()}`;
-    const cur = (await kv.get(key)) || {};
-    const next = { ...cur, capital_day_915: Number(capital) };
-    await kv.set(key, next);
+    const state = (await kv.get(key)) || {};
+    state.capital_day_915 = val;
+    state.admin_override_capital = true;
+    state.admin_override_at = Date.now();
+    await kv.set(key, state);
 
-    return ok(res, { capital_day_915: next.capital_day_915 });
-  } catch (e) {
-    return send(res, 500, { ok: false, error: e.message || String(e) });
+    return send(res, 200, { ok: true, capital_day_915: val });
+  } catch (err) {
+    return send(res, 500, { ok: false, error: err.message || String(err) });
   }
 }
