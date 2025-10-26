@@ -34,6 +34,9 @@
   .pager{display:flex;gap:8px;justify-content:center;margin-top:8px}
   pre.log{white-space:pre-wrap;background:rgba(0,0,0,0.12);padding:10px;border-radius:8px;max-height:320px;overflow:auto;color:#ffdede}
   .filters{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px}
+  .status-pill {display:inline-block;padding:6px 10px;border-radius:999px;font-weight:700}
+  .status-active {background:linear-gradient(90deg,#08321a,#07301b); color:#8ff0b2}
+  .status-tripped {background:linear-gradient(90deg,#3a0610,#2b0510); color:#ffb3b3}
   @media(max-width:720px){ .grid-2{grid-template-columns:1fr} header{flex-wrap:wrap} .status{margin-left:0} }
   .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:18px;background:rgba(0,0,0,0.7);padding:10px 14px;border-radius:8px;color:white;display:none}
 </style>
@@ -49,6 +52,7 @@
     <div class="status">
       <div id="kite_status" class="badge">Kite: —</div>
       <div id="guardian_status" class="badge">Guardian: —</div>
+      <div id="day_status" class="badge status-pill">—</div>
       <div id="now" class="badge">--:--:--</div>
     </div>
   </header>
@@ -150,6 +154,12 @@
         </div>
 
         <div class="card" style="background:transparent;border:0;padding:8px">
+          <div class="muted">Max Profit Lock (₹)</div>
+          <div id="p10" class="value">—</div>
+          <div id="p10_hint" class="small">Profit lock status</div>
+        </div>
+
+        <div class="card" style="background:transparent;border:0;padding:8px">
           <div class="muted">Active Loss Floor (₹)</div>
           <div id="active_floor" class="value">—</div>
           <div class="small" id="floor_hint"></div>
@@ -160,12 +170,14 @@
           <div id="remaining_loss" class="value">—</div>
           <div class="small">Room before floor trip</div>
         </div>
+
       </div>
     </section>
 
     <!-- page 3: Rules -->
     <section class="page card" id="page_rules">
       <h3 style="margin:0">Rules (admin editable)</h3>
+
       <div class="grid-2" style="margin-top:12px">
         <div>
           <div class="muted">Max Loss %</div>
@@ -183,8 +195,24 @@
           <div class="muted">Max consecutive losses</div>
           <input id="rule_max_consec" type="text" placeholder="3" />
         </div>
+
+        <div>
+          <div class="muted">Max Profit Lock (₹)</div>
+          <input id="rule_p10_amount" type="text" placeholder="e.g. 10000" />
+        </div>
+
+        <div>
+          <div class="muted">Day status (read-only)</div>
+          <div id="rule_day_status" class="muted">—</div>
+        </div>
       </div>
-      <div class="small muted" style="margin-top:8px">Only editable when admin token is saved.</div>
+
+      <div style="margin-top:12px" class="row">
+        <button id="save_rules_btn" class="btn primary">Save Rules</button>
+        <div id="save_rules_msg" class="small" style="margin-left:8px"></div>
+      </div>
+
+      <div class="small muted" style="margin-top:8px">Only editable when admin token is saved. Saving posts to <code>/api/admin/set-config</code>.</div>
     </section>
 
     <!-- page 4: Logs & actions -->
@@ -225,25 +253,23 @@
 
 <script>
 /* =========================
-   Admin UI script — full
+   Admin UI script — extended
    ========================= */
+
 const ENDPOINTS = {
   state: '/api/state',
   kite_funds: '/api/kite/funds',
   kite_login: '/api/kite/login',
   set_config: '/api/admin/set-config',
-  kite_trades: '/api/kite/trades', // recommended server endpoint
-  set_capital_candidates: ['/api/admin/set-capital','/api/admin/set_capital','/api/admin/setcapital','/api/admin/set-captial'],
-  enforce_candidates: ['/api/enforce','/api/admin/enforce','/api/admin/enforce-trades'],
-  cancel_candidates: ['/api/admin/cancel','/api/admin/cancel_all','/api/admin/cancel-all','/api/admin/cancel'],
-  kill_candidates: ['/api/admin/kill','/api/admin/close','/api/admin/kill']
+  kite_trades: '/api/kite/trades',
+  set_capital_candidates: ['/api/admin/set-capital','/api/admin/set_capital','/api/admin/setcapital','/api/admin/set-captial']
 };
 
 const $ = id => document.getElementById(id);
 function toast(msg, t=3000){ const el=$('toast'); el.textContent=msg; el.style.display='block'; clearTimeout(el._t); el._t=setTimeout(()=>el.style.display='none',t); }
 function now(){ return new Date().toLocaleTimeString('en-IN',{timeZone:'Asia/Kolkata',hour12:false}); }
 function fmtINR(v){ if(v==null||isNaN(Number(v))) return '—'; return '₹'+Number(v).toLocaleString('en-IN',{maximumFractionDigits:0}); }
-function log(s){ const pre = $('raw_responses'); pre.textContent = `[${new Date().toLocaleTimeString()}] ${s}\n\n` + pre.textContent; }
+function logLine(s){ const pre = $('raw_responses'); pre.textContent = `[${new Date().toLocaleTimeString()}] ${s}\n\n` + pre.textContent; }
 
 /* pager */
 const pages = document.querySelectorAll('.page');
@@ -276,7 +302,8 @@ function init(){
   $('set_capital_btn').addEventListener('click', setCapital);
   $('clear_capital_btn').addEventListener('click', ()=>{ $('capital_input').value=''; $('set_capital_msg').textContent=''; });
 
-  $('save_cfg_btn').addEventListener('click', saveConfig);
+  $('save_cfg_btn') && $('save_cfg_btn').addEventListener('click', saveConfig);
+  $('save_rules_btn').addEventListener('click', saveRules);
 
   // logs filters
   $('filter_errors').addEventListener('click', showOnlyErrors);
@@ -291,39 +318,30 @@ function init(){
   setInterval(()=> $('now').textContent = now(), 1000);
 }
 
-/* token UI */
-function applyTokenUI(){
-  const t = localStorage.getItem('ADMIN_TOKEN');
-  if(t){ $('admin_token').value='*******'; $('admin_token').dataset.saved='1'; } else { $('admin_token').value=''; $('admin_token').dataset.saved='0'; }
-}
-function saveToken(){
-  const val = $('admin_token').value.trim();
-  if($('admin_token').dataset.saved==='1' && val==='*******'){ toast('Token already saved (masked)'); return; }
-  if(!val){ toast('Enter token'); return; }
-  localStorage.setItem('ADMIN_TOKEN', val); $('admin_token').value='*******'; $('admin_token').dataset.saved='1'; enableAdmin(true); toast('Token saved (local)');
-}
+/* token functions */
+function applyTokenUI(){ const t = localStorage.getItem('ADMIN_TOKEN'); if(t){ $('admin_token').value='*******'; $('admin_token').dataset.saved='1'; } else { $('admin_token').value=''; $('admin_token').dataset.saved='0'; } }
+function saveToken(){ const val = $('admin_token').value.trim(); if($('admin_token').dataset.saved==='1' && val==='*******'){ toast('Token already saved'); return; } if(!val){ toast('Enter token'); return; } localStorage.setItem('ADMIN_TOKEN', val); $('admin_token').value='*******'; $('admin_token').dataset.saved='1'; enableAdmin(true); toast('Token saved (local)'); }
 function clearToken(){ localStorage.removeItem('ADMIN_TOKEN'); $('admin_token').value=''; $('admin_token').dataset.saved='0'; enableAdmin(false); toast('Admin token cleared'); }
 function toggleToken(){ const saved = localStorage.getItem('ADMIN_TOKEN'); if(saved){ $('admin_token').type='text'; $('admin_token').value=saved; setTimeout(()=>{ $('admin_token').type='password'; $('admin_token').value='*******'; }, 3500); } else { $('admin_token').type = $('admin_token').type==='password' ? 'text' : 'password'; } }
-function enableAdmin(v){ const el = $('admin_actions'); if(!el) return; el.style.display = v ? 'block' : 'none'; const arr = ['enforce_btn','kill_btn','cancel_btn','set_capital_btn','save_cfg_btn','filter_trades']; arr.forEach(id=>{ const b=$(id); if(b) b.disabled = !v; }); }
+function enableAdmin(v){ const el = $('admin_actions'); if(!el) return; el.style.display = v ? 'block' : 'none'; const arr = ['enforce_btn','kill_btn','cancel_btn','set_capital_btn','save_cfg_btn','filter_trades','save_rules_btn']; arr.forEach(id=>{ const b=$(id); if(b) b.disabled = !v; }); }
 
-/* helpers to try multiple candidates */
-async function tryList(list, opts={method:'POST', body:{} }) {
+/* helpers to try endpoints */
+async function tryEndpoints(list, options={method:'POST', body:{}}){
   for(const p of list){
     try{
-      const headers = { ...(opts.headers||{}), ...authHeader() };
-      let init = { method: opts.method, headers };
-      if(opts.body !== undefined){
+      const headers = { ...(options.headers||{}), ...authHeader() };
+      let init = { method: options.method, headers };
+      if(options.body !== undefined){
         headers['Content-Type'] = headers['Content-Type'] || 'application/json';
-        init.body = typeof opts.body === 'string' ? opts.body : JSON.stringify(opts.body);
+        init.body = typeof options.body === 'string' ? options.body : JSON.stringify(options.body);
       }
       const r = await fetch(p, init);
       const txt = await r.text().catch(()=>null);
-      let json=null; try{ json = txt ? JSON.parse(txt) : null }catch(e){ json={ok:false,raw:txt}; }
-      log(`${opts.method} ${p} => ${txt||r.status}`);
-      if(r.status !== 404) return { path:p, status:r.status, json, txt, ok:r.ok };
-    }catch(e){ log(`fetch ${p} failed: ${e.message}`); }
+      try{ logLine(`${options.method} ${p} => ${txt || r.status}`); }catch(e){}
+      if(r.status !== 404) return { path:p, status:r.status, text: txt, ok:r.ok, json: (()=>{ try{ return txt ? JSON.parse(txt) : null }catch(e){ return null } })() };
+    }catch(e){ logLine(`fetch ${p} failed: ${e.message}`); }
   }
-  return { ok:false, error:'no candidate succeeded' };
+  return { ok:false, error:'no candidate' };
 }
 
 /* login flow */
@@ -335,27 +353,26 @@ async function loginKite(){
       r = await fetch(ENDPOINTS.kite_login, { method:'POST', headers: {'Content-Type':'application/json', ...authHeader() }, body: JSON.stringify({}) });
     }
     const txt = await r.text().catch(()=>null);
-    let json=null; try{ json = txt ? JSON.parse(txt) : null } catch(e){ json={ok:false,raw:txt} }
-    log(`login => ${txt||r.status}`);
-    if(json && json.ok && json.url) { window.open(json.url, '_blank'); toast('Opened kite login'); }
-    else toast('Login result: ' + (json && (json.error||json.message) ? JSON.stringify(json) : 'see logs'));
+    logLine(`login => ${txt || r.status}`);
+    let json=null; try{ json = txt ? JSON.parse(txt) : null }catch(e){}
+    if(json && json.ok && json.url){ window.open(json.url,'_blank'); toast('Opened kite login'); } else toast('Login result: see logs');
     await loadAll();
-  }catch(e){ toast('Login failed: '+(e.message||e)); log('login error: '+e.message); }
+  }catch(e){ toast('Login failed: '+(e.message||e)); logLine('login error: '+(e.message||e)); }
   finally{ $('login_zerodha').disabled = false; }
 }
 
-/* enforce, kill, cancel, setCapital, saveConfig (same logic as earlier) */
+/* enforce, kill, cancel, setCapital, saveConfig (keeps logic same) */
 async function enforceNow(){
   $('enforce_btn').disabled = true;
   try{
-    for(const p of ENDPOINTS.enforce_candidates){
-      try{ const r = await fetch(p, { method:'GET', headers: authHeader() }); const txt=await r.text().catch(()=>null); log(`GET ${p} => ${txt||r.status}`); if(r.status!==404){ $('admin_resp').textContent = txt; toast('Enforce: check logs'); await loadAll(); $('enforce_btn').disabled=false; return; } }catch(e){ log('GET enforce failed: '+e.message); }
-    }
-    const res = await tryList(ENDPOINTS.enforce_candidates, { method:'POST', body:{} });
-    $('admin_resp').textContent = res.json ? JSON.stringify(res.json) : (res.txt||res.error);
-    toast('Enforce: ' + (res.ok ? 'ok' : 'failed'));
+    // call /api/enforce (existing)
+    const r = await fetch('/api/enforce', { method:'GET', headers: authHeader() });
+    const txt = await r.text().catch(()=>null);
+    logLine(`GET /api/enforce => ${txt || r.status}`);
+    $('admin_resp').textContent = txt || '';
+    toast('Enforce called');
     await loadAll();
-  }catch(e){ toast('Enforce error: '+e.message); log('enforce error: '+e.message); }
+  }catch(e){ toast('Enforce error: '+e.message); logLine('enforce err: '+e.message); }
   finally{ $('enforce_btn').disabled = false; }
 }
 
@@ -363,11 +380,13 @@ async function killNow(){
   if(!confirm('Kill will attempt to close running positions. Proceed?')) return;
   const btn = $('kill_btn'); btn.disabled = true;
   try{
-    const res = await tryList(ENDPOINTS.kill_candidates, { method:'POST', body:{ force:true } });
-    $('admin_resp').textContent = res.json ? JSON.stringify(res.json) : (res.txt||res.error);
-    toast('Kill: ' + (res.ok ? 'ok' : 'failed'));
+    const r = await fetch('/api/admin/kill', { method:'POST', headers:{ 'Content-Type':'application/json', ...authHeader() }, body: JSON.stringify({ force:true }) });
+    const txt = await r.text().catch(()=>null);
+    logLine(`POST /api/admin/kill => ${txt || r.status}`);
+    $('admin_resp').textContent = txt || '';
+    toast('Kill called');
     await loadAll();
-  }catch(e){ toast('Kill failed: '+e.message); log('kill error: '+e.message); }
+  }catch(e){ toast('Kill failed: '+e.message); logLine('kill err: '+e.message); }
   finally{ btn.disabled = false; }
 }
 
@@ -375,72 +394,133 @@ async function cancelAll(){
   if(!confirm('Cancel all pending orders?')) return;
   const btn = $('cancel_btn'); btn.disabled = true;
   try{
-    const res = await tryList(ENDPOINTS.cancel_candidates, { method:'POST', body:{} });
-    $('admin_resp').textContent = res.json ? JSON.stringify(res.json) : (res.txt||res.error);
-    toast('Cancel: ' + (res.ok ? 'ok' : 'failed'));
+    const r = await fetch('/api/admin/cancel', { method:'POST', headers:{ 'Content-Type':'application/json', ...authHeader() }, body: JSON.stringify({}) });
+    const txt = await r.text().catch(()=>null);
+    logLine(`POST /api/admin/cancel => ${txt || r.status}`);
+    $('admin_resp').textContent = txt || '';
+    toast('Cancel called');
     await loadAll();
-  }catch(e){ toast('Cancel failed: '+e.message); log('cancel error: '+e.message); }
+  }catch(e){ toast('Cancel failed: '+e.message); logLine('cancel err: '+e.message); }
   finally{ btn.disabled = false; }
 }
 
+/* set capital trying multiple candidate endpoints */
 async function setCapital(){
   const raw = $('capital_input').value.trim();
   if(!raw){ $('set_capital_msg').textContent='Enter capital'; return; }
   const val = Number(String(raw).replace(/[^0-9.-]/g,'')); if(isNaN(val)){ $('set_capital_msg').textContent='Invalid number'; return; }
   $('set_capital_msg').textContent='Setting...'; $('set_capital_btn').disabled=true;
   try{
-    const res = await tryList(ENDPOINTS.set_capital_candidates, { method:'POST', body:{ capital: val } });
+    const res = await tryEndpoints(ENDPOINTS.set_capital_candidates, { method:'POST', body:{ capital: val } });
     if(res.json && res.json.ok){ $('set_capital_msg').textContent='Set capital OK'; toast('Set capital OK'); }
     else { $('set_capital_msg').textContent = 'Failed: ' + (res.json && res.json.error ? res.json.error : (res.error||'no response')); toast('Set capital failed'); }
     await loadAll();
-  }catch(e){ $('set_capital_msg').textContent='Error: '+e.message; log('setCapital err: '+e.message); }
+  }catch(e){ $('set_capital_msg').textContent='Error: '+e.message; logLine('setCapital err: '+e.message); }
   finally{ $('set_capital_btn').disabled=false; }
 }
 
-async function saveConfig(){
-  const btn = $('save_cfg_btn'); btn.disabled=true; $('save_cfg_msg').textContent='Saving...';
-  const payload = { cooldown_on_profit: !!$('cfg_cooldown_on_profit').checked, min_loss_to_count: Number($('cfg_min_loss_to_count').value || 0) };
+/* Save rules (posts to /api/admin/set-config). No server change required if it ignores extra keys. */
+async function saveRules(){
+  const btn = $('save_rules_btn'); btn.disabled = true; $('save_rules_msg').textContent='Saving...';
+  const payload = {
+    max_loss_pct: Number($('rule_max_loss_pct').value || 0),
+    trail_step_profit: Number($('rule_trail_step').value || 0),
+    cooldown_min: Number($('rule_cooldown_min').value || 0),
+    max_consecutive_losses: Number($('rule_max_consec').value || 0),
+    p10_amount: Number($('rule_p10_amount').value || 0)
+  };
   try{
     const r = await fetch(ENDPOINTS.set_config, { method:'POST', headers:{ 'Content-Type':'application/json', ...authHeader() }, body: JSON.stringify(payload) });
-    const txt = await r.text().catch(()=>null); let j=null; try{ j = txt ? JSON.parse(txt) : null }catch(e){ j={ok:false} }
+    const txt = await r.text().catch(()=>null); let j=null; try{ j = txt ? JSON.parse(txt) : null }catch(e){}
+    logLine(`POST ${ENDPOINTS.set_config} => ${txt || r.status}`);
+    if(j && j.ok){ $('save_rules_msg').textContent='Saved'; toast('Rules saved'); setTimeout(()=> $('save_rules_msg').textContent='',2000); await loadAll(); }
+    else { $('save_rules_msg').textContent='Save failed'; toast('Save failed'); }
+  }catch(e){ $('save_rules_msg').textContent='Error'; logLine('saveRules err: '+e.message); }
+  finally{ btn.disabled = false; }
+}
+
+/* saveConfig kept for backward compatibility (if you used earlier) */
+async function saveConfig(){
+  const btn = $('save_cfg_btn'); if(!btn) return;
+  btn.disabled=true; $('save_cfg_msg').textContent='Saving...';
+  const payload = { cooldown_on_profit: !!$('cfg_cooldown_on_profit').checked, min_loss_to_count: Number($('cfg_min_loss_to_count').value || 0) };
+  try{
+    const r = await fetch('/api/admin/set-config', { method:'POST', headers:{ 'Content-Type':'application/json', ...authHeader() }, body: JSON.stringify(payload) });
+    const txt = await r.text().catch(()=>null); let j=null; try{ j = txt ? JSON.parse(txt) : null }catch(e){}
+    logLine(`POST /api/admin/set-config => ${txt || r.status}`);
     if(j && j.ok){ $('save_cfg_msg').textContent='Saved'; toast('Config saved'); setTimeout(()=> $('save_cfg_msg').textContent='',2000); loadAll(); }
-    else{ $('save_cfg_msg').textContent='Save failed'; toast('Save failed'); log('saveConfig: '+(j && j.error ? j.error : txt)); }
-  }catch(e){ $('save_cfg_msg').textContent='Error'; log('saveConfig err: '+e.message); }
+    else{ $('save_cfg_msg').textContent='Save failed'; toast('Save failed'); }
+  }catch(e){ $('save_cfg_msg').textContent='Error'; logLine('saveConfig err: '+e.message); }
   finally{ btn.disabled=false; }
 }
 
-/* load state & funds */
+/* load state & funds (reads more keys and populates new UI fields) */
 async function loadAll(){ await Promise.allSettled([ loadState(), loadFunds() ]); }
+
 async function loadState(){
   try{
     const r = await fetch(ENDPOINTS.state, { method:'GET', headers: authHeader() });
-    const txt = await r.text().catch(()=>null); let j=null; try{ j = txt ? JSON.parse(txt) : null }catch(e){ j={ok:false} }
-    log(`GET ${ENDPOINTS.state} => ${txt||r.status}`);
+    const txt = await r.text().catch(()=>null); let j=null; try{ j = txt ? JSON.parse(txt) : null }catch(e){}
+    logLine(`GET ${ENDPOINTS.state} => ${txt || r.status}`);
     if(!j || !j.ok){ toast('Failed load state'); return; }
     $('now').textContent = j.time || now();
     $('guardian_status').textContent = j.admin ? 'admin' : 'online';
     $('kite_status').textContent = j.kite_status === 'ok' ? 'Kite: Connected' : (j.kite_status || 'not_logged_in');
+
     const s = j.state || {};
+    // capital / balances
     $('capital915').textContent = fmtINR(s.capital_day_915 ?? 0);
     $('live_mtm').textContent = fmtINR(s.unrealised ?? 0);
     const realised = Number(s.realised ?? 0), unreal = Number(s.unrealised ?? 0), total = realised + unreal;
     $('pnl_box').textContent = `${fmtINR(realised)} / ${fmtINR(unreal)} / ${fmtINR(total)}`;
     $('pnl_hint').textContent = total < 0 ? 'In loss' : (total>0 ? 'In profit' : '—');
-    $('consec_losses') && ($('consec_losses').textContent = (s.consecutive_losses ?? 0).toString());
+
+    // consecutive losses
+    $('consec_losses').textContent = (s.consecutive_losses ?? 0).toString();
+
+    // max loss & floor
     $('max_loss').textContent = fmtINR(((s.capital_day_915||0) * ((s.max_loss_pct ?? 10)/100)) || 0);
     $('max_loss_pct').textContent = `Max Loss %: ${(s.max_loss_pct ?? 10).toFixed(2)}%`;
     $('active_floor').textContent = fmtINR(s.active_loss_floor ?? 0);
     $('remaining_loss').textContent = fmtINR((s.capital_day_915 ?? 0) - Math.abs(total));
+
+    // profit lock (p10) if server exposes numeric p10 or profit_lock_10_amount
+    const p10val = (typeof s.p10 !== 'undefined') ? s.p10 : (typeof s.profit_lock_10_amount !== 'undefined' ? s.profit_lock_10_amount : 0);
+    $('p10').textContent = fmtINR(p10val ?? 0);
+    $('p10_hint').textContent = (s.profit_lock_10 ? '10% profit lock active' : '—');
+
+    // day/tripped indicators
+    const tripped = !!s.tripped_day;
+    $('rule_day_status').textContent = tripped ? 'TRIPPED' : 'Active';
+    $('day_status').textContent = tripped ? 'TRIPPED' : 'active';
+    $('day_status').className = 'badge status-pill ' + (tripped ? 'status-tripped' : 'status-active');
+
+    // populate rules inputs with current values (only if inputs exist)
+    $('rule_max_loss_pct').value = (typeof s.max_loss_pct !== 'undefined') ? String(s.max_loss_pct) : '';
+    $('rule_trail_step').value = (typeof s.trail_step_profit !== 'undefined') ? String(s.trail_step_profit) : '';
+    $('rule_cooldown_min').value = (typeof s.cooldown_min !== 'undefined') ? String(s.cooldown_min) : '';
+    $('rule_max_consec').value = (typeof s.max_consecutive_losses !== 'undefined') ? String(s.max_consecutive_losses) : '';
+    $('rule_p10_amount').value = String(p10val || '');
+
+    // behavioral config
     $('cfg_cooldown_on_profit').checked = !!s.cooldown_on_profit;
-    $('cfg_min_loss_to_count').value = Number(s.min_loss_to_count ?? 0);
-    if(j.admin) enableAdmin(true); else if(localStorage.getItem('ADMIN_TOKEN')) enableAdmin(true); else enableAdmin(false);
-  }catch(e){ log('loadState err: '+(e.message||e)); toast('State load failed'); }
+    $('cfg_min_loss_to_count').value = Number(s.min_loss_to_count || 0);
+
+    // admin UI enablement
+    if(j.admin) enableAdmin(true);
+    else if(localStorage.getItem('ADMIN_TOKEN')) enableAdmin(true);
+    else enableAdmin(false);
+  }catch(e){
+    logLine('loadState err: '+(e.message||e));
+    toast('State load failed');
+  }
 }
+
 async function loadFunds(){
   try{
     const r = await fetch(ENDPOINTS.kite_funds, { method:'GET', headers: authHeader() });
-    const txt = await r.text().catch(()=>null); let j=null; try{ j = txt ? JSON.parse(txt) : null }catch(e){ j={ok:false} }
-    log(`GET ${ENDPOINTS.kite_funds} => ${txt||r.status}`);
+    const txt = await r.text().catch(()=>null); let j=null; try{ j = txt ? JSON.parse(txt) : null }catch(e){}
+    logLine(`GET ${ENDPOINTS.kite_funds} => ${txt || r.status}`);
     if(!j || j.ok === false){
       const cached = await fetch(ENDPOINTS.state).then(r=>r.json()).catch(()=>null);
       const val = cached?.state?.current_balance ?? cached?.state?.capital_day_915 ?? 0;
@@ -453,64 +533,44 @@ async function loadFunds(){
     else if (typeof j.balance !== 'undefined') av = j.balance;
     else if (j.funds && j.funds.available && typeof j.funds.available.cash !== 'undefined') av = j.funds.available.cash;
     $('live_balance').textContent = fmtINR(av ?? (j.balance ?? 0));
-  }catch(e){ log('loadFunds err: '+(e.message||e)); const cached = await fetch(ENDPOINTS.state).then(r=>r.json()).catch(()=>null); const val = cached?.state?.current_balance ?? cached?.state?.capital_day_915 ?? 0; $('live_balance').textContent = fmtINR(val); }
+  }catch(e){ logLine('loadFunds err: '+(e.message||e)); const cached = await fetch(ENDPOINTS.state).then(r=>r.json()).catch(()=>null); const val = cached?.state?.current_balance ?? cached?.state?.capital_day_915 ?? 0; $('live_balance').textContent = fmtINR(val); }
 }
 
-/* ========== Logs filtering & trades fetch ========== */
-function getRawLogLines(){
-  const pre = $('raw_responses'); if(!pre) return []; return pre.textContent.split(/\n{1,}/).filter(Boolean).map(s=>s.trim());
-}
-function showAllLogs(){ /* no-op — raw area already has logs */ toast('Showing all logs'); }
-function showOnlyErrors(){
-  const pre = $('raw_responses'); if(!pre) return;
-  const lines = getRawLogLines();
-  const filtered = lines.filter(l => /error|err[:\s]|failed|4\d{2}|5\d{2}|\"ok\":\s*false/i.test(l));
-  pre.textContent = filtered.join('\n\n') || '—';
-  toast('Filtered: errors');
-}
+/* Logs helpers */
+function getRawLogLines(){ const pre = $('raw_responses'); if(!pre) return []; return pre.textContent.split(/\n{1,}/).filter(Boolean).map(s=>s.trim()); }
+function showAllLogs(){ toast('Showing all logs'); }
+function showOnlyErrors(){ const pre = $('raw_responses'); if(!pre) return; const lines = getRawLogLines(); const filtered = lines.filter(l => /error|err[:\s]|failed|4\d{2}|5\d{2}|\"ok\":\s*false/i.test(l)); pre.textContent = filtered.join('\n\n') || '—'; toast('Filtered: errors'); }
 
-/* Attempt to fetch trades from server endpoint, else fallback to scanning logs */
+/* show executed trades — try server then fallback to scanning logs */
 async function showExecutedTrades(){
   const pre = $('raw_responses'); if(!pre) return;
-  // Try server endpoint first
   try{
     const r = await fetch(ENDPOINTS.kite_trades, { method: 'GET', headers: authHeader() });
-    if(r.ok){
-      const txt = await r.text().catch(()=>null); let j=null; try{ j=txt?JSON.parse(txt):null }catch(e){ j=null }
-      // If server returns array or { trades: [...] }
-      const trades = Array.isArray(j) ? j : (j && Array.isArray(j.trades) ? j.trades : null);
-      if(trades && trades.length){
-        pre.textContent = formatTradesList(trades);
-        toast('Fetched trades from server');
-        return;
-      }
-    }
-  }catch(e){ /* ignore */ }
+    const txt = await r.text().catch(()=>null);
+    logLine(`GET ${ENDPOINTS.kite_trades} => ${txt || r.status}`);
+    let json=null; try{ json = txt ? JSON.parse(txt) : null }catch(e){}
+    const trades = Array.isArray(json) ? json : (json && Array.isArray(json.trades) ? json.trades : null);
+    if(trades && trades.length){ pre.textContent = trades.map(t=>formatTrade(t)).join('\n---\n'); toast('Fetched trades from server'); return; }
+  }catch(e){ logLine('trades fetch error: '+(e.message||e)); }
 
-  // fallback: scan logs
+  // fallback: scan client logs for lines mentioning trade fields
   const lines = getRawLogLines();
-  const candidates = lines.filter(l => /\b(trade|trade_id|order_id|executed|filled|avg_price|filled_qty)\b/i.test(l));
-  if(candidates.length){
-    pre.textContent = candidates.join('\n\n');
-    toast('Showing trades from client logs (fallback)');
-    return;
-  }
-  pre.textContent = 'No executed trades found in server endpoint or logs.';
-  toast('No trades found');
+  const candidates = lines.filter(l => /\b(trade|trade_id|order_id|executed|filled|avg_price|filled_qty|tradingsymbol)\b/i.test(l));
+  if(candidates.length){ pre.textContent = candidates.join('\n\n'); toast('Showing trades from client logs (fallback)'); return; }
+  pre.textContent = 'No executed trades found in server endpoint or logs.'; toast('No trades found');
 }
 
-function formatTradesList(trades){
-  return trades.map(t => {
-    const id = t.trade_id || t.tradeId || t.order_id || t.orderId || t.id || '—';
-    const sym = t.tradingsymbol || t.trading_symbol || t.instrument || t.symbol || '—';
-    const qty = t.quantity || t.qty || t.filled_qty || '—';
-    const price = t.price || t.trade_price || t.avg_price || t.price_executed || '—';
-    const side = (t.transaction_type || t.side || t.order_side || '').toUpperCase() || (t.qty && Number(t.qty) < 0 ? 'SELL' : 'BUY');
-    const ts = t.trade_time || t.timestamp || t.exchange_timestamp || t.time || t._ts || null;
-    const timestr = ts ? (new Date(Number(ts)).toLocaleString() || ts) : '';
-    return `trade_id: ${id}\nsymbol: ${sym}\nside: ${side}\nqty: ${qty}\nprice: ${price}\ntime: ${timestr}\n`;
-  }).join('\n---\n');
+function formatTrade(t){
+  const id = t.trade_id || t.tradeId || t.order_id || t.orderId || t.id || '—';
+  const sym = t.tradingsymbol || t.trading_symbol || t.instrument || t.symbol || '—';
+  const qty = t.quantity || t.qty || t.filled_qty || '—';
+  const price = t.price || t.trade_price || t.avg_price || t.price_executed || '—';
+  const side = (t.transaction_type || t.side || t.order_side || '').toUpperCase() || (t.qty && Number(t.qty) < 0 ? 'SELL' : 'BUY');
+  const ts = t.trade_time || t.timestamp || t.exchange_timestamp || t.time || t._ts || null;
+  const timestr = ts ? (new Date(Number(ts)).toLocaleString() || ts) : '';
+  return `trade_id: ${id}\nsymbol: ${sym}\nside: ${side}\nqty: ${qty}\nprice: ${price}\ntime: ${timestr}\n`;
 }
+
 </script>
 </body>
-                                                                                                </html>
+          </html>
