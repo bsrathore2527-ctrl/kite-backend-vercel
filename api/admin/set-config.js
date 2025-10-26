@@ -1,5 +1,5 @@
 // api/admin/set-config.js
-// Merge admin rule updates into today's risk:{YYYY-MM-dd} record.
+// Merge admin rule updates into today's risk:{YYYY-MM-DD} record.
 // Accepts partial payloads. Normalizes p10_pct -> p10 (percentage).
 import { todayKey, setState, kv } from "../_lib/kv.js";
 
@@ -74,20 +74,16 @@ export default async function handler(req, res) {
   if (typeof body.p10_pct !== "undefined") {
     const v = toNum(body.p10_pct);
     if (typeof v !== "undefined") {
-      // Save percentage value into `p10` for state exposure (previous code expects s.p10)
       patch.p10 = v;
-      // also store a helper flag
       patch.p10_is_pct = true;
     }
   } else if (typeof body.p10 !== "undefined") {
-    // UI might post p10 — treat as percentage by default
     const v = toNum(body.p10);
     if (typeof v !== "undefined") {
       patch.p10 = v;
       patch.p10_is_pct = true;
     }
   } else if (typeof body.p10_amount !== "undefined") {
-    // legacy rupee amount — store separately so UI can render as rupees if needed
     const v = toNum(body.p10_amount);
     if (typeof v !== "undefined") {
       patch.p10_amount = v;
@@ -108,14 +104,23 @@ export default async function handler(req, res) {
   if (typeof body.profit_lock_10 !== "undefined") patch.profit_lock_10 = !!body.profit_lock_10;
   if (typeof body.allow_new_after_lock10 !== "undefined") patch.allow_new_after_lock10 = !!body.allow_new_after_lock10;
 
-  // --- support inline Reset Day via this endpoint to avoid adding a new serverless function ---
-  // Usage: POST /api/admin/set-config  with JSON body: { "reset_day": true, "preserve_losses": true }
+  // ✅ Behavioral & Allow-new fixes (new section)
+  if (typeof body.cooldown_on_profit !== "undefined") {
+    patch.cooldown_on_profit = !!body.cooldown_on_profit;
+  }
+  if (typeof body.min_loss_to_count !== "undefined") {
+    const v = toNum(body.min_loss_to_count);
+    if (typeof v !== "undefined") patch.min_loss_to_count = v;
+  }
+  if (typeof body.allow_new !== "undefined") {
+    patch.allow_new = !!body.allow_new;
+    patch.block_new_orders = !patch.allow_new;
+  }
+
+  // --- support inline Reset Day via this endpoint (avoid extra function) ---
   if (body && body.reset_day === true) {
     try {
-      // preserve_losses: if true, keep consecutive_losses as-is; otherwise reset to 0
       const preserve = !!body.preserve_losses;
-
-      // base reset patch: clear tripped & blocking flags and cooldown
       const resetPatch = {
         tripped_day: false,
         tripped_week: false,
@@ -125,22 +130,14 @@ export default async function handler(req, res) {
         cooldown_active: false,
         trip_reason: null,
         last_reset_by: "admin",
-        last_reset_at: Date.now()
+        last_reset_at: Date.now(),
       };
+      if (!preserve) resetPatch.consecutive_losses = 0;
 
-      // handle clearing consecutive_losses if not preserved
-      if (!preserve) {
-        resetPatch.consecutive_losses = 0;
-      }
-
-      // merge via setState (existing helper merges with today's record)
       const updated = await setState(resetPatch);
-
-      // also write raw key as defensive copy (existing code pattern)
       const key = `risk:${todayKey()}`;
       await kv.set(key, updated);
 
-      // return success (UI expects ok:true)
       return res.status(200).json({ ok: true, updated, note: "Day reset successfully", preserve_losses: preserve });
     } catch (err) {
       console.error("reset_day (inline) error:", err && err.stack ? err.stack : err);
@@ -148,16 +145,13 @@ export default async function handler(req, res) {
     }
   }
 
-  // If no reset request and no other patch keys were provided, error out as before
   if (Object.keys(patch).length === 0) {
     res.status(400).json({ ok: false, error: "missing fields" });
     return;
   }
 
   try {
-    // setState merges with today's record
     const updated = await setState(patch);
-    // also write raw key for quick reads (defensive)
     const key = `risk:${todayKey()}`;
     await kv.set(key, updated);
     res.setHeader("Cache-Control", "no-store").status(200).json({ ok: true, updated });
