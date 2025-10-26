@@ -33,6 +33,7 @@
   .page{min-width:100%;scroll-snap-align:center}
   .pager{display:flex;gap:8px;justify-content:center;margin-top:8px}
   pre.log{white-space:pre-wrap;background:rgba(0,0,0,0.12);padding:10px;border-radius:8px;max-height:320px;overflow:auto;color:#ffdede}
+  .filters{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px}
   @media(max-width:720px){ .grid-2{grid-template-columns:1fr} header{flex-wrap:wrap} .status{margin-left:0} }
   .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:18px;background:rgba(0,0,0,0.7);padding:10px 14px;border-radius:8px;color:white;display:none}
 </style>
@@ -53,11 +54,11 @@
   </header>
 
   <div class="pages" id="pages">
-    <!-- Page 1: Admin controls -->
-    <section class="page card" id="page1">
+    <!-- page 1: admin -->
+    <section class="page card" id="page_admin">
       <div class="row" style="justify-content:space-between;align-items:flex-start">
         <div style="flex:1;min-width:240px">
-          <div class="muted">Admin token — save to unlock actions (stored locally only)</div>
+          <div class="muted">Admin token — save to unlock actions (stored locally)</div>
           <div class="row" style="margin-top:8px">
             <input id="admin_token" type="password" placeholder="ADMIN_TOKEN (password)" />
             <button id="toggle_token" class="btn ghost">Show</button>
@@ -79,7 +80,7 @@
             </div>
 
             <div style="margin-top:8px">
-              <div class="muted">Override capital (applies to today's calculations)</div>
+              <div class="muted">Override capital (applies today)</div>
               <div class="row" style="margin-top:6px">
                 <input id="capital_input" type="text" placeholder="Enter amount" />
                 <button id="set_capital_btn" class="btn primary">Set Capital</button>
@@ -104,8 +105,8 @@
       </div>
     </section>
 
-    <!-- Page 2: Live overview -->
-    <section class="page card" id="page2">
+    <!-- page 2: Live overview -->
+    <section class="page card" id="page_live">
       <div style="display:flex;justify-content:space-between;align-items:center">
         <h3 style="margin:0">Live overview</h3>
         <div><button id="refresh_top" class="btn ghost">Refresh</button></div>
@@ -115,7 +116,7 @@
         <div class="card" style="background:transparent;border:0;padding:8px">
           <div class="muted">Capital @ 09:15</div>
           <div id="capital915" class="value">—</div>
-          <div class="small">Used as base for daily limits</div>
+          <div class="small">Base for daily limits</div>
         </div>
 
         <div class="card" style="background:transparent;border:0;padding:8px">
@@ -162,8 +163,8 @@
       </div>
     </section>
 
-    <!-- Page 3: Rules (editable by admin) -->
-    <section class="page card" id="page3">
+    <!-- page 3: Rules -->
+    <section class="page card" id="page_rules">
       <h3 style="margin:0">Rules (admin editable)</h3>
       <div class="grid-2" style="margin-top:12px">
         <div>
@@ -186,14 +187,23 @@
       <div class="small muted" style="margin-top:8px">Only editable when admin token is saved.</div>
     </section>
 
-    <!-- Page 4: Logs & actions -->
-    <section class="page card" id="page4">
+    <!-- page 4: Logs & actions -->
+    <section class="page card" id="page_logs">
       <h3 style="margin:0">Logs & actions</h3>
+
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
         <button id="enforce_trades_btn" class="btn ghost">Enforce Trades</button>
         <button id="cancel_all_btn" class="btn ghost">Cancel All</button>
         <button id="kill_btn2" class="btn danger">Kill</button>
         <button id="clear_logs" class="btn ghost">Clear Logs</button>
+      </div>
+
+      <!-- Logs filter controls -->
+      <div class="filters">
+        <button id="filter_errors" class="btn ghost">Show Errors</button>
+        <button id="filter_trades" class="btn ghost">Show Executed Trades</button>
+        <button id="filter_all" class="btn ghost">Show All</button>
+        <div id="logs_hint" class="small muted">Trades fetched from <code>/api/kite/trades</code> if available; fallback to client logs.</div>
       </div>
 
       <div style="margin-top:12px">
@@ -214,15 +224,15 @@
 <div id="toast" class="toast"></div>
 
 <script>
-/* -----------------------
-   Minimal wiring & logic
-   Keep endpoints same as existing backend
-   ----------------------- */
+/* =========================
+   Admin UI script — full
+   ========================= */
 const ENDPOINTS = {
   state: '/api/state',
   kite_funds: '/api/kite/funds',
   kite_login: '/api/kite/login',
   set_config: '/api/admin/set-config',
+  kite_trades: '/api/kite/trades', // recommended server endpoint
   set_capital_candidates: ['/api/admin/set-capital','/api/admin/set_capital','/api/admin/setcapital','/api/admin/set-captial'],
   enforce_candidates: ['/api/enforce','/api/admin/enforce','/api/admin/enforce-trades'],
   cancel_candidates: ['/api/admin/cancel','/api/admin/cancel_all','/api/admin/cancel-all','/api/admin/cancel'],
@@ -268,6 +278,12 @@ function init(){
 
   $('save_cfg_btn').addEventListener('click', saveConfig);
 
+  // logs filters
+  $('filter_errors').addEventListener('click', showOnlyErrors);
+  $('filter_trades').addEventListener('click', showExecutedTrades);
+  $('filter_all').addEventListener('click', showAllLogs);
+  $('clear_logs').addEventListener('click', ()=> $('raw_responses').textContent = '');
+
   applyTokenUI();
   if(localStorage.getItem('ADMIN_TOKEN')) enableAdmin(true);
 
@@ -286,9 +302,9 @@ function saveToken(){
   if(!val){ toast('Enter token'); return; }
   localStorage.setItem('ADMIN_TOKEN', val); $('admin_token').value='*******'; $('admin_token').dataset.saved='1'; enableAdmin(true); toast('Token saved (local)');
 }
-function clearToken(){ localStorage.removeItem('ADMIN_TOKEN'); $('admin_token').value=''; $('admin_token').dataset.saved='0'; enableAdmin(false); toast('Token cleared'); }
+function clearToken(){ localStorage.removeItem('ADMIN_TOKEN'); $('admin_token').value=''; $('admin_token').dataset.saved='0'; enableAdmin(false); toast('Admin token cleared'); }
 function toggleToken(){ const saved = localStorage.getItem('ADMIN_TOKEN'); if(saved){ $('admin_token').type='text'; $('admin_token').value=saved; setTimeout(()=>{ $('admin_token').type='password'; $('admin_token').value='*******'; }, 3500); } else { $('admin_token').type = $('admin_token').type==='password' ? 'text' : 'password'; } }
-function enableAdmin(v){ const el = $('admin_actions'); if(!el) return; el.style.display = v ? 'block' : 'none'; const arr = ['enforce_btn','kill_btn','cancel_btn','set_capital_btn','save_cfg_btn']; arr.forEach(id=>{ const b=$(id); if(b) b.disabled = !v; }); }
+function enableAdmin(v){ const el = $('admin_actions'); if(!el) return; el.style.display = v ? 'block' : 'none'; const arr = ['enforce_btn','kill_btn','cancel_btn','set_capital_btn','save_cfg_btn','filter_trades']; arr.forEach(id=>{ const b=$(id); if(b) b.disabled = !v; }); }
 
 /* helpers to try multiple candidates */
 async function tryList(list, opts={method:'POST', body:{} }) {
@@ -310,7 +326,7 @@ async function tryList(list, opts={method:'POST', body:{} }) {
   return { ok:false, error:'no candidate succeeded' };
 }
 
-/* login flow: try GET then POST */
+/* login flow */
 async function loginKite(){
   $('login_zerodha').disabled = true;
   try{
@@ -322,21 +338,19 @@ async function loginKite(){
     let json=null; try{ json = txt ? JSON.parse(txt) : null } catch(e){ json={ok:false,raw:txt} }
     log(`login => ${txt||r.status}`);
     if(json && json.ok && json.url) { window.open(json.url, '_blank'); toast('Opened kite login'); }
-    else toast('Login returned: ' + (json && (json.error||json.message) ? JSON.stringify(json) : 'see logs'));
+    else toast('Login result: ' + (json && (json.error||json.message) ? JSON.stringify(json) : 'see logs'));
     await loadAll();
   }catch(e){ toast('Login failed: '+(e.message||e)); log('login error: '+e.message); }
   finally{ $('login_zerodha').disabled = false; }
 }
 
-/* enforce (GET/POST candidates) */
+/* enforce, kill, cancel, setCapital, saveConfig (same logic as earlier) */
 async function enforceNow(){
   $('enforce_btn').disabled = true;
   try{
-    // first try GET candidates
     for(const p of ENDPOINTS.enforce_candidates){
       try{ const r = await fetch(p, { method:'GET', headers: authHeader() }); const txt=await r.text().catch(()=>null); log(`GET ${p} => ${txt||r.status}`); if(r.status!==404){ $('admin_resp').textContent = txt; toast('Enforce: check logs'); await loadAll(); $('enforce_btn').disabled=false; return; } }catch(e){ log('GET enforce failed: '+e.message); }
     }
-    // try POST list
     const res = await tryList(ENDPOINTS.enforce_candidates, { method:'POST', body:{} });
     $('admin_resp').textContent = res.json ? JSON.stringify(res.json) : (res.txt||res.error);
     toast('Enforce: ' + (res.ok ? 'ok' : 'failed'));
@@ -345,7 +359,6 @@ async function enforceNow(){
   finally{ $('enforce_btn').disabled = false; }
 }
 
-/* kill */
 async function killNow(){
   if(!confirm('Kill will attempt to close running positions. Proceed?')) return;
   const btn = $('kill_btn'); btn.disabled = true;
@@ -358,7 +371,6 @@ async function killNow(){
   finally{ btn.disabled = false; }
 }
 
-/* cancel */
 async function cancelAll(){
   if(!confirm('Cancel all pending orders?')) return;
   const btn = $('cancel_btn'); btn.disabled = true;
@@ -371,7 +383,6 @@ async function cancelAll(){
   finally{ btn.disabled = false; }
 }
 
-/* set capital */
 async function setCapital(){
   const raw = $('capital_input').value.trim();
   if(!raw){ $('set_capital_msg').textContent='Enter capital'; return; }
@@ -386,23 +397,20 @@ async function setCapital(){
   finally{ $('set_capital_btn').disabled=false; }
 }
 
-/* save config (Option-B) */
 async function saveConfig(){
   const btn = $('save_cfg_btn'); btn.disabled=true; $('save_cfg_msg').textContent='Saving...';
   const payload = { cooldown_on_profit: !!$('cfg_cooldown_on_profit').checked, min_loss_to_count: Number($('cfg_min_loss_to_count').value || 0) };
   try{
     const r = await fetch(ENDPOINTS.set_config, { method:'POST', headers:{ 'Content-Type':'application/json', ...authHeader() }, body: JSON.stringify(payload) });
     const txt = await r.text().catch(()=>null); let j=null; try{ j = txt ? JSON.parse(txt) : null }catch(e){ j={ok:false} }
-    if(j && j.ok){ $('save_cfg_msg').textContent='Saved'; toast('Config saved'); setTimeout(()=>$('save_cfg_msg').textContent='',2000); loadAll(); }
+    if(j && j.ok){ $('save_cfg_msg').textContent='Saved'; toast('Config saved'); setTimeout(()=> $('save_cfg_msg').textContent='',2000); loadAll(); }
     else{ $('save_cfg_msg').textContent='Save failed'; toast('Save failed'); log('saveConfig: '+(j && j.error ? j.error : txt)); }
   }catch(e){ $('save_cfg_msg').textContent='Error'; log('saveConfig err: '+e.message); }
   finally{ btn.disabled=false; }
 }
 
 /* load state & funds */
-async function loadAll(){
-  await Promise.allSettled([ loadState(), loadFunds() ]);
-}
+async function loadAll(){ await Promise.allSettled([ loadState(), loadFunds() ]); }
 async function loadState(){
   try{
     const r = await fetch(ENDPOINTS.state, { method:'GET', headers: authHeader() });
@@ -419,18 +427,13 @@ async function loadState(){
     $('pnl_box').textContent = `${fmtINR(realised)} / ${fmtINR(unreal)} / ${fmtINR(total)}`;
     $('pnl_hint').textContent = total < 0 ? 'In loss' : (total>0 ? 'In profit' : '—');
     $('consec_losses') && ($('consec_losses').textContent = (s.consecutive_losses ?? 0).toString());
-    $('cooldown_until') && ($('cooldown_until').textContent = s.cooldown_until ? new Date(s.cooldown_until).toLocaleString() : '—');
-    $('expiry_flag') && ($('expiry_flag').textContent = s.expiry_flag ? 'YES' : 'NO');
     $('max_loss').textContent = fmtINR(((s.capital_day_915||0) * ((s.max_loss_pct ?? 10)/100)) || 0);
     $('max_loss_pct').textContent = `Max Loss %: ${(s.max_loss_pct ?? 10).toFixed(2)}%`;
     $('active_floor').textContent = fmtINR(s.active_loss_floor ?? 0);
     $('remaining_loss').textContent = fmtINR((s.capital_day_915 ?? 0) - Math.abs(total));
-    $('p10') && ($('p10').textContent = fmtINR(s.p10 ?? 0));
-    // populate config UI
     $('cfg_cooldown_on_profit').checked = !!s.cooldown_on_profit;
     $('cfg_min_loss_to_count').value = Number(s.min_loss_to_count ?? 0);
-    // show admin controls if server says admin OR if token present locally
-    if(j.admin) enableAdmin(true); else { if(localStorage.getItem('ADMIN_TOKEN')) enableAdmin(true); else enableAdmin(false); }
+    if(j.admin) enableAdmin(true); else if(localStorage.getItem('ADMIN_TOKEN')) enableAdmin(true); else enableAdmin(false);
   }catch(e){ log('loadState err: '+(e.message||e)); toast('State load failed'); }
 }
 async function loadFunds(){
@@ -439,13 +442,11 @@ async function loadFunds(){
     const txt = await r.text().catch(()=>null); let j=null; try{ j = txt ? JSON.parse(txt) : null }catch(e){ j={ok:false} }
     log(`GET ${ENDPOINTS.kite_funds} => ${txt||r.status}`);
     if(!j || j.ok === false){
-      // fallback to cached state
       const cached = await fetch(ENDPOINTS.state).then(r=>r.json()).catch(()=>null);
       const val = cached?.state?.current_balance ?? cached?.state?.capital_day_915 ?? 0;
       $('live_balance').textContent = fmtINR(val);
       return;
     }
-    // several shapes
     let av = null;
     if (j.funds && j.funds.available && typeof j.funds.available.live_balance !== 'undefined') av = j.funds.available.live_balance;
     else if (j.funds && typeof j.funds.net !== 'undefined') av = j.funds.net;
@@ -454,6 +455,62 @@ async function loadFunds(){
     $('live_balance').textContent = fmtINR(av ?? (j.balance ?? 0));
   }catch(e){ log('loadFunds err: '+(e.message||e)); const cached = await fetch(ENDPOINTS.state).then(r=>r.json()).catch(()=>null); const val = cached?.state?.current_balance ?? cached?.state?.capital_day_915 ?? 0; $('live_balance').textContent = fmtINR(val); }
 }
+
+/* ========== Logs filtering & trades fetch ========== */
+function getRawLogLines(){
+  const pre = $('raw_responses'); if(!pre) return []; return pre.textContent.split(/\n{1,}/).filter(Boolean).map(s=>s.trim());
+}
+function showAllLogs(){ /* no-op — raw area already has logs */ toast('Showing all logs'); }
+function showOnlyErrors(){
+  const pre = $('raw_responses'); if(!pre) return;
+  const lines = getRawLogLines();
+  const filtered = lines.filter(l => /error|err[:\s]|failed|4\d{2}|5\d{2}|\"ok\":\s*false/i.test(l));
+  pre.textContent = filtered.join('\n\n') || '—';
+  toast('Filtered: errors');
+}
+
+/* Attempt to fetch trades from server endpoint, else fallback to scanning logs */
+async function showExecutedTrades(){
+  const pre = $('raw_responses'); if(!pre) return;
+  // Try server endpoint first
+  try{
+    const r = await fetch(ENDPOINTS.kite_trades, { method: 'GET', headers: authHeader() });
+    if(r.ok){
+      const txt = await r.text().catch(()=>null); let j=null; try{ j=txt?JSON.parse(txt):null }catch(e){ j=null }
+      // If server returns array or { trades: [...] }
+      const trades = Array.isArray(j) ? j : (j && Array.isArray(j.trades) ? j.trades : null);
+      if(trades && trades.length){
+        pre.textContent = formatTradesList(trades);
+        toast('Fetched trades from server');
+        return;
+      }
+    }
+  }catch(e){ /* ignore */ }
+
+  // fallback: scan logs
+  const lines = getRawLogLines();
+  const candidates = lines.filter(l => /\b(trade|trade_id|order_id|executed|filled|avg_price|filled_qty)\b/i.test(l));
+  if(candidates.length){
+    pre.textContent = candidates.join('\n\n');
+    toast('Showing trades from client logs (fallback)');
+    return;
+  }
+  pre.textContent = 'No executed trades found in server endpoint or logs.';
+  toast('No trades found');
+}
+
+function formatTradesList(trades){
+  return trades.map(t => {
+    const id = t.trade_id || t.tradeId || t.order_id || t.orderId || t.id || '—';
+    const sym = t.tradingsymbol || t.trading_symbol || t.instrument || t.symbol || '—';
+    const qty = t.quantity || t.qty || t.filled_qty || '—';
+    const price = t.price || t.trade_price || t.avg_price || t.price_executed || '—';
+    const side = (t.transaction_type || t.side || t.order_side || '').toUpperCase() || (t.qty && Number(t.qty) < 0 ? 'SELL' : 'BUY');
+    const ts = t.trade_time || t.timestamp || t.exchange_timestamp || t.time || t._ts || null;
+    const timestr = ts ? (new Date(Number(ts)).toLocaleString() || ts) : '';
+    return `trade_id: ${id}\nsymbol: ${sym}\nside: ${side}\nqty: ${qty}\nprice: ${price}\ntime: ${timestr}\n`;
+  }).join('\n---\n');
+}
 </script>
 </body>
-</html>
+                                                                                                </html>
