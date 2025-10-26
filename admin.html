@@ -312,7 +312,61 @@ function init(){
   $('filter_trades').addEventListener('click', showExecutedTrades);
   $('filter_all').addEventListener('click', showAllLogs);
   $('clear_logs').addEventListener('click', ()=> $('raw_responses').textContent = '');
+// --- Reset Day button (admin only): try multiple endpoints & log results ---
+  $('reset_day_btn')?.addEventListener('click', async () => {
+  if (!confirm("Reset day will clear 'tripped' and unblock new orders. Proceed?")) return;
+  const btn = $('reset_day_btn');
+  btn.disabled = true;
+  try {
+    const candidates = [
+      '/api/admin/set-config',
+      '/api/admin/reset-day',
+      '/api/admin/reset_day',
+      '/api/admin/resetday'
+    ];
+    let result = null;
 
+    for (const p of candidates) {
+      try {
+        const res = await fetch(p, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...authHeader() },
+          body: JSON.stringify({ reset_day: true })
+        });
+        const txt = await res.text().catch(()=>null);
+        logLine(`POST ${p} => ${txt || res.status}`);
+        let j = null;
+        try { j = txt ? JSON.parse(txt) : null; } catch(_) { /* ignore json parse */ }
+
+        // if 404 -> endpoint not present, try next candidate
+        if (res.status === 404) continue;
+
+        // Save first non-404 response
+        result = { path: p, status: res.status, text: txt, json: j, ok: res.ok };
+        break;
+      } catch (errInner) {
+        logLine(`reset try ${p} failed: ${errInner.message || errInner}`);
+        // try next candidate
+      }
+    }
+
+    if (!result) {
+      toast('No reset endpoint found on server (checked multiple paths).');
+    } else if (result.json && result.json.ok) {
+      toast('Day reset successful. Guardian active.');
+      await loadAll();
+    } else {
+      // If server returned something non-ok, surface that
+      const msg = (result.json && (result.json.error || result.json.message)) || result.text || `status ${result.status}`;
+      toast('Reset failed: ' + msg);
+    }
+  } catch (e) {
+    logLine('reset_day err: ' + (e && e.message ? e.message : String(e)));
+    toast('Reset error: ' + (e && e.message ? e.message : 'unknown'));
+  } finally {
+    btn.disabled = false;
+  }
+});
   applyTokenUI();
   if(localStorage.getItem('ADMIN_TOKEN')) enableAdmin(true);
 
