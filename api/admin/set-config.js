@@ -1,24 +1,7 @@
 // api/admin/set-config.js
+// Merge admin rule updates into today's risk:{YYYY-MM-DD} record.
+// Accepts partial payloads. Normalizes p10_pct -> p10 (percentage).
 import { todayKey, setState, kv } from "../_lib/kv.js";
-
-/**
- * Minimal admin config endpoint.
- * Accepts partial payload; merges into today's risk:{YYYY-MM-DD} KV entry.
- *
- * Allowed (optional) keys:
- * - max_loss_pct (number)
- * - trail_step_profit (number)
- * - cooldown_min (number)
- * - max_consecutive_losses (number)
- * - p10_amount (number)           -- max profit lock amount
- * - profit_lock_10 (boolean)     -- enable/disable 10% lock
- * - admin_override_capital (boolean)
- * - capital_day_915 (number)     -- admin override capital
- * - cooldown_on_profit (boolean)
- * - min_loss_to_count (number)
- *
- * Returns { ok: true, updated: {...} } on success.
- */
 
 function isAdmin(req) {
   const a = req.headers.authorization || "";
@@ -26,9 +9,8 @@ function isAdmin(req) {
   return !!process.env.ADMIN_TOKEN && token === process.env.ADMIN_TOKEN;
 }
 
-// safe JSON parse helper that works in various runtimes
+// tolerant json parser (works on Vercel / serverless)
 async function parseJson(req) {
-  // try built-in body parser (Next/vercel)
   try {
     if (typeof req.json === "function") {
       return await req.json();
@@ -36,8 +18,6 @@ async function parseJson(req) {
   } catch (e) {
     // fallthrough
   }
-
-  // fallback: read raw body
   try {
     const chunks = [];
     for await (const chunk of req) chunks.push(typeof chunk === "string" ? chunk : chunk.toString());
@@ -50,12 +30,10 @@ async function parseJson(req) {
 }
 
 export default async function handler(req, res) {
-  // only accept POST from admin
   if (req.method !== "POST") {
     res.status(405).json({ ok: false, error: "Method not allowed" });
     return;
   }
-
   if (!isAdmin(req)) {
     res.status(401).json({ ok: false, error: "unauthorized" });
     return;
@@ -67,65 +45,80 @@ export default async function handler(req, res) {
     return;
   }
 
-  // allowed fields and normalization
   const patch = {};
-  const safeNum = (v) => {
-    if (v === null || v === undefined) return undefined;
+  const toNum = (v) => {
+    if (v === null || v === undefined || v === "") return undefined;
     const n = Number(v);
     return Number.isFinite(n) ? n : undefined;
   };
 
+  // numeric rule fields (common)
   if (typeof body.max_loss_pct !== "undefined") {
-    const v = safeNum(body.max_loss_pct);
+    const v = toNum(body.max_loss_pct);
     if (typeof v !== "undefined") patch.max_loss_pct = v;
   }
   if (typeof body.trail_step_profit !== "undefined") {
-    const v = safeNum(body.trail_step_profit);
+    const v = toNum(body.trail_step_profit);
     if (typeof v !== "undefined") patch.trail_step_profit = v;
   }
   if (typeof body.cooldown_min !== "undefined") {
-    const v = safeNum(body.cooldown_min);
+    const v = toNum(body.cooldown_min);
     if (typeof v !== "undefined") patch.cooldown_min = v;
   }
   if (typeof body.max_consecutive_losses !== "undefined") {
-    const v = safeNum(body.max_consecutive_losses);
+    const v = toNum(body.max_consecutive_losses);
     if (typeof v !== "undefined") patch.max_consecutive_losses = v;
   }
-  if (typeof body.p10_amount !== "undefined") {
-    const v = safeNum(body.p10_amount);
-    if (typeof v !== "undefined") patch.p10 = v;
+
+  // Max profit: prefer p10_pct (percentage). Accept legacy p10_amount (rupee).
+  if (typeof body.p10_pct !== "undefined") {
+    const v = toNum(body.p10_pct);
+    if (typeof v !== "undefined") {
+      // Save percentage value into `p10` for state exposure (previous code expects s.p10)
+      patch.p10 = v;
+      // also store a helper flag
+      patch.p10_is_pct = true;
+    }
+  } else if (typeof body.p10 !== "undefined") {
+    // UI might post p10 — treat as percentage by default
+    const v = toNum(body.p10);
+    if (typeof v !== "undefined") {
+      patch.p10 = v;
+      patch.p10_is_pct = true;
+    }
+  } else if (typeof body.p10_amount !== "undefined") {
+    // legacy rupee amount — store separately so UI can render as rupees if needed
+    const v = toNum(body.p10_amount);
+    if (typeof v !== "undefined") {
+      patch.p10_amount = v;
+      patch.p10_is_pct = false;
+    }
   }
-  if (typeof body.profit_lock_10 !== "undefined") {
-    patch.profit_lock_10 = !!body.profit_lock_10;
-  }
+
+  // admin override capital flags and value
   if (typeof body.admin_override_capital !== "undefined") {
     patch.admin_override_capital = !!body.admin_override_capital;
   }
   if (typeof body.capital_day_915 !== "undefined") {
-    const v = safeNum(body.capital_day_915);
+    const v = toNum(body.capital_day_915);
     if (typeof v !== "undefined") patch.capital_day_915 = v;
   }
-  if (typeof body.cooldown_on_profit !== "undefined") {
-    patch.cooldown_on_profit = !!body.cooldown_on_profit;
-  }
-  if (typeof body.min_loss_to_count !== "undefined") {
-    const v = safeNum(body.min_loss_to_count);
-    if (typeof v !== "undefined") patch.min_loss_to_count = v;
-  }
 
-  // if nothing meaningful to save -> error (but not required)
+  // other booleans
+  if (typeof body.profit_lock_10 !== "undefined") patch.profit_lock_10 = !!body.profit_lock_10;
+  if (typeof body.allow_new_after_lock10 !== "undefined") patch.allow_new_after_lock10 = !!body.allow_new_after_lock10;
+
   if (Object.keys(patch).length === 0) {
     res.status(400).json({ ok: false, error: "missing fields" });
     return;
   }
 
   try {
-    // setState merges into today's object (setState is implemented in your kv helper)
+    // setState merges with today's record
     const updated = await setState(patch);
-    // also ensure the raw KV key exists and is updated directly for quick reads
+    // also write raw key for quick reads (defensive)
     const key = `risk:${todayKey()}`;
     await kv.set(key, updated);
-
     res.setHeader("Cache-Control", "no-store").status(200).json({ ok: true, updated });
   } catch (err) {
     console.error("set-config error", err && err.stack ? err.stack : err);
