@@ -12,7 +12,16 @@ export default async function handler(req, res) {
   try {
     const admin = isAdmin(req);
     const s = await getState(); // primary state object
-    const tok = await getAccessToken();
+
+    // Defensive getAccessToken: do not allow a thrown error to bubble up
+    let tok = null;
+    try {
+      tok = await getAccessToken();
+    } catch (err) {
+      // Kite not connected or token expired — surface as null (UI will show not_logged_in)
+      tok = null;
+      console.warn("state: getAccessToken failed", err && err.message);
+    }
 
     // Check for an admin override stored in risk:{today}
     let override = null;
@@ -72,7 +81,10 @@ export default async function handler(req, res) {
       max_consecutive_losses: s.max_consecutive_losses ?? 3,
       allow_new_after_lock10: s.allow_new_after_lock10 ?? false,
       week_max_loss_pct: s.week_max_loss_pct ?? null,
-      month_max_loss_pct: s.month_max_loss_pct ?? null
+      month_max_loss_pct: s.month_max_loss_pct ?? null,
+      // Option-B fields (safe defaults)
+      cooldown_on_profit: !!s.cooldown_on_profit,
+      min_loss_to_count: Number(s.min_loss_to_count ?? 0)
     };
 
     const now = new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour12: false });
