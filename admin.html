@@ -111,6 +111,23 @@
             <div id="set_capital_msg" class="small-muted" style="margin-top:8px"></div>
           </div>
 
+          <!-- Option-B config controls (cooldown_on_profit + min_loss_to_count) -->
+          <div style="margin-top:14px">
+            <div class="muted">Behavioral config (admin)</div>
+            <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap">
+              <label style="display:flex;align-items:center;gap:8px;">
+                <input id="cfg_cooldown_on_profit" type="checkbox" /> <span class="muted">Cooldown on profit</span>
+              </label>
+              <label style="display:flex;align-items:center;gap:8px;">
+                <span class="muted">Min loss to count (₹)</span>
+                <input id="cfg_min_loss_to_count" type="number" min="0" placeholder="0" style="width:120px;padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:inherit" />
+              </label>
+              <button id="save_cfg_btn" class="btn primary">Save Config</button>
+              <div id="save_cfg_msg" class="small-muted" style="margin-left:8px"></div>
+            </div>
+            <div class="small-muted" style="margin-top:8px">Changes saved will apply to today's risk state (risk:{YYYY-MM-DD}).</div>
+          </div>
+
           <div id="admin_resp" class="small" style="margin-top:12px;"></div>
         </div>
       </div>
@@ -240,7 +257,6 @@ function getAuthHeader(){
 
 /* === Try multiple candidate endpoints until one returns non-404 or non-network error === */
 async function tryCandidates(paths, opts = {}) {
-  // opts: method, body (object), contentType default json, fallbackToGet
   const method = opts.method || 'POST';
   const bodyObj = opts.body;
   for (const p of paths) {
@@ -253,7 +269,6 @@ async function tryCandidates(paths, opts = {}) {
       }
       const resp = await fetch(p, init);
       const txt = await resp.text().catch(()=>null);
-      // attempt json parse
       let json = null;
       try { json = txt ? JSON.parse(txt) : null; } catch(e){ json = { ok:false, error:'invalid json', raw: txt }; }
       log(`${method} ${p} => ${txt || resp.statusText || resp.status}`);
@@ -268,7 +283,6 @@ async function tryCandidates(paths, opts = {}) {
 
 /* === Page navigation (swipe left/right) === */
 const pagesEl = document.querySelectorAll('.page');
-const pagesContainer = document.querySelector('.wrap > .card') ? null : null; // not used
 let currentPage = 0;
 function goToPage(n){
   const pages = document.querySelectorAll('.page');
@@ -296,7 +310,6 @@ function applyTokenUI(){
     $('toggle_token').textContent = 'Show';
     $('save_token').textContent = 'Saved';
     setTimeout(()=> $('save_token').textContent = 'Save', 1200);
-    $('#admin_actions')?.style && null; // noop
   } else {
     $('admin_token').value = '';
     $('admin_token').dataset.saved = '0';
@@ -308,7 +321,7 @@ function setAdminEnabled(enabled){
   const el = $('admin_actions');
   if(!el) return;
   el.style.display = enabled ? 'block' : 'none';
-  const buttons = ['enforce_btn','kill_btn','cancel_btn','set_capital_btn','enforce_trades_btn','cancel_all_btn','kill_btn2'];
+  const buttons = ['enforce_btn','kill_btn','cancel_btn','set_capital_btn','enforce_trades_btn','cancel_all_btn','kill_btn2','save_cfg_btn'];
   buttons.forEach(id => { const b = $(id); if(b) b.disabled = !enabled; });
 }
 
@@ -328,10 +341,12 @@ async function init(){
   $('kill_btn2').addEventListener('click', killNow);
   $('cancel_btn').addEventListener('click', cancelAll);
   $('cancel_all_btn').addEventListener('click', cancelAll);
-  $('cancel_all_btn').addEventListener('click', cancelAll);
   $('clear_logs').addEventListener('click', ()=> $('raw_responses').textContent = '');
   $('set_capital_btn').addEventListener('click', setCapital);
   $('clear_capital_btn').addEventListener('click', ()=> { $('capital_input').value=''; $('set_capital_msg').textContent=''; });
+
+  // config UI
+  $('save_cfg_btn').addEventListener('click', saveConfig);
 
   // load admin token presence
   applyTokenUI();
@@ -504,10 +519,59 @@ async function setCapital(){
   } finally { $('set_capital_btn').disabled = false; }
 }
 
+/* === Config: load and save Option-B settings === */
+async function loadConfigUI(){
+  try {
+    const r = await fetch('/api/state', { method: 'GET', headers: getAuthHeader() });
+    const txt = await r.text().catch(()=>null);
+    let j = null;
+    try { j = txt ? JSON.parse(txt) : null; } catch(e){ j = null; }
+    if (!j || !j.ok) return;
+    const s = j.state || {};
+    $('cfg_cooldown_on_profit').checked = !!s.cooldown_on_profit;
+    $('cfg_min_loss_to_count').value = (typeof s.min_loss_to_count !== 'undefined') ? Number(s.min_loss_to_count) : 0;
+  } catch (e) {
+    log('loadConfigUI error: ' + (e.message||e));
+  }
+}
+
+async function saveConfig(){
+  const btn = $('save_cfg_btn'); btn.disabled = true;
+  const msgEl = $('save_cfg_msg'); msgEl.textContent = 'Saving...';
+  const payload = {
+    cooldown_on_profit: !!$('cfg_cooldown_on_profit').checked,
+    min_loss_to_count: Number($('cfg_min_loss_to_count').value || 0)
+  };
+  try {
+    const res = await fetch('/api/admin/set-config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+      body: JSON.stringify(payload)
+    });
+    const txt = await res.text().catch(()=>null);
+    let j = null;
+    try { j = txt ? JSON.parse(txt) : null; } catch(e){ j = { ok:false, error:'invalid json' }; }
+    if (j && j.ok) {
+      msgEl.textContent = 'Saved';
+      toast('Config saved');
+      setTimeout(()=> msgEl.textContent = '', 2200);
+      loadAll();
+    } else {
+      msgEl.textContent = 'Error: ' + (j && j.error ? j.error : 'save failed');
+      toast('Config save failed');
+    }
+  } catch (e) {
+    msgEl.textContent = 'Error: ' + (e.message || e);
+    log('saveConfig error: ' + (e.message||e));
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 /* === Data loaders === */
 
 async function loadAll(){
-  await Promise.allSettled([ loadState(), loadFunds() ]);
+  await Promise.allSettled([ loadState(), loadFunds(), loadConfigUI() ]);
 }
 
 /* loadState: GET /api/state (sends auth header so admin flag may show) */
@@ -551,7 +615,6 @@ async function loadState(){
       setAdminEnabled(true);
       applyTokenUI();
     } else {
-      // if server says not admin, still enable if local token exists
       if(localStorage.getItem('ADMIN_TOKEN')) setAdminEnabled(true);
       else setAdminEnabled(false);
     }
