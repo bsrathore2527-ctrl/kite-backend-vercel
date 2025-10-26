@@ -12,16 +12,7 @@ export default async function handler(req, res) {
   try {
     const admin = isAdmin(req);
     const s = await getState(); // primary state object
-
-    // Defensive getAccessToken: do not allow a thrown error to bubble up
-    let tok = null;
-    try {
-      tok = await getAccessToken();
-    } catch (err) {
-      // Kite not connected or token expired — surface as null (UI will show not_logged_in)
-      tok = null;
-      console.warn("state: getAccessToken failed", err && err.message);
-    }
+    const tok = await getAccessToken();
 
     // Check for an admin override stored in risk:{today}
     let override = null;
@@ -54,6 +45,16 @@ export default async function handler(req, res) {
       ? Number(override.capital_day_915)
       : (s.capital_day_915 || 0);
 
+    // --------- AUTO UNTRIP CHECK (only affects the VIEW, not KV) ----------
+    // If the system reports tripped_day but there are no trades, no losses,
+    // and capital is zero, treat the trip as a likely false-positive for UI.
+    // We do NOT write to KV here; this is for debugging and UI clarity only.
+    const suspectZeroCapitalTrip =
+      !!s.tripped_day &&
+      (Number(capitalValue) === 0) &&
+      ((s.consecutive_losses || 0) === 0) &&
+      (!(s.last_trade_time && Number(s.last_trade_time) > 0));
+
     // safe view with defaults
     const safe = {
       capital_day_915: Number(capitalValue || 0),
@@ -62,7 +63,8 @@ export default async function handler(req, res) {
       unrealised: s.unrealised || 0,
       current_balance: s.current_balance || 0, // cached balance (fallback for UI)
       live_balance: liveBalance,
-      tripped_day: !!s.tripped_day,
+      // If suspectZeroCapitalTrip is true we set tripped_day to false for the returned view:
+      tripped_day: suspectZeroCapitalTrip ? false : !!s.tripped_day,
       tripped_week: !!s.tripped_week,
       tripped_month: !!s.tripped_month,
       block_new_orders: !!s.block_new_orders,
@@ -82,9 +84,8 @@ export default async function handler(req, res) {
       allow_new_after_lock10: s.allow_new_after_lock10 ?? false,
       week_max_loss_pct: s.week_max_loss_pct ?? null,
       month_max_loss_pct: s.month_max_loss_pct ?? null,
-      // Option-B fields (safe defaults)
-      cooldown_on_profit: !!s.cooldown_on_profit,
-      min_loss_to_count: Number(s.min_loss_to_count ?? 0)
+      // debug hint: if we auto-untripped for UI, the client can show why
+      auto_untripped_due_to_zero_capital: !!suspectZeroCapitalTrip
     };
 
     const now = new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour12: false });
