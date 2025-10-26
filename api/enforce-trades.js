@@ -1,13 +1,13 @@
 // api/enforce-trades.js
 // Scheduled job — process new trades, compute realized closes, start cooldown and track consecutive losses.
-// Place in your repo at api/enforce-trades.js and schedule it via QStash (every 15-60s recommended).
+// Recommended to run via QStash every 30–60s.
 
 import { kv, getState, setState, todayKey } from "./_lib/kv.js";
 import { instance } from "./_lib/kite.js";
 
 const LAST_TRADE_KEY = "guardian:last_trade_ts";
-const REALIZED_PREFIX = "guardian:realized:"; // store realized events idempotently
-const BOOK_PREFIX = "guardian:book:";          // per-instrument book
+const REALIZED_PREFIX = "guardian:realized:";
+const BOOK_PREFIX = "guardian:book:";
 
 function now() { return Date.now(); }
 
@@ -25,8 +25,7 @@ async function setLastProcessedTs(ts) {
 }
 
 async function getBook(sym) {
-  const b = (await kv.get(BOOK_PREFIX + sym)) || { instrument: sym, lots: [], net_qty: 0 };
-  return b;
+  return (await kv.get(BOOK_PREFIX + sym)) || { instrument: sym, lots: [], net_qty: 0 };
 }
 async function setBook(sym, book) {
   await kv.set(BOOK_PREFIX + sym, book);
@@ -35,13 +34,12 @@ async function setBook(sym, book) {
 async function storeRealizedEvent(evt) {
   const id = makeRealizedId(evt.trade_ids || [], evt.close_ts || now());
   const key = REALIZED_PREFIX + id;
-  const existing = await kv.get(key);
-  if (existing) return false;
+  if (await kv.get(key)) return false;
   await kv.set(key, evt);
   return true;
 }
 
-// FIFO matching functions
+// --- FIFO matching helpers (unchanged) ---
 function matchSellAgainstBook(book, sellQty, sellPrice, tradeId, ts) {
   let qtyToMatch = sellQty;
   const realizedEvents = [];
@@ -60,17 +58,13 @@ function matchSellAgainstBook(book, sellQty, sellPrice, tradeId, ts) {
         trade_ids: [tradeId],
         open_lot: { ...lot }
       });
-      lot.qty = lot.qty - take;
+      lot.qty -= take;
       qtyToMatch -= take;
       if (Math.abs(lot.qty) > 0) newLots.push(lot);
-    } else {
-      newLots.push(lot);
-    }
+    } else newLots.push(lot);
   }
-  if (qtyToMatch > 0) {
-    newLots.push({ qty: -qtyToMatch, avg_price: sellPrice, side: "SELL", open_ts: ts });
-  }
-  const netQty = newLots.reduce((s, l) => s + (l.side === "BUY" ? Number(l.qty || 0) : -Math.abs(Number(l.qty || 0))), 0);
+  if (qtyToMatch > 0) newLots.push({ qty: -qtyToMatch, avg_price: sellPrice, side: "SELL", open_ts: ts });
+  const netQty = newLots.reduce((s, l) => s + (l.side === "BUY" ? Number(l.qty) : -Math.abs(Number(l.qty))), 0);
   return { realizedEvents, updatedBook: { instrument: book.instrument, lots: newLots, net_qty: netQty } };
 }
 
@@ -92,39 +86,47 @@ function matchBuyAgainstBook(book, buyQty, buyPrice, tradeId, ts) {
         trade_ids: [tradeId],
         open_lot: { ...lot }
       });
-      lot.qty = lot.qty + take;
+      lot.qty += take;
       qtyToMatch -= take;
       if (Math.abs(lot.qty) > 0) newLots.push(lot);
-    } else {
-      newLots.push(lot);
-    }
+    } else newLots.push(lot);
   }
-  if (qtyToMatch > 0) {
-    newLots.push({ qty: qtyToMatch, avg_price: buyPrice, side: "BUY", open_ts: ts });
-  }
-  const netQty = newLots.reduce((s, l) => s + (l.side === "BUY" ? Number(l.qty || 0) : -Math.abs(Number(l.qty || 0))), 0);
+  if (qtyToMatch > 0) newLots.push({ qty: buyQty, avg_price: buyPrice, side: "BUY", open_ts: ts });
+  const netQty = newLots.reduce((s, l) => s + (l.side === "BUY" ? Number(l.qty) : -Math.abs(Number(l.qty))), 0);
   return { realizedEvents, updatedBook: { instrument: book.instrument, lots: newLots, net_qty: netQty } };
 }
 
+// --- main handler ---
 export default async function handler(req, res) {
-  // Accept GET/POST/OPTIONS for scheduler compatibility
   if (req.method === "OPTIONS") return res.status(204).end();
   try {
-    const kc = await instance(); // may throw if not logged in
+    const kc = await instance();
     const trades = (await kc.getTrades()) || [];
-    const lastTs = await getLastProcessedTs();
 
-    // normalize timestamp field
+    // 🔹 NEW: auto-reset stale state when new trading day detected
+    const s = await getState();
+    const key = todayKey();
+    if (!s.key || s.key !== key) {
+      console.log("New day detected — resetting daily risk state");
+      await setState({
+        tripped_day: false,
+        block_new_orders: false,
+        consecutive_losses: 0,
+        trip_reason: null
+      });
+    }
+
+    const lastTs = await getLastProcessedTs();
     const normalized = trades.map(t => {
       const ts = t.timestamp || t.trade_time || t.date || t.exchange_timestamp || t.utc_time || null;
       const tts = ts ? (typeof ts === "string" || typeof ts === "number" ? Number(ts) : Date.parse(ts)) : Date.now();
       return { ...t, _ts: tts };
     }).sort((a,b) => a._ts - b._ts);
-
     const newTrades = normalized.filter(t => t._ts > lastTs);
 
     let newest = lastTs;
     let processed = 0;
+
     for (const t of newTrades) {
       processed++;
       newest = Math.max(newest, t._ts);
@@ -135,81 +137,47 @@ export default async function handler(req, res) {
       const side = (t.transaction_type || t.order_side || t.side || "").toUpperCase();
 
       let book = await getBook(sym);
-
-      let result;
-      if (side === "SELL") {
-        result = matchSellAgainstBook(book, qty, price, tradeId, t._ts);
-      } else {
-        result = matchBuyAgainstBook(book, qty, price, tradeId, t._ts);
-      }
+      const result = side === "SELL"
+        ? matchSellAgainstBook(book, qty, price, tradeId, t._ts)
+        : matchBuyAgainstBook(book, qty, price, tradeId, t._ts);
 
       await setBook(sym, result.updatedBook);
 
-      // process realized events
       for (const ev of result.realizedEvents) {
         const saved = await storeRealizedEvent(ev);
-        if (!saved) continue; // skip duplicates
+        if (!saved) continue;
 
-        // load global state
-        const s = await getState();
-
-        // parameters from state (with sensible defaults)
-        const cooldownMin = Number(s.cooldown_min ?? 15);
-        const maxConsec = Number(s.max_consecutive_losses ?? 3);
+        const sNow = await getState();
+        const cooldownMin = Number(sNow.cooldown_min ?? 15);
         const nowTs = Date.now();
+        const cooldownUntil = nowTs + cooldownMin * 60 * 1000;
+        const isLoss = Number(ev.realized_pnl) < 0;
+        const nextConsec = isLoss ? (sNow.consecutive_losses || 0) + 1 : 0; // reset if profitable
 
-        // configurable threshold to ignore tiny losses (optional)
-        const minLossToCount = Number(s.min_loss_to_count ?? 0);
-        const realizedPnl = Number(ev.realized_pnl || 0);
-        const isLoss = (realizedPnl < 0) && (Math.abs(realizedPnl) >= minLossToCount);
-
-        // compute consecutive losses: increment on loss, reset to 0 on profit/zero
-        const prevConsec = Number(s.consecutive_losses || 0);
-        const nextConsec = isLoss ? (prevConsec + 1) : 0;
-
-        // Build patch object
         const patch = {
-          last_trade_pnl: realizedPnl,
+          last_trade_pnl: Number(ev.realized_pnl),
           last_trade_time: ev.close_ts,
+          cooldown_until: cooldownUntil,
+          cooldown_active: true,
           consecutive_losses: nextConsec
         };
 
-        // Apply cooldown if it's a loss OR if admin enabled cooldown_on_profit
-        const cooldownOnProfit = !!s.cooldown_on_profit;
-        if (isLoss || cooldownOnProfit) {
-          patch.cooldown_until = nowTs + cooldownMin * 60 * 1000;
-          patch.cooldown_active = true;
-        } else {
-          // clear active flag if no cooldown applicable (but preserve cooldown_until if you wish)
-          patch.cooldown_active = false;
-        }
-
-        // if consecutive losses exceed limit -> trip day & block new orders
+        const maxConsec = Number(sNow.max_consecutive_losses ?? 3);
         if (nextConsec >= maxConsec) {
           patch.tripped_day = true;
           patch.block_new_orders = true;
           patch.trip_reason = "max_consecutive_losses";
-          patch.streak_tripped_at = nowTs;
-          patch.streak_tripped_count = nextConsec;
-          console.log(`streak trip: consecutive_losses ${nextConsec} >= limit ${maxConsec}`);
         }
 
-        // persist
         await setState(patch);
-
-        // audit log
-        console.log(`[guardian] realized ${ev.instrument} qty=${ev.qty} pnl=${realizedPnl} isLoss=${isLoss} prevConsec=${prevConsec} nextConsec=${nextConsec} cooldownOnProfit=${cooldownOnProfit}`);
       }
     }
 
-    // update last processed pointer
-    if (newest > lastTs) {
-      await setLastProcessedTs(newest);
-    }
+    if (newest > lastTs) await setLastProcessedTs(newest);
 
-    return res.status(200).json({ ok: true, processed, newest_ts: newest });
+    res.status(200).json({ ok: true, processed, newest_ts: newest });
   } catch (err) {
-    console.error("enforce-trades error:", err && err.stack ? err.stack : err);
-    return res.status(500).json({ ok: false, error: String(err) });
+    console.error("enforce-trades error:", err);
+    res.status(500).json({ ok: false, error: String(err) });
   }
 }
