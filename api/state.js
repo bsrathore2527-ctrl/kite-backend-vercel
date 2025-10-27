@@ -1,6 +1,6 @@
 // api/state.js — public/admin state (read-only unless admin uses /api/admin/*)
 import { getState, todayKey, kv } from "./_lib/kv.js";
-import { getAccessToken } from "./_lib/kite.js";
+import { getAccessToken, instance } from "./_lib/kite.js";
 
 function isAdmin(req) {
   const a = req.headers.authorization || "";
@@ -27,15 +27,54 @@ export default async function handler(req, res) {
       console.warn("state: override check failed", err && err.message);
     }
 
-    // prefer live_balance (set by funds fetch) -> current_balance (cached) -> 0
-    const liveBalance =
-      (s.live_balance !== undefined && s.live_balance !== null)
-        ? Number(s.live_balance)
-        : (s.current_balance !== undefined && s.current_balance !== null)
-          ? Number(s.current_balance)
-          : 0;
+    // derive live balance/unrealised from Kite if token present and instance() works
+    let liveBalance = (s.live_balance !== undefined && s.live_balance !== null)
+      ? Number(s.live_balance)
+      : (s.current_balance !== undefined && s.current_balance !== null)
+        ? Number(s.current_balance)
+        : 0;
 
-    // compute cooldown_active boolean
+    let liveUnreal = (typeof s.unrealised === "number") ? Number(s.unrealised) : Number(s.unrealised || 0);
+
+    if (tok) {
+      try {
+        // try best-effort to get fresh positions data
+        const kc = await instance();
+        if (kc && typeof kc.getPositions === "function") {
+          const positions = await kc.getPositions();
+          // many kite libs use positions.net or positions.data.net — handle both
+          const netPositions = (positions && (positions.net || positions.data?.net || positions)) || [];
+          let sumUnreal = 0;
+          // netPositions might be array or object — normalize
+          const arr = Array.isArray(netPositions) ? netPositions : (netPositions.data || []);
+          const list = Array.isArray(netPositions) ? netPositions : arr;
+          for (const p of list) {
+            // try typical fields for unrealised pnl
+            const v = Number(p.unrealised_pnl ?? p.pnl ?? p.mtM ?? p.mtm ?? 0) || 0;
+            sumUnreal += v;
+          }
+          // Only overwrite if we actually computed something reasonable
+          if (!isNaN(sumUnreal)) liveUnreal = sumUnreal;
+
+          // attempt to compute liveBalance if positions response contains usable funds info
+          // prefer positions.funds / positions.available.live_balance -> fallback to s.current_balance
+          const maybeFunds = positions?.funds ?? positions?.data?.funds ?? null;
+          if (maybeFunds && maybeFunds.available) {
+            const lb = Number(maybeFunds.available.live_balance ?? maybeFunds.available.cash ?? maybeFunds.net ?? 0);
+            if (!isNaN(lb) && lb !== 0) liveBalance = lb;
+          } else if (typeof positions?.net === "number") {
+            // some libs return net as number representing balance
+            const lb2 = Number(positions.net);
+            if (!isNaN(lb2) && lb2 !== 0) liveBalance = lb2;
+          }
+        }
+      } catch (e) {
+        // kite read failed — UI will fall back to cached state value
+        console.warn("state: kite positions fetch failed", e && e.message);
+      }
+    }
+
+    // compute cooldown_active boolean from cooldown_until
     const nowTs = Date.now();
     const cooldownUntil = Number(s.cooldown_until || 0);
     const cooldownActive = cooldownUntil > nowTs;
@@ -45,30 +84,19 @@ export default async function handler(req, res) {
       ? Number(override.capital_day_915)
       : (s.capital_day_915 || 0);
 
-    // --------- AUTO UNTRIP CHECK (only affects the VIEW, not KV) ----------
-    // If the system reports tripped_day but there are no trades, no losses,
-    // and capital is zero, treat the trip as a likely false-positive for UI.
-    // We do NOT write to KV here; this is for debugging and UI clarity only.
-    const suspectZeroCapitalTrip =
-      !!s.tripped_day &&
-      (Number(capitalValue) === 0) &&
-      ((s.consecutive_losses || 0) === 0) &&
-      (!(s.last_trade_time && Number(s.last_trade_time) > 0));
-
-    // safe view with defaults
+    // safe view with defaults (expose liveUnreal and liveBalance we derived)
     const safe = {
       capital_day_915: Number(capitalValue || 0),
       admin_override_capital: !!(override && override.admin_override_capital),
-      realised: s.realised || 0,
-      unrealised: s.unrealised || 0,
-      current_balance: s.current_balance || 0, // cached balance (fallback for UI)
-      live_balance: liveBalance,
-      // If suspectZeroCapitalTrip is true we set tripped_day to false for the returned view:
-      tripped_day: suspectZeroCapitalTrip ? false : !!s.tripped_day,
+      realised: Number(s.realised || 0),
+      unrealised: Number(liveUnreal || 0),
+      current_balance: Number(s.current_balance || 0), // cached balance (fallback for UI)
+      live_balance: Number(liveBalance || 0),
+      tripped_day: !!s.tripped_day,
       tripped_week: !!s.tripped_week,
       tripped_month: !!s.tripped_month,
       block_new_orders: !!s.block_new_orders,
-      consecutive_losses: s.consecutive_losses || 0,
+      consecutive_losses: Number(s.consecutive_losses || 0),
       cooldown_until: cooldownUntil,
       cooldown_active: !!cooldownActive,
       last_trade_time: s.last_trade_time || 0,
@@ -84,8 +112,8 @@ export default async function handler(req, res) {
       allow_new_after_lock10: s.allow_new_after_lock10 ?? false,
       week_max_loss_pct: s.week_max_loss_pct ?? null,
       month_max_loss_pct: s.month_max_loss_pct ?? null,
-      // debug hint: if we auto-untripped for UI, the client can show why
-      auto_untripped_due_to_zero_capital: !!suspectZeroCapitalTrip
+      cooldown_on_profit: !!s.cooldown_on_profit,
+      min_loss_to_count: Number(s.min_loss_to_count ?? 0)
     };
 
     const now = new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour12: false });
