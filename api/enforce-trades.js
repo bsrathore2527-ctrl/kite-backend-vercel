@@ -1,22 +1,17 @@
 // api/enforce-trades.js
-// Scheduled job — process new trades, compute realized closes, maintain tradebook,
-// update realised/unrealised totals, track consecutive losses & cooldown,
-// and auto-enforce (cancel + square-off) when total (realised + unrealised)
-// breaches max_loss_pct of today's capital.
-//
-// Drop-in replacement for your existing file. Uses same kv keys and kite instance.
+// Scheduled job — process new trades, compute realized closes, start cooldown and track consecutive losses.
+// Also: when total (realised + unrealised) loss breaches max_loss_pct of capital_day_915,
+// mark tripped_day and immediately attempt to enforce (cancel + square off).
 
 import { kv, getState, setState, todayKey } from "./_lib/kv.js";
 import { instance } from "./_lib/kite.js";
 
 const LAST_TRADE_KEY = "guardian:last_trade_ts";
-const REALIZED_PREFIX = "guardian:realized:";   // per-realized event
-const BOOK_PREFIX = "guardian:book:";           // per-instrument book
-const TRADEBOOK_KEY = "guardian:tradebook";     // circular list of recent raw trades
-
-const TRADEBOOK_MAX = 200;
+const REALIZED_PREFIX = "guardian:realized:"; // store realized events idempotently
+const BOOK_PREFIX = "guardian:book:";          // per-instrument book
 
 function now() { return Date.now(); }
+
 function makeRealizedId(tradeIds = [], ts = 0) {
   const ids = Array.isArray(tradeIds) ? tradeIds.join("_") : String(tradeIds || "");
   return `r_${ids}_${ts}`;
@@ -47,20 +42,30 @@ async function storeRealizedEvent(evt) {
   return true;
 }
 
-// Append to tradebook (capped circular list)
-async function appendTradebook(rawTrade) {
+// Append a minimal trade record to guardian:tradebook (bounded array)
+async function appendToTradebook(evt) {
   try {
-    const arr = (await kv.get(TRADEBOOK_KEY)) || [];
-    arr.unshift(rawTrade);
-    if (arr.length > TRADEBOOK_MAX) arr.length = TRADEBOOK_MAX;
-    await kv.set(TRADEBOOK_KEY, arr);
+    const key = "guardian:tradebook";
+    const cur = (await kv.get(key)) || [];
+    // normalize stored object to avoid storing huge data
+    const rec = {
+      instrument: evt.instrument || evt.tradingsymbol || evt.symbol || null,
+      qty: evt.qty || evt.quantity || null,
+      realized_pnl: Number(evt.realized_pnl || 0),
+      close_ts: evt.close_ts || Date.now(),
+      trade_ids: Array.isArray(evt.trade_ids) ? evt.trade_ids : (evt.trade_id ? [evt.trade_id] : []),
+      open_lot: evt.open_lot || null
+    };
+    cur.push(rec);
+    const max = 500;
+    const next = cur.length > max ? cur.slice(-max) : cur;
+    await kv.set(key, next);
   } catch (e) {
-    // non-fatal
-    console.warn("appendTradebook failed", e && e.message);
+    console.warn("appendToTradebook failed", e && e.message);
   }
 }
 
-// FIFO matching functions (unchanged logic)
+// FIFO matching functions (unchanged)
 function matchSellAgainstBook(book, sellQty, sellPrice, tradeId, ts) {
   let qtyToMatch = sellQty;
   const realizedEvents = [];
@@ -83,12 +88,10 @@ function matchSellAgainstBook(book, sellQty, sellPrice, tradeId, ts) {
       qtyToMatch -= take;
       if (Math.abs(lot.qty) > 0) newLots.push(lot);
     } else {
-      // same side (SELL) kept
       newLots.push(lot);
     }
   }
   if (qtyToMatch > 0) {
-    // opening short
     newLots.push({ qty: -qtyToMatch, avg_price: sellPrice, side: "SELL", open_ts: ts });
   }
   const netQty = newLots.reduce((s, l) => s + (l.side === "BUY" ? Number(l.qty || 0) : -Math.abs(Number(l.qty || 0))), 0);
@@ -128,7 +131,9 @@ function matchBuyAgainstBook(book, buyQty, buyPrice, tradeId, ts) {
 }
 
 /* ---------------------------
-   Helpers: cancel + square-off (copied inline)
+   Helpers to cancel/square-off
+   (duplicated small logic from api/enforce.js,
+    kept inline to avoid extra exports)
    --------------------------- */
 async function cancelPending(kc) {
   try {
@@ -189,48 +194,29 @@ async function squareOffAll(kc) {
 export default async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(204).end();
   try {
-    // kite instance (throws if not logged in)
-    const kc = await instance();
-
-    // fetch trades (today) from kite
-    let trades = [];
-    try {
-      trades = (await kc.getTrades()) || [];
-    } catch (e) {
-      // if fetching trades fails, keep empty and return a helpful message below
-      console.warn("kc.getTrades failed:", e && e.message);
-    }
-
-    // record raw trades in tradebook (for UI visibility)
-    for (const rt of trades) {
-      await appendTradebook({ ts: Date.now(), raw: rt });
-    }
-
+    const kc = await instance(); // may throw if not logged in
+    const trades = (await kc.getTrades()) || [];
     const lastTs = await getLastProcessedTs();
 
-    // normalize timestamp
     const normalized = trades.map(t => {
       const ts = t.timestamp || t.trade_time || t.date || t.exchange_timestamp || t.utc_time || null;
       const tts = ts ? (typeof ts === "string" || typeof ts === "number" ? Number(ts) : Date.parse(ts)) : Date.now();
       return { ...t, _ts: tts };
-    }).sort((a, b) => a._ts - b._ts);
+    }).sort((a,b) => a._ts - b._ts);
 
     const newTrades = normalized.filter(t => t._ts > lastTs);
 
     let newest = lastTs;
     let processed = 0;
-    let realizedDeltaTotal = 0;
-
     for (const t of newTrades) {
       processed++;
       newest = Math.max(newest, t._ts);
-      const sym = t.tradingsymbol || t.trading_symbol || t.instrument || String(t.instrument_token || "");
-      const tradeId = t.trade_id || `${t.order_id || t.orderId || "ord"}_${t._ts}`;
+      const sym = t.tradingsymbol || t.trading_symbol || t.instrument_token || t.instrument;
+      const tradeId = t.trade_id || `${t.order_id || t.orderId}_${t._ts}`;
       const qty = Math.abs(Number(t.quantity || t.qty || 0));
       const price = Number(t.price || t.trade_price || t.avg_price || 0);
-      const side = (t.transaction_type || t.order_side || t.side || "").toUpperCase() || (t.qty && Number(t.qty) < 0 ? "SELL" : "BUY");
+      const side = (t.transaction_type || t.order_side || t.side || "").toUpperCase();
 
-      // load book and match
       let book = await getBook(sym);
       let result;
       if (side === "SELL") {
@@ -239,15 +225,14 @@ export default async function handler(req, res) {
         result = matchBuyAgainstBook(book, qty, price, tradeId, t._ts);
       }
 
-      // persist book
       await setBook(sym, result.updatedBook);
 
-      // process realized events (update state)
       for (const ev of result.realizedEvents) {
         const saved = await storeRealizedEvent(ev);
         if (!saved) continue;
 
-        realizedDeltaTotal += Number(ev.realized_pnl || 0);
+        // append to tradebook for UI/history
+        await appendToTradebook(ev);
 
         // update global state: cooldown, consecutive_losses, last trade PnL/time
         const s = await getState();
@@ -256,20 +241,11 @@ export default async function handler(req, res) {
         const cooldownUntil = nowTs + cooldownMin * 60 * 1000;
         const isLoss = Number(ev.realized_pnl) < 0;
 
-        // respect min_loss_to_count if present (>= threshold)
+        // respect min_loss_to_count if present
         const minLossToCount = Number(s.min_loss_to_count ?? 0);
         const countsAsLoss = isLoss && (Math.abs(Number(ev.realized_pnl)) >= minLossToCount);
 
-        // Update consecutive losses: reset on profitable close, increment on qualifying loss
-        let nextConsec = Number(s.consecutive_losses || 0);
-        if (!isLoss) {
-          nextConsec = 0;
-        } else if (countsAsLoss) {
-          nextConsec = nextConsec + 1;
-        } else {
-          // if it's a small loss below minLossToCount, don't count it
-          nextConsec = nextConsec;
-        }
+        const nextConsec = countsAsLoss ? ((s.consecutive_losses || 0) + 1) : (isLoss ? (s.consecutive_losses || 0) + 1 : 0);
 
         const patch = {
           last_trade_pnl: Number(ev.realized_pnl),
@@ -279,7 +255,7 @@ export default async function handler(req, res) {
           consecutive_losses: nextConsec
         };
 
-        // consecutive loss threshold trip
+        // consecutive loss limit check
         const maxConsec = Number(s.max_consecutive_losses ?? 3);
         if (nextConsec >= maxConsec) {
           patch.tripped_day = true;
@@ -291,67 +267,22 @@ export default async function handler(req, res) {
       }
     }
 
-    // update last processed pointer
     if (newest > lastTs) {
       await setLastProcessedTs(newest);
     }
 
-    // update realised total in state by delta (so API/state shows cumulative realised)
-    if (realizedDeltaTotal !== 0) {
-      try {
-        const s = await getState();
-        const curReal = Number(s.realised || 0);
-        await setState({ realised: Number(curReal + realizedDeltaTotal) });
-      } catch (e) {
-        console.warn("failed to persist realised delta:", e && e.message);
-      }
-    }
-
-    // compute unrealised from kite positions (preferred) — fallback to existing s.unrealised
-    let unrealisedSum = 0;
-    try {
-      const pos = await kc.getPositions();
-      // prefer pos?.net which is an array of positions with pnl or unrealised fields
-      const net = pos?.net || [];
-      if (Array.isArray(net) && net.length) {
-        // Many brokers expose fields like pnl, unrealised, m2m (use sensible fallbacks)
-        unrealisedSum = net.reduce((acc, p) => {
-          const pnl = Number(p.pnl ?? p.unrealised ?? p.unrealised_pnl ?? p.m2m ?? 0);
-          return acc + (Number.isFinite(pnl) ? pnl : 0);
-        }, 0);
-      } else {
-        // Attempt pos?.day or pos?.positions arrays if available
-        const all = Array.isArray(pos) ? pos : (pos?.positions || []);
-        if (Array.isArray(all) && all.length) {
-          unrealisedSum = all.reduce((acc, p) => {
-            const pnl = Number(p.pnl ?? p.unrealised ?? p.m2m ?? 0);
-            return acc + (Number.isFinite(pnl) ? pnl : 0);
-          }, 0);
-        }
-      }
-    } catch (e) {
-      console.warn("kc.getPositions failed:", e && e.message);
-    }
-
-    // write computed unrealised into state for UI to read (merge)
-    try {
-      await setState({ unrealised: Number(unrealisedSum) });
-    } catch (e) {
-      console.warn("persist unrealised failed:", e && e.message);
-    }
-
-    // --- LOSS FLOOR: check overall loss (realised + unrealised) and auto-enforce ---
+    // --- NEW: check overall loss floor (realised + unrealised) and auto-enforce if breached ---
     try {
       const state = await getState();
       const realised = Number(state.realised ?? 0);
-      const unreal = Number(state.unrealised ?? 0);
-      const total = realised + unreal; // net profit (negative if loss)
+      const unreal = Number(state.unreal ?? state.unrealised ?? 0);
+      const total = realised + unreal; // net profit (can be negative)
 
       const capital = Number(state.capital_day_915 || 0);
       const maxLossPct = Number(state.max_loss_pct ?? 10);
       const lossThreshold = -(capital * (maxLossPct / 100)); // e.g. -10000
 
-      if (capital > 0 && total <= lossThreshold && !state.tripped_day) {
+      if (capital > 0 && total <= lossThreshold) {
         // trip and enforce
         const tripPatch = {
           tripped_day: true,
@@ -361,10 +292,11 @@ export default async function handler(req, res) {
         };
         await setState(tripPatch);
 
-        // attempt immediate enforcement (cancel + square off)
+        // try immediate enforcement via kite (cancel + square off)
         try {
           const cancelled = await cancelPending(kc);
           const squared = await squareOffAll(kc);
+          // persist note
           const notePatch = { admin_last_enforce_result: { cancelled, squared, at: Date.now() } };
           await setState(notePatch);
           console.log("Auto-enforce executed:", notePatch.admin_last_enforce_result);
@@ -376,9 +308,9 @@ export default async function handler(req, res) {
       console.warn("loss-floor check failed:", e && e.message ? e.message : e);
     }
 
-    return res.status(200).json({ ok: true, processed, newest_ts: newest, realised_delta: realizedDeltaTotal, unrealised: unrealisedSum });
+    return res.status(200).json({ ok: true, processed, newest_ts: newest });
   } catch (err) {
     console.error("enforce-trades error:", err && err.stack ? err.stack : err);
     return res.status(500).json({ ok: false, error: String(err) });
   }
-            }
+}
