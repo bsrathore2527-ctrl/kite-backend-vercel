@@ -8,6 +8,11 @@ function isAdmin(req) {
   return !!process.env.ADMIN_TOKEN && token === process.env.ADMIN_TOKEN;
 }
 
+function safeNum(v, fallback = 0) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
+}
+
 export default async function handler(req, res) {
   try {
     const admin = isAdmin(req);
@@ -27,54 +32,61 @@ export default async function handler(req, res) {
       console.warn("state: override check failed", err && err.message);
     }
 
-    // derive live balance/unrealised from Kite if token present and instance() works
-    let liveBalance = (s.live_balance !== undefined && s.live_balance !== null)
-      ? Number(s.live_balance)
-      : (s.current_balance !== undefined && s.current_balance !== null)
-        ? Number(s.current_balance)
-        : 0;
-
-    let liveUnreal = (typeof s.unrealised === "number") ? Number(s.unrealised) : Number(s.unrealised || 0);
-
-    if (tok) {
-      try {
-        // try best-effort to get fresh positions data
-        const kc = await instance();
-        if (kc && typeof kc.getPositions === "function") {
-          const positions = await kc.getPositions();
-          // many kite libs use positions.net or positions.data.net — handle both
-          const netPositions = (positions && (positions.net || positions.data?.net || positions)) || [];
-          let sumUnreal = 0;
-          // netPositions might be array or object — normalize
-          const arr = Array.isArray(netPositions) ? netPositions : (netPositions.data || []);
-          const list = Array.isArray(netPositions) ? netPositions : arr;
-          for (const p of list) {
-            // try typical fields for unrealised pnl
-            const v = Number(p.unrealised_pnl ?? p.pnl ?? p.mtM ?? p.mtm ?? 0) || 0;
-            sumUnreal += v;
+    // Attempt to compute better 'unrealised' by asking Kite positions when available.
+    // This uses several common fields from various kite clients (p.pnl, p.unrealised_pnl, p.day_pnl, etc.)
+    let computedUnrealised = null;
+    try {
+      const kc = await instance(); // may throw if not connected
+      if (kc) {
+        const pos = await kc.getPositions();
+        // many kite wrappers return pos.net (array) or pos?.data
+        const netArr = pos?.net || pos?.data || pos || [];
+        if (Array.isArray(netArr) && netArr.length > 0) {
+          let sum = 0;
+          for (const p of netArr) {
+            // try common field names in order of likelihood
+            const cand =
+              p.pnl ??
+              p.unrealised_pnl ??
+              p.unrealised ??
+              p.day_pnl ??
+              p.day_unrealised ??
+              p.netChange ??
+              p.net_change ??
+              p.realised_pnl ??
+              p.m2m ??
+              0;
+            const n = Number(cand);
+            if (Number.isFinite(n)) sum += n;
           }
-          // Only overwrite if we actually computed something reasonable
-          if (!isNaN(sumUnreal)) liveUnreal = sumUnreal;
-
-          // attempt to compute liveBalance if positions response contains usable funds info
-          // prefer positions.funds / positions.available.live_balance -> fallback to s.current_balance
-          const maybeFunds = positions?.funds ?? positions?.data?.funds ?? null;
-          if (maybeFunds && maybeFunds.available) {
-            const lb = Number(maybeFunds.available.live_balance ?? maybeFunds.available.cash ?? maybeFunds.net ?? 0);
-            if (!isNaN(lb) && lb !== 0) liveBalance = lb;
-          } else if (typeof positions?.net === "number") {
-            // some libs return net as number representing balance
-            const lb2 = Number(positions.net);
-            if (!isNaN(lb2) && lb2 !== 0) liveBalance = lb2;
-          }
+          computedUnrealised = sum;
         }
-      } catch (e) {
-        // kite read failed — UI will fall back to cached state value
-        console.warn("state: kite positions fetch failed", e && e.message);
       }
+    } catch (e) {
+      // Kite not connected or getPositions not available — ignore, we'll fallback
+      // keep a console message for debugging
+      // (Note: avoid throwing so this endpoint remains stable)
+      // console.warn("state: compute unrealised failed", e && e.message);
     }
 
-    // compute cooldown_active boolean from cooldown_until
+    // prefer computedUnrealised -> s.unrealised -> 0
+    const unrealisedValue =
+      (computedUnrealised !== null && typeof computedUnrealised !== "undefined")
+        ? Number(computedUnrealised)
+        : (s.unrealised !== undefined && s.unrealised !== null)
+          ? Number(s.unrealised)
+          : 0;
+
+    // attempt to expose a sensible live_balance if stored in state
+    // prefer live_balance (set by funds fetch) -> current_balance (cached) -> 0
+    const liveBalance =
+      (s.live_balance !== undefined && s.live_balance !== null)
+        ? Number(s.live_balance)
+        : (s.current_balance !== undefined && s.current_balance !== null)
+          ? Number(s.current_balance)
+          : 0;
+
+    // compute cooldown_active boolean
     const nowTs = Date.now();
     const cooldownUntil = Number(s.cooldown_until || 0);
     const cooldownActive = cooldownUntil > nowTs;
@@ -84,19 +96,19 @@ export default async function handler(req, res) {
       ? Number(override.capital_day_915)
       : (s.capital_day_915 || 0);
 
-    // safe view with defaults (expose liveUnreal and liveBalance we derived)
+    // safe view with defaults
     const safe = {
       capital_day_915: Number(capitalValue || 0),
       admin_override_capital: !!(override && override.admin_override_capital),
-      realised: Number(s.realised || 0),
-      unrealised: Number(liveUnreal || 0),
-      current_balance: Number(s.current_balance || 0), // cached balance (fallback for UI)
-      live_balance: Number(liveBalance || 0),
+      realised: safeNum(s.realised, 0),
+      unrealised: Number(unrealisedValue),
+      current_balance: s.current_balance || 0, // cached balance (fallback for UI)
+      live_balance: liveBalance,
       tripped_day: !!s.tripped_day,
       tripped_week: !!s.tripped_week,
       tripped_month: !!s.tripped_month,
       block_new_orders: !!s.block_new_orders,
-      consecutive_losses: Number(s.consecutive_losses || 0),
+      consecutive_losses: s.consecutive_losses || 0,
       cooldown_until: cooldownUntil,
       cooldown_active: !!cooldownActive,
       last_trade_time: s.last_trade_time || 0,
@@ -112,9 +124,19 @@ export default async function handler(req, res) {
       allow_new_after_lock10: s.allow_new_after_lock10 ?? false,
       week_max_loss_pct: s.week_max_loss_pct ?? null,
       month_max_loss_pct: s.month_max_loss_pct ?? null,
-      cooldown_on_profit: !!s.cooldown_on_profit,
-      min_loss_to_count: Number(s.min_loss_to_count ?? 0)
+      // preserve any extra meta that might be useful in UI
+      p10: s.p10 ?? s.p10_amount ?? null,
+      p10_is_pct: typeof s.p10_is_pct !== 'undefined' ? !!s.p10_is_pct : null,
+      admin_last_enforce_result: s.admin_last_enforce_result ?? null
     };
+
+    // small debug hint — if computedUnrealised differs significantly from stored value, add a hint
+    if (computedUnrealised !== null) {
+      const stored = (s.unrealised !== undefined && s.unrealised !== null) ? Number(s.unrealised) : null;
+      if (stored !== null && Math.abs(stored - computedUnrealised) > 1) {
+        safe._unrealised_debug = { stored, computed: Number(computedUnrealised) };
+      }
+    }
 
     const now = new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour12: false });
     res.setHeader("Cache-Control", "no-store").json({
