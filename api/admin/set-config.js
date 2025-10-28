@@ -30,6 +30,34 @@ async function parseJson(req) {
 }
 
 export default async function handler(req, res) {
+  // --- Support GET?action=tradebook to read today's tradebook without creating new API file ---
+  try {
+    const url = (req.url && typeof req.url === "string") ? new URL(req.url, `http://${req.headers.host}`) : null;
+    const action = url ? url.searchParams.get("action") : null;
+    if (req.method === "GET" && action === "tradebook") {
+      if (!isAdmin(req)) {
+        return res.status(401).json({ ok: false, error: "unauthorized" });
+      }
+      try {
+        const day = (url && url.searchParams.get("day")) || todayKey();
+        const limit = Math.min(1000, Number((url && url.searchParams.get("limit")) || 200));
+        const key = `guardian:tradebook:${day}`;
+        const raw = await kv.lrange(key, 0, limit - 1);
+        const list = (raw || []).map(r => {
+          try { return JSON.parse(r); } catch { return { raw: r }; }
+        });
+        return res.setHeader("Cache-Control", "no-store").status(200).json({ ok: true, day, count: list.length, trades: list });
+      } catch (err) {
+        console.error("tradebook read error", err && err.stack ? err.stack : err);
+        return res.status(500).json({ ok: false, error: err.message || String(err) });
+      }
+    }
+  } catch (err) {
+    // If URL parsing fails for some reason, fall through to normal behavior
+    console.warn("set-config GET action check failed:", err && err.message ? err.message : err);
+  }
+
+  // Existing POST-only behavior
   if (req.method !== "POST") {
     res.status(405).json({ ok: false, error: "Method not allowed" });
     return;
