@@ -217,6 +217,25 @@
       <div class="small muted" style="margin-top:8px">Only editable when admin token is saved. Saving posts to <code>/api/admin/set-config</code>.</div>
     </section>
 
+    <!-- page 3.5: Trade Book (new) -->
+    <section class="page card" id="page_tradebook">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <h3 style="margin:0">Trade Book</h3>
+        <div>
+          <button id="refresh_tradebook" class="btn ghost">Refresh</button>
+        </div>
+      </div>
+
+      <div style="margin-top:12px">
+        <div class="muted">Recent trades stored in the tradebook (server)</div>
+        <div class="small muted" id="tradebook_hint" style="margin-top:6px">
+          Showing last 50 trades (server) — fallback to client logs if empty.
+        </div>
+
+        <pre id="tradebook_list" class="log" style="margin-top:8px;max-height:420px;overflow:auto">—</pre>
+      </div>
+    </section>
+
     <!-- page 4: Logs & actions -->
     <section class="page card" id="page_logs">
       <h3 style="margin:0">Logs & actions</h3>
@@ -264,6 +283,7 @@ const ENDPOINTS = {
   kite_login: '/api/kite/login',
   set_config: '/api/admin/set-config',
   kite_trades: '/api/kite/trades',
+  tradebook: '/api/admin/tradebook',   // <-- NEW
   set_capital_candidates: ['/api/admin/set-capital','/api/admin/set_capital','/api/admin/setcapital','/api/admin/set-captial']
 };
 
@@ -312,133 +332,15 @@ function init(){
   $('filter_trades').addEventListener('click', showExecutedTrades);
   $('filter_all').addEventListener('click', showAllLogs);
   $('clear_logs').addEventListener('click', ()=> $('raw_responses').textContent = '');
-// --- Reset Day button (admin only): try multiple endpoints & log results ---
-  $('reset_day_btn')?.addEventListener('click', async () => {
-  if (!confirm("Reset day will clear 'tripped' and unblock new orders. Proceed?")) return;
-  const btn = $('reset_day_btn');
-  btn.disabled = true;
-  try {
-    const candidates = [
-      '/api/admin/set-config',
-      '/api/admin/reset-day',
-      '/api/admin/reset_day',
-      '/api/admin/resetday'
-    ];
-    let result = null;
 
-    for (const p of candidates) {
-      try {
-        const res = await fetch(p, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...authHeader() },
-          body: JSON.stringify({ reset_day: true })
-        });
-        const txt = await res.text().catch(()=>null);
-        logLine(`POST ${p} => ${txt || res.status}`);
-        let j = null;
-        try { j = txt ? JSON.parse(txt) : null; } catch(_) { /* ignore json parse */ }
+  // tradebook refresh
+  $('refresh_tradebook').addEventListener('click', loadTradebook);
 
-        // if 404 -> endpoint not present, try next candidate
-        if (res.status === 404) continue;
-
-        // Save first non-404 response
-        result = { path: p, status: res.status, text: txt, json: j, ok: res.ok };
-        break;
-      } catch (errInner) {
-        logLine(`reset try ${p} failed: ${errInner.message || errInner}`);
-        // try next candidate
-      }
-    }
-
-    if (!result) {
-      toast('No reset endpoint found on server (checked multiple paths).');
-    } else if (result.json && result.json.ok) {
-      toast('Day reset successful. Guardian active.');
-      await loadAll();
-    } else {
-      // If server returned something non-ok, surface that
-      const msg = (result.json && (result.json.error || result.json.message)) || result.text || `status ${result.status}`;
-      toast('Reset failed: ' + msg);
-    }
-  } catch (e) {
-    logLine('reset_day err: ' + (e && e.message ? e.message : String(e)));
-    toast('Reset error: ' + (e && e.message ? e.message : 'unknown'));
-  } finally {
-    btn.disabled = false;
-  }
-});
   applyTokenUI();
   if(localStorage.getItem('ADMIN_TOKEN')) enableAdmin(true);
 
   loadAll();
   setInterval(()=> $('now').textContent = now(), 1000);
-
-  // --- Reset Day button (admin only) ---
-  $('reset_day_btn')?.addEventListener('click', async () => {
-    if (!confirm("Reset day will clear 'tripped' and unblock new orders. Proceed?")) return;
-    const btn = $('reset_day_btn');
-    btn.disabled = true;
-    try {
-      const res = await fetch(ENDPOINTS.set_config, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeader() },
-        body: JSON.stringify({ reset_day: true })
-      });
-      const txt = await res.text().catch(()=>null);
-      logLine(`POST ${ENDPOINTS.set_config} reset_day => ${txt || res.status}`);
-      let j = null; try{ j = txt ? JSON.parse(txt) : null }catch(e){}
-      if (j && j.ok) {
-        toast('Day reset successful. Guardian active.');
-        await loadAll();
-      } else {
-        toast('Reset failed: ' + (j?.error || txt || res.status));
-      }
-    } catch (err) {
-      logLine('reset_day err: ' + (err.message || err));
-      toast('Network error: ' + (err.message || err));
-    } finally {
-      btn.disabled = false;
-    }
-  });
-
-  // --- Allow New Orders toggle (sends admin update) ---
-  $('allow_new')?.addEventListener('change', async (ev) => {
-    const el = ev.target;
-    // admin only — require saved token / server acceptance
-    if (!localStorage.getItem('ADMIN_TOKEN')) {
-      toast('Save admin token first');
-      el.checked = !el.checked; // revert UI
-      return;
-    }
-    const allow = !!el.checked; // true => allow new orders
-    el.disabled = true;
-    try {
-      // server expects block_new_orders boolean — send inverse
-      const payload = { block_new_orders: !allow };
-      const r = await fetch(ENDPOINTS.set_config, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeader() },
-        body: JSON.stringify(payload)
-      });
-      const txt = await r.text().catch(()=>null);
-      logLine(`POST ${ENDPOINTS.set_config} => ${txt || r.status}`);
-      let j = null; try{ j = txt ? JSON.parse(txt) : null }catch(e){}
-      if (j && j.ok) {
-        toast('Updated allow-new setting');
-        await loadAll();
-      } else {
-        toast('Update failed: ' + (j?.error || txt || r.status));
-        // revert UI on failure
-        el.checked = !allow;
-      }
-    } catch (err) {
-      logLine('allow_new err: ' + (err.message || err));
-      toast('Network error');
-      el.checked = !allow;
-    } finally {
-      el.disabled = false;
-    }
-  });
 }
 
 /* token functions */
@@ -566,7 +468,7 @@ async function saveRules(){
 async function saveConfig(){
   const btn = $('save_cfg_btn'); if(!btn) return;
   btn.disabled=true; $('save_cfg_msg').textContent='Saving...';
-  const payload = { cooldown_on_profit: !!$('cfg_cooldown_on_profit').checked, min_loss_to_count: Number($('cfg_min_loss_to_count').value || 0) };
+  const payload = { cooldown_on_profit: !!$('cfg_cooldown_on_profit').checked, min_loss_to_count: Number($('cfg_min_loss_to_count').value || 0), allow_new: !!$('allow_new').checked };
   try{
     const r = await fetch('/api/admin/set-config', { method:'POST', headers:{ 'Content-Type':'application/json', ...authHeader() }, body: JSON.stringify(payload) });
     const txt = await r.text().catch(()=>null); let j=null; try{ j = txt ? JSON.parse(txt) : null }catch(e){}
@@ -578,7 +480,7 @@ async function saveConfig(){
 }
 
 /* load state & funds (reads more keys and populates new UI fields) */
-async function loadAll(){ await Promise.allSettled([ loadState(), loadFunds() ]); }
+async function loadAll(){ await Promise.allSettled([ loadState(), loadFunds(), loadTradebook() ]); }
 
 async function loadState(){
   try{
@@ -618,23 +520,6 @@ async function loadState(){
     $('day_status').textContent = tripped ? 'TRIPPED' : 'active';
     $('day_status').className = 'badge status-pill ' + (tripped ? 'status-tripped' : 'status-active');
 
-    // --- NEW: show/hide + enable reset button for admin + reflect tripped state
-    const resetBtn = $('reset_day_btn');
-    if (resetBtn) {
-      // visible only for admin users (server indicates j.admin)
-      resetBtn.style.display = (j.admin ? 'inline-block' : 'none');
-      // enabled only when day is tripped (if visible)
-      resetBtn.disabled = !tripped;
-    }
-
-    // reflect Allow New Orders checkbox from state.block_new_orders (checkbox is "Allow New Orders")
-    const allowNew = $('allow_new');
-    if (allowNew) {
-      // checked when new orders are allowed (i.e. block_new_orders is false)
-      allowNew.checked = !s.block_new_orders;
-      // visual only — no auto-send here
-    }
-
     // populate rules inputs with current values (only if inputs exist)
     $('rule_max_loss_pct').value = (typeof s.max_loss_pct !== 'undefined') ? String(s.max_loss_pct) : '';
     $('rule_trail_step').value = (typeof s.trail_step_profit !== 'undefined') ? String(s.trail_step_profit) : '';
@@ -645,6 +530,7 @@ async function loadState(){
     // behavioral config
     $('cfg_cooldown_on_profit').checked = !!s.cooldown_on_profit;
     $('cfg_min_loss_to_count').value = Number(s.min_loss_to_count || 0);
+    $('allow_new').checked = !!s.allow_new;
 
     // admin UI enablement
     if(j.admin) enableAdmin(true);
@@ -674,6 +560,41 @@ async function loadFunds(){
     else if (j.funds && j.funds.available && typeof j.funds.available.cash !== 'undefined') av = j.funds.available.cash;
     $('live_balance').textContent = fmtINR(av ?? (j.balance ?? 0));
   }catch(e){ logLine('loadFunds err: '+(e.message||e)); const cached = await fetch(ENDPOINTS.state).then(r=>r.json()).catch(()=>null); const val = cached?.state?.current_balance ?? cached?.state?.capital_day_915 ?? 0; $('live_balance').textContent = fmtINR(val); }
+}
+
+/* load Tradebook (server-side record). Falls back to client log scan if empty */
+async function loadTradebook(){
+  const pre = $('tradebook_list'); if(!pre) return;
+  pre.textContent = 'Loading tradebook...';
+  try{
+    const r = await fetch(ENDPOINTS.tradebook, { method:'GET', headers: authHeader() });
+    const txt = await r.text().catch(()=>null);
+    logLine(`GET ${ENDPOINTS.tradebook} => ${txt || r.status}`);
+    let json = null; try{ json = txt ? JSON.parse(txt) : null }catch(e){}
+    let trades = null;
+    if(Array.isArray(json)) trades = json;
+    else if(json && Array.isArray(json.trades)) trades = json.trades;
+    if(trades && trades.length){
+      pre.textContent = trades.map(t => {
+        // reuse formatTrade to keep consistent output if server trade shape varies
+        try { return formatTrade(t); } catch(e){ return JSON.stringify(t); }
+      }).join('\n---\n');
+      toast('Tradebook loaded');
+      return;
+    }
+  }catch(e){
+    logLine('loadTradebook err: '+(e.message||e));
+  }
+
+  // fallback: scan client logs for trade lines (if server had none)
+  const fallbackLines = getRawLogLines().filter(l => /\b(trade|trade_id|order_id|executed|filled|avg_price|filled_qty|tradingsymbol)\b/i.test(l));
+  if(fallbackLines.length){
+    pre.textContent = fallbackLines.join('\n\n');
+    toast('Showing trades from client logs (fallback)');
+  } else {
+    pre.textContent = 'No trades found in tradebook or logs.';
+    toast('No trades found');
+  }
 }
 
 /* Logs helpers */
