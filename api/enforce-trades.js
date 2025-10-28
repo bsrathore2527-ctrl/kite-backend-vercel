@@ -1,7 +1,6 @@
 // api/enforce-trades.js
 // Scheduled job — process new trades, compute realized closes, start cooldown and track consecutive losses.
-// Also: when total (realised + unrealised) loss breaches max_loss_pct of capital_day_915,
-// mark tripped_day and immediately attempt to enforce (cancel + square off).
+// Also: persist a recent tradebook to KV (guardian:tradebook) so admin UI can display recent trades.
 
 import { kv, getState, setState, todayKey } from "./_lib/kv.js";
 import { instance } from "./_lib/kite.js";
@@ -9,6 +8,8 @@ import { instance } from "./_lib/kite.js";
 const LAST_TRADE_KEY = "guardian:last_trade_ts";
 const REALIZED_PREFIX = "guardian:realized:"; // store realized events idempotently
 const BOOK_PREFIX = "guardian:book:";          // per-instrument book
+const TRADEBOOK_KEY = "guardian:tradebook";    // persisted recent trades
+const MAX_KEEP = 200;                          // keep last N trades in tradebook
 
 function now() { return Date.now(); }
 
@@ -40,29 +41,6 @@ async function storeRealizedEvent(evt) {
   if (existing) return false;
   await kv.set(key, evt);
   return true;
-}
-
-// Append a minimal trade record to guardian:tradebook (bounded array)
-async function appendToTradebook(evt) {
-  try {
-    const key = "guardian:tradebook";
-    const cur = (await kv.get(key)) || [];
-    // normalize stored object to avoid storing huge data
-    const rec = {
-      instrument: evt.instrument || evt.tradingsymbol || evt.symbol || null,
-      qty: evt.qty || evt.quantity || null,
-      realized_pnl: Number(evt.realized_pnl || 0),
-      close_ts: evt.close_ts || Date.now(),
-      trade_ids: Array.isArray(evt.trade_ids) ? evt.trade_ids : (evt.trade_id ? [evt.trade_id] : []),
-      open_lot: evt.open_lot || null
-    };
-    cur.push(rec);
-    const max = 500;
-    const next = cur.length > max ? cur.slice(-max) : cur;
-    await kv.set(key, next);
-  } catch (e) {
-    console.warn("appendToTradebook failed", e && e.message);
-  }
 }
 
 // FIFO matching functions (unchanged)
@@ -132,8 +110,6 @@ function matchBuyAgainstBook(book, buyQty, buyPrice, tradeId, ts) {
 
 /* ---------------------------
    Helpers to cancel/square-off
-   (duplicated small logic from api/enforce.js,
-    kept inline to avoid extra exports)
    --------------------------- */
 async function cancelPending(kc) {
   try {
@@ -189,15 +165,37 @@ async function squareOffAll(kc) {
 }
 
 /* ---------------------------
+   Utility: persist recent trades (tradebook)
+   --------------------------- */
+async function appendToTradebook(entries = []) {
+  if (!Array.isArray(entries) || entries.length === 0) return;
+  try {
+    const raw = (await kv.get(TRADEBOOK_KEY)) || [];
+    const arr = Array.isArray(raw) ? raw : [];
+    // append new at start (most recent first)
+    const newArr = [...entries.map(e => e), ...arr];
+    // keep only MAX_KEEP
+    const trimmed = newArr.slice(0, MAX_KEEP);
+    await kv.set(TRADEBOOK_KEY, trimmed);
+  } catch (e) {
+    console.warn("tradebook append failed:", e && e.message ? e.message : e);
+  }
+}
+
+/* ---------------------------
    Main handler
    --------------------------- */
 export default async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(204).end();
   try {
     const kc = await instance(); // may throw if not logged in
+
+    // fetch all trades from kite (today). Assumes kc.getTrades() exists.
     const trades = (await kc.getTrades()) || [];
+    // normalize timestamp field: try t.timestamp or t.trade_time or t.order_timestamp
     const lastTs = await getLastProcessedTs();
 
+    // sort ascending and filter only new trades
     const normalized = trades.map(t => {
       const ts = t.timestamp || t.trade_time || t.date || t.exchange_timestamp || t.utc_time || null;
       const tts = ts ? (typeof ts === "string" || typeof ts === "number" ? Number(ts) : Date.parse(ts)) : Date.now();
@@ -205,6 +203,28 @@ export default async function handler(req, res) {
     }).sort((a,b) => a._ts - b._ts);
 
     const newTrades = normalized.filter(t => t._ts > lastTs);
+
+    // Persist a simplified trade record for UI (tradebook)
+    const simplified = newTrades.map(t => {
+      const id = t.trade_id || `${t.order_id || t.orderId || 'o'}_${t._ts}`;
+      const sym = t.tradingsymbol || t.trading_symbol || t.instrument || t.symbol || '—';
+      const qty = Number(t.quantity || t.qty || 0);
+      const price = Number(t.price || t.trade_price || t.avg_price || 0);
+      const side = (t.transaction_type || t.order_side || t.side || '').toUpperCase() || (qty < 0 ? 'SELL' : 'BUY');
+      return {
+        trade_id: id,
+        instrument: sym,
+        side,
+        qty,
+        price,
+        ts: t._ts
+      };
+    });
+
+    // append simplified trades to tradebook (server KV)
+    if (simplified.length) {
+      await appendToTradebook(simplified);
+    }
 
     let newest = lastTs;
     let processed = 0;
@@ -217,7 +237,9 @@ export default async function handler(req, res) {
       const price = Number(t.price || t.trade_price || t.avg_price || 0);
       const side = (t.transaction_type || t.order_side || t.side || "").toUpperCase();
 
+      // load book
       let book = await getBook(sym);
+
       let result;
       if (side === "SELL") {
         result = matchSellAgainstBook(book, qty, price, tradeId, t._ts);
@@ -225,14 +247,13 @@ export default async function handler(req, res) {
         result = matchBuyAgainstBook(book, qty, price, tradeId, t._ts);
       }
 
+      // save updated book
       await setBook(sym, result.updatedBook);
 
+      // process realized events
       for (const ev of result.realizedEvents) {
         const saved = await storeRealizedEvent(ev);
-        if (!saved) continue;
-
-        // append to tradebook for UI/history
-        await appendToTradebook(ev);
+        if (!saved) continue; // skip duplicates
 
         // update global state: cooldown, consecutive_losses, last trade PnL/time
         const s = await getState();
@@ -275,7 +296,7 @@ export default async function handler(req, res) {
     try {
       const state = await getState();
       const realised = Number(state.realised ?? 0);
-      const unreal = Number(state.unreal ?? state.unrealised ?? 0);
+      const unreal = Number(state.unrealised ?? 0);
       const total = realised + unreal; // net profit (can be negative)
 
       const capital = Number(state.capital_day_915 || 0);
