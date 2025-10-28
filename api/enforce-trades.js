@@ -204,6 +204,30 @@ export default async function handler(req, res) {
 
       await setBook(sym, result.updatedBook);
 
+      // ---------- TRADEBOOK APPEND (safe, bounded) ----------
+      try {
+        const tbKey = `guardian:tradebook:${todayKey()}`;
+        const tbRec = {
+          trade_id: tradeId,
+          symbol: String(sym || "unknown"),
+          side: String(side || "BUY"),
+          qty: Number(qty || 0),
+          price: Number(price || 0),
+          timestamp: Number(t._ts || Date.now()),
+          raw: {
+            order_id: t.order_id || t.orderId || null,
+            avg_price: t.price || t.avg_price || t.trade_price || null
+          }
+        };
+        // push newest-first and keep list capped to 2000
+        await kv.lpush(tbKey, JSON.stringify(tbRec));
+        await kv.ltrim(tbKey, 0, 1999);
+      } catch (e) {
+        // non-fatal: allow main flow to continue
+        console.warn("tradebook append failed:", e && e.message ? e.message : e);
+      }
+      // ---------- END TRADEBOOK APPEND ----------
+
       for (const ev of result.realizedEvents) {
         const saved = await storeRealizedEvent(ev);
         if (!saved) continue;
@@ -249,7 +273,7 @@ export default async function handler(req, res) {
     try {
       const state = await getState();
       const realised = Number(state.realised ?? 0);
-      const unreal = Number(state.unrealised ?? 0);
+      const unreal = Number(state.unreal ?? state.unrealised ?? 0); // defensive fallback if key name varies
       const total = realised + unreal; // net profit (can be negative)
 
       const capital = Number(state.capital_day_915 || 0);
@@ -287,4 +311,4 @@ export default async function handler(req, res) {
     console.error("enforce-trades error:", err && err.stack ? err.stack : err);
     return res.status(500).json({ ok: false, error: String(err) });
   }
-}
+  }
