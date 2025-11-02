@@ -1,8 +1,9 @@
 // api/kite/trades.js
-// Returns recent trades — prefer live Kite trades; fallback to server-side tradebook stored in KV.
+// Returns today's trades — prefer server tradebook stored in KV (persisted by enforce-trades)
+// fallback to live Kite trades if no tradebook found.
 
-import { kv } from "../_lib/kv.js";          // ✅ fixed path (was ./_lib)
-import { instance } from "../_lib/kite.js";  // ✅ fixed path (was ./_lib)
+import { kv } from "../_lib/kv.js";
+import { instance } from "../_lib/kite.js";
 
 const TRADEBOOK_KEY = "guardian:tradebook";
 
@@ -12,51 +13,47 @@ function isAdmin(req) {
   return !!process.env.ADMIN_TOKEN && token === process.env.ADMIN_TOKEN;
 }
 
+function dayKeyFromTs(ts) {
+  try {
+    const d = new Date(Number(ts));
+    return d.toLocaleString("en-GB", { timeZone: "Asia/Kolkata" }).split(",")[0]
+      .split("/").reverse().join("-");
+  } catch { return null; }
+}
+
 export default async function handler(req, res) {
-  // accept GET
   if (req.method === "OPTIONS") return res.status(204).end();
-  if (req.method !== "GET")
-    return res.status(405).json({ ok: false, error: "Method not allowed" });
+  if (req.method !== "GET") return res.status(405).json({ ok: false, error: "Method not allowed" });
 
   try {
-    // try kite first
-    try {
-      const kc = await instance();
-      const trades = (await kc.getTrades()) || [];
-      if (Array.isArray(trades) && trades.length > 0) {
-        // return raw kite trades (UI can parse)
-        return res
-          .setHeader("Cache-Control", "no-store")
-          .status(200)
-          .json(trades);
-      }
-    } catch (e) {
-      console.warn(
-        "kite/trades kite fetch failed:",
-        e && e.message ? e.message : e
-      );
-      // fallthrough to tradebook
-    }
-
-    // fallback: read stored tradebook
     const raw = await kv.get(TRADEBOOK_KEY);
     const arr = Array.isArray(raw) ? raw : [];
 
-    // if admin request, return extra metadata
-    if (isAdmin(req)) {
-      return res
-        .setHeader("Cache-Control", "no-store")
-        .status(200)
-        .json({ ok: true, source: "tradebook", trades: arr });
-    } else {
-      // public UI call — return array
-      return res
-        .setHeader("Cache-Control", "no-store")
-        .status(200)
-        .json(arr);
+    // Filter today's trades only
+    const nowIST = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+    const todayKeyStr = `${nowIST.getFullYear()}-${String(nowIST.getMonth()+1).padStart(2,"0")}-${String(nowIST.getDate()).padStart(2,"0")}`;
+    const todayTrades = arr.filter(t => dayKeyFromTs(t.ts) === todayKeyStr);
+
+    if (todayTrades.length > 0) {
+      const recent = todayTrades.slice(-50).reverse();
+      if (isAdmin(req))
+        return res.status(200).json({ ok: true, source: "tradebook", trades: recent });
+      return res.status(200).json(recent);
     }
+
+    // fallback to Kite live trades
+    try {
+      const kc = await instance();
+      const trades = (await kc.getTrades()) || [];
+      if (trades.length)
+        return res.status(200).json(trades.slice(-100));
+    } catch (e) {
+      console.warn("kite/trades fallback failed:", e);
+    }
+
+    return res.status(200).json({ ok: true, source: "empty", trades: [] });
   } catch (err) {
-    console.error("kite/trades error:", err && err.stack ? err.stack : err);
+    console.error("kite/trades error:", err);
     return res.status(500).json({ ok: false, error: String(err) });
   }
 }
