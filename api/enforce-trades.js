@@ -1,6 +1,6 @@
 // api/enforce-trades.js
 // Scheduled job — process new trades, compute realized closes, start cooldown and track consecutive losses.
-// Also: persist a recent tradebook to KV (guardian:tradebook) so admin UI can display recent trades.
+// Also: persist trades into KV tradebook so UI always shows executed trades.
 
 import { kv, getState, setState, todayKey } from "./_lib/kv.js";
 import { instance } from "./_lib/kite.js";
@@ -8,8 +8,7 @@ import { instance } from "./_lib/kite.js";
 const LAST_TRADE_KEY = "guardian:last_trade_ts";
 const REALIZED_PREFIX = "guardian:realized:"; // store realized events idempotently
 const BOOK_PREFIX = "guardian:book:";          // per-instrument book
-const TRADEBOOK_KEY = "guardian:tradebook";    // persisted recent trades
-const MAX_KEEP = 200;                          // keep last N trades in tradebook
+const TRADEBOOK_KEY = "guardian:tradebook";
 
 function now() { return Date.now(); }
 
@@ -41,6 +40,41 @@ async function storeRealizedEvent(evt) {
   if (existing) return false;
   await kv.set(key, evt);
   return true;
+}
+
+// persist a simplified trade into tradebook (no duplicates)
+async function persistTradebook(rawTrade) {
+  try {
+    // simplify trade object
+    const t = {
+      trade_id: rawTrade.trade_id || rawTrade.tradeId || rawTrade.id || `${rawTrade.order_id || rawTrade.orderId || 'ord'}_${rawTrade._ts || Date.now()}`,
+      order_id: rawTrade.order_id || rawTrade.orderId || rawTrade.order_id,
+      tradingsymbol: rawTrade.tradingsymbol || rawTrade.trading_symbol || rawTrade.instrument || rawTrade.symbol,
+      quantity: Number(rawTrade.quantity || rawTrade.qty || rawTrade.filled_qty || 0),
+      price: Number(rawTrade.price || rawTrade.trade_price || rawTrade.avg_price || rawTrade.last_price || 0),
+      side: (rawTrade.transaction_type || rawTrade.order_side || rawTrade.side || "").toUpperCase(),
+      timestamp: Number(rawTrade._ts || rawTrade.trade_time || rawTrade.timestamp || Date.now())
+    };
+
+    // read existing tradebook
+    const raw = await kv.get(TRADEBOOK_KEY);
+    const arr = Array.isArray(raw) ? raw : [];
+
+    // dedupe by trade_id
+    if (arr.find(x => x.trade_id === t.trade_id)) return false;
+
+    // append, keep latest first (for UI convenience)
+    arr.unshift(t);
+
+    // limit size to avoid unbounded growth (e.g. keep 5000)
+    if (arr.length > 5000) arr.splice(5000);
+
+    await kv.set(TRADEBOOK_KEY, arr);
+    return true;
+  } catch (e) {
+    console.warn("persistTradebook failed:", e && e.message ? e.message : e);
+    return false;
+  }
 }
 
 // FIFO matching functions (unchanged)
@@ -165,37 +199,15 @@ async function squareOffAll(kc) {
 }
 
 /* ---------------------------
-   Utility: persist recent trades (tradebook)
-   --------------------------- */
-async function appendToTradebook(entries = []) {
-  if (!Array.isArray(entries) || entries.length === 0) return;
-  try {
-    const raw = (await kv.get(TRADEBOOK_KEY)) || [];
-    const arr = Array.isArray(raw) ? raw : [];
-    // append new at start (most recent first)
-    const newArr = [...entries.map(e => e), ...arr];
-    // keep only MAX_KEEP
-    const trimmed = newArr.slice(0, MAX_KEEP);
-    await kv.set(TRADEBOOK_KEY, trimmed);
-  } catch (e) {
-    console.warn("tradebook append failed:", e && e.message ? e.message : e);
-  }
-}
-
-/* ---------------------------
    Main handler
    --------------------------- */
 export default async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(204).end();
   try {
     const kc = await instance(); // may throw if not logged in
-
-    // fetch all trades from kite (today). Assumes kc.getTrades() exists.
     const trades = (await kc.getTrades()) || [];
-    // normalize timestamp field: try t.timestamp or t.trade_time or t.order_timestamp
     const lastTs = await getLastProcessedTs();
 
-    // sort ascending and filter only new trades
     const normalized = trades.map(t => {
       const ts = t.timestamp || t.trade_time || t.date || t.exchange_timestamp || t.utc_time || null;
       const tts = ts ? (typeof ts === "string" || typeof ts === "number" ? Number(ts) : Date.parse(ts)) : Date.now();
@@ -204,42 +216,22 @@ export default async function handler(req, res) {
 
     const newTrades = normalized.filter(t => t._ts > lastTs);
 
-    // Persist a simplified trade record for UI (tradebook)
-    const simplified = newTrades.map(t => {
-      const id = t.trade_id || `${t.order_id || t.orderId || 'o'}_${t._ts}`;
-      const sym = t.tradingsymbol || t.trading_symbol || t.instrument || t.symbol || '—';
-      const qty = Number(t.quantity || t.qty || 0);
-      const price = Number(t.price || t.trade_price || t.avg_price || 0);
-      const side = (t.transaction_type || t.order_side || t.side || '').toUpperCase() || (qty < 0 ? 'SELL' : 'BUY');
-      return {
-        trade_id: id,
-        instrument: sym,
-        side,
-        qty,
-        price,
-        ts: t._ts
-      };
-    });
-
-    // append simplified trades to tradebook (server KV)
-    if (simplified.length) {
-      await appendToTradebook(simplified);
-    }
-
     let newest = lastTs;
     let processed = 0;
     for (const t of newTrades) {
       processed++;
       newest = Math.max(newest, t._ts);
+
+      // Persist trade to tradebook (non-blocking)
+      try { await persistTradebook({ ...t, _ts: t._ts }); } catch(e){ /* ignore */ }
+
       const sym = t.tradingsymbol || t.trading_symbol || t.instrument_token || t.instrument;
       const tradeId = t.trade_id || `${t.order_id || t.orderId}_${t._ts}`;
       const qty = Math.abs(Number(t.quantity || t.qty || 0));
       const price = Number(t.price || t.trade_price || t.avg_price || 0);
       const side = (t.transaction_type || t.order_side || t.side || "").toUpperCase();
 
-      // load book
       let book = await getBook(sym);
-
       let result;
       if (side === "SELL") {
         result = matchSellAgainstBook(book, qty, price, tradeId, t._ts);
@@ -247,13 +239,11 @@ export default async function handler(req, res) {
         result = matchBuyAgainstBook(book, qty, price, tradeId, t._ts);
       }
 
-      // save updated book
       await setBook(sym, result.updatedBook);
 
-      // process realized events
       for (const ev of result.realizedEvents) {
         const saved = await storeRealizedEvent(ev);
-        if (!saved) continue; // skip duplicates
+        if (!saved) continue;
 
         // update global state: cooldown, consecutive_losses, last trade PnL/time
         const s = await getState();
