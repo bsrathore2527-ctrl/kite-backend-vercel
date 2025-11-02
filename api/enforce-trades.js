@@ -1,6 +1,7 @@
 // api/enforce-trades.js
 // Scheduled job — process new trades, compute realized closes, start cooldown and track consecutive losses.
-// Also: persist trades into KV tradebook so UI always shows executed trades.
+// Also: when total (realised + unrealised) loss breaches max_loss_pct of capital_day_915,
+// mark tripped_day and immediately attempt to enforce (cancel + square off).
 
 import { kv, getState, setState, todayKey } from "./_lib/kv.js";
 import { instance } from "./_lib/kite.js";
@@ -8,7 +9,6 @@ import { instance } from "./_lib/kite.js";
 const LAST_TRADE_KEY = "guardian:last_trade_ts";
 const REALIZED_PREFIX = "guardian:realized:"; // store realized events idempotently
 const BOOK_PREFIX = "guardian:book:";          // per-instrument book
-const TRADEBOOK_KEY = "guardian:tradebook";
 
 function now() { return Date.now(); }
 
@@ -40,41 +40,6 @@ async function storeRealizedEvent(evt) {
   if (existing) return false;
   await kv.set(key, evt);
   return true;
-}
-
-// persist a simplified trade into tradebook (no duplicates)
-async function persistTradebook(rawTrade) {
-  try {
-    // simplify trade object
-    const t = {
-      trade_id: rawTrade.trade_id || rawTrade.tradeId || rawTrade.id || `${rawTrade.order_id || rawTrade.orderId || 'ord'}_${rawTrade._ts || Date.now()}`,
-      order_id: rawTrade.order_id || rawTrade.orderId || rawTrade.order_id,
-      tradingsymbol: rawTrade.tradingsymbol || rawTrade.trading_symbol || rawTrade.instrument || rawTrade.symbol,
-      quantity: Number(rawTrade.quantity || rawTrade.qty || rawTrade.filled_qty || 0),
-      price: Number(rawTrade.price || rawTrade.trade_price || rawTrade.avg_price || rawTrade.last_price || 0),
-      side: (rawTrade.transaction_type || rawTrade.order_side || rawTrade.side || "").toUpperCase(),
-      timestamp: Number(rawTrade._ts || rawTrade.trade_time || rawTrade.timestamp || Date.now())
-    };
-
-    // read existing tradebook
-    const raw = await kv.get(TRADEBOOK_KEY);
-    const arr = Array.isArray(raw) ? raw : [];
-
-    // dedupe by trade_id
-    if (arr.find(x => x.trade_id === t.trade_id)) return false;
-
-    // append, keep latest first (for UI convenience)
-    arr.unshift(t);
-
-    // limit size to avoid unbounded growth (e.g. keep 5000)
-    if (arr.length > 5000) arr.splice(5000);
-
-    await kv.set(TRADEBOOK_KEY, arr);
-    return true;
-  } catch (e) {
-    console.warn("persistTradebook failed:", e && e.message ? e.message : e);
-    return false;
-  }
 }
 
 // FIFO matching functions (unchanged)
@@ -144,6 +109,8 @@ function matchBuyAgainstBook(book, buyQty, buyPrice, tradeId, ts) {
 
 /* ---------------------------
    Helpers to cancel/square-off
+   (duplicated small logic from api/enforce.js,
+    kept inline to avoid extra exports)
    --------------------------- */
 async function cancelPending(kc) {
   try {
@@ -221,10 +188,6 @@ export default async function handler(req, res) {
     for (const t of newTrades) {
       processed++;
       newest = Math.max(newest, t._ts);
-
-      // Persist trade to tradebook (non-blocking)
-      try { await persistTradebook({ ...t, _ts: t._ts }); } catch(e){ /* ignore */ }
-
       const sym = t.tradingsymbol || t.trading_symbol || t.instrument_token || t.instrument;
       const tradeId = t.trade_id || `${t.order_id || t.orderId}_${t._ts}`;
       const qty = Math.abs(Number(t.quantity || t.qty || 0));
@@ -240,6 +203,30 @@ export default async function handler(req, res) {
       }
 
       await setBook(sym, result.updatedBook);
+
+      // ---------- TRADEBOOK APPEND (safe, bounded) ----------
+      try {
+        const tbKey = `guardian:tradebook:${todayKey()}`;
+        const tbRec = {
+          trade_id: tradeId,
+          symbol: String(sym || "unknown"),
+          side: String(side || "BUY"),
+          qty: Number(qty || 0),
+          price: Number(price || 0),
+          timestamp: Number(t._ts || Date.now()),
+          raw: {
+            order_id: t.order_id || t.orderId || null,
+            avg_price: t.price || t.avg_price || t.trade_price || null
+          }
+        };
+        // push newest-first and keep list capped to 2000
+        await kv.lpush(tbKey, JSON.stringify(tbRec));
+        await kv.ltrim(tbKey, 0, 1999);
+      } catch (e) {
+        // non-fatal: allow main flow to continue
+        console.warn("tradebook append failed:", e && e.message ? e.message : e);
+      }
+      // ---------- END TRADEBOOK APPEND ----------
 
       for (const ev of result.realizedEvents) {
         const saved = await storeRealizedEvent(ev);
@@ -286,7 +273,7 @@ export default async function handler(req, res) {
     try {
       const state = await getState();
       const realised = Number(state.realised ?? 0);
-      const unreal = Number(state.unrealised ?? 0);
+      const unreal = Number(state.unreal ?? state.unrealised ?? 0); // defensive fallback if key name varies
       const total = realised + unreal; // net profit (can be negative)
 
       const capital = Number(state.capital_day_915 || 0);
@@ -324,4 +311,4 @@ export default async function handler(req, res) {
     console.error("enforce-trades error:", err && err.stack ? err.stack : err);
     return res.status(500).json({ ok: false, error: String(err) });
   }
-}
+  }
