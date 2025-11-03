@@ -1,14 +1,15 @@
 // api/enforce-trades.js
 // Scheduled job — process new trades, compute realized closes, start cooldown and track consecutive losses.
-// Also: when total (realised + unrealised) loss breaches max_loss_abs (or derived from max_loss_pct),
+// Also: when total (realised + unrealised) loss breaches max_loss_abs derived from capital & max_loss_pct,
 // mark tripped_day and immediately attempt to enforce (cancel + square off).
 
-import { kv, getState, setState, todayKey } from "./_lib/kv.js";
+import { kv, getState, setState } from "./_lib/kv.js";
 import { instance } from "./_lib/kite.js";
 
 const LAST_TRADE_KEY = "guardian:last_trade_ts";
 const REALIZED_PREFIX = "guardian:realized:"; // store realized events idempotently
 const BOOK_PREFIX = "guardian:book:";          // per-instrument book
+const TRADEBOOK_KEY = "guardian:tradebook";
 
 function now() { return Date.now(); }
 
@@ -42,7 +43,34 @@ async function storeRealizedEvent(evt) {
   return true;
 }
 
-// FIFO matching functions (BUY/SELL matching)
+// append trade into server-side tradebook (keeps latest first)
+async function appendToTradebook(t) {
+  try {
+    const raw = await kv.get(TRADEBOOK_KEY);
+    const arr = Array.isArray(raw) ? raw : [];
+    // normalize minimal display fields
+    const rec = {
+      ts: t._ts || Date.now(),
+      iso_date: (typeof t._ts === "number") ? new Date(t._ts).toISOString() : t.iso_date || null,
+      tradingsymbol: t.tradingsymbol || t.trading_symbol || t.instrument || t.symbol,
+      account_id: t.account_id || t.accountId || null,
+      trade_id: t.trade_id || t.tradeId || (t.order_id ? `${t.order_id}` : null),
+      side: (t.transaction_type || t.order_side || t.side || "").toUpperCase(),
+      qty: Math.abs(Number(t.quantity || t.qty || 0)),
+      price: Number(t.price || t.trade_price || t.avg_price || 0),
+      raw: t.raw || t
+    };
+    // unshift into array (most recent first) and limit to 200 (store more if you want)
+    arr.unshift(rec);
+    if (arr.length > 200) arr.length = 200;
+    await kv.set(TRADEBOOK_KEY, arr);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+// FIFO matching functions (unchanged behavior)
 function matchSellAgainstBook(book, sellQty, sellPrice, tradeId, ts) {
   let qtyToMatch = sellQty;
   const realizedEvents = [];
@@ -50,9 +78,9 @@ function matchSellAgainstBook(book, sellQty, sellPrice, tradeId, ts) {
   for (let lot of book.lots) {
     if (qtyToMatch <= 0) { newLots.push(lot); continue; }
     if (lot.side === "BUY") {
-      const available = Math.abs(Number(lot.qty || 0));
+      const available = Math.abs(lot.qty);
       const take = Math.min(available, qtyToMatch);
-      const pnl = (sellPrice - Number(lot.avg_price || 0)) * take;
+      const pnl = (sellPrice - lot.avg_price) * take;
       realizedEvents.push({
         instrument: book.instrument,
         qty: take,
@@ -61,14 +89,13 @@ function matchSellAgainstBook(book, sellQty, sellPrice, tradeId, ts) {
         trade_ids: [tradeId],
         open_lot: { ...lot }
       });
-      lot.qty = Number(lot.qty || 0) - take;
+      lot.qty = lot.qty - take;
       qtyToMatch -= take;
-      if (Math.abs(Number(lot.qty || 0)) > 0) newLots.push(lot);
+      if (Math.abs(lot.qty) > 0) newLots.push(lot);
     } else {
       newLots.push(lot);
     }
   }
-  // if still qty left -> open a new sell lot (short)
   if (qtyToMatch > 0) {
     newLots.push({ qty: -qtyToMatch, avg_price: sellPrice, side: "SELL", open_ts: ts });
   }
@@ -83,9 +110,9 @@ function matchBuyAgainstBook(book, buyQty, buyPrice, tradeId, ts) {
   for (let lot of book.lots) {
     if (qtyToMatch <= 0) { newLots.push(lot); continue; }
     if (lot.side === "SELL") {
-      const available = Math.abs(Number(lot.qty || 0));
+      const available = Math.abs(lot.qty);
       const take = Math.min(available, qtyToMatch);
-      const pnl = (Number(lot.avg_price || 0) - buyPrice) * take;
+      const pnl = (lot.avg_price - buyPrice) * take;
       realizedEvents.push({
         instrument: book.instrument,
         qty: take,
@@ -94,14 +121,13 @@ function matchBuyAgainstBook(book, buyQty, buyPrice, tradeId, ts) {
         trade_ids: [tradeId],
         open_lot: { ...lot }
       });
-      lot.qty = Number(lot.qty || 0) + take;
+      lot.qty = lot.qty + take;
       qtyToMatch -= take;
-      if (Math.abs(Number(lot.qty || 0)) > 0) newLots.push(lot);
+      if (Math.abs(lot.qty) > 0) newLots.push(lot);
     } else {
       newLots.push(lot);
     }
   }
-  // remaining open buy lot
   if (qtyToMatch > 0) {
     newLots.push({ qty: qtyToMatch, avg_price: buyPrice, side: "BUY", open_ts: ts });
   }
@@ -122,7 +148,7 @@ async function cancelPending(kc) {
     let cancelled = 0;
     for (const o of pending) {
       try {
-        await kc.cancelOrder(o.variety || "regular", o.order_id);
+        await kc.cancelOrder(o.variety || "regular", o.order_id || o.orderId);
         cancelled++;
       } catch (e) {
         // ignore individual failures
@@ -170,24 +196,21 @@ async function squareOffAll(kc) {
    --------------------------- */
 export default async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(204).end();
+
   try {
     const kc = await instance(); // may throw if not logged in
+
+    // fetch trades from kite (fall back to empty)
     const trades = (await kc.getTrades()) || [];
+
+    // last processed timestamp (to avoid reprocessing)
     const lastTs = await getLastProcessedTs();
 
-    // normalize timestamps robustly
+    // normalize timestamps into numeric _ts
     const normalized = trades.map(t => {
       const ts = t.timestamp || t.trade_time || t.date || t.exchange_timestamp || t.utc_time || t.order_timestamp || null;
-      let tts = Date.now();
-      if (ts) {
-        if (typeof ts === "number") tts = Number(ts);
-        else if (!isNaN(Number(ts))) tts = Number(ts);
-        else {
-          const parsed = Date.parse(ts);
-          tts = isNaN(parsed) ? Date.now() : parsed;
-        }
-      }
-      return { ...t, _ts: tts };
+      const tts = ts ? (typeof ts === "string" || typeof ts === "number" ? Number(ts) : Date.parse(ts)) : Date.now();
+      return { ...t, _ts: Number(tts || Date.now()) };
     }).sort((a,b) => a._ts - b._ts);
 
     const newTrades = normalized.filter(t => t._ts > lastTs);
@@ -197,20 +220,19 @@ export default async function handler(req, res) {
     for (const t of newTrades) {
       processed++;
       newest = Math.max(newest, t._ts);
-      const sym = t.tradingsymbol || t.trading_symbol || t.instrument_token || t.instrument;
-      const tradeId = t.trade_id || `${t.order_id || t.orderId || ''}_${t._ts}`;
-      const qty = Math.abs(Number(t.quantity || t.qty || t.filled_quantity || 0));
-      const price = Number(t.price || t.trade_price || t.avg_price || t.last_price || 0);
-      const side = (t.transaction_type || t.order_side || t.side || t.action || "").toString().toUpperCase();
 
-      if (!sym || !side || qty === 0) {
-        // skip incomplete trade records
-        continue;
-      }
+      // append to server-side tradebook for UI
+      try { await appendToTradebook(t); } catch(e){ /* ignore */ }
+
+      const sym = t.tradingsymbol || t.trading_symbol || t.instrument_token || t.instrument || t.symbol;
+      const tradeId = t.trade_id || t.tradeId || `${t.order_id || t.orderId || ""}_${t._ts}`;
+      const qty = Math.abs(Number(t.quantity || t.qty || 0));
+      const price = Number(t.price || t.trade_price || t.avg_price || 0);
+      const side = (t.transaction_type || t.order_side || t.side || "").toUpperCase();
 
       let book = await getBook(sym);
       let result;
-      if (side === "SELL" || side === "SELL" || side === "SELL") {
+      if (side === "SELL") {
         result = matchSellAgainstBook(book, qty, price, tradeId, t._ts);
       } else {
         result = matchBuyAgainstBook(book, qty, price, tradeId, t._ts);
@@ -220,7 +242,7 @@ export default async function handler(req, res) {
 
       for (const ev of result.realizedEvents) {
         const saved = await storeRealizedEvent(ev);
-        if (!saved) continue; // idempotent - skip if already stored
+        if (!saved) continue;
 
         // update global state: cooldown, consecutive_losses, last trade PnL/time
         const s = await getState();
@@ -233,9 +255,7 @@ export default async function handler(req, res) {
         const minLossToCount = Number(s.min_loss_to_count ?? 0);
         const countsAsLoss = isLoss && (Math.abs(Number(ev.realized_pnl)) >= minLossToCount);
 
-        // compute next consecutive losses: reset on profitable close
-        const existingConsec = Number(s.consecutive_losses || 0);
-        const nextConsec = countsAsLoss ? (existingConsec + 1) : (isLoss ? existingConsec + 1 : 0);
+        const nextConsec = countsAsLoss ? ((s.consecutive_losses || 0) + 1) : (isLoss ? (s.consecutive_losses || 0) + 1 : 0);
 
         const patch = {
           last_trade_pnl: Number(ev.realized_pnl),
@@ -247,7 +267,7 @@ export default async function handler(req, res) {
 
         // consecutive loss limit check
         const maxConsec = Number(s.max_consecutive_losses ?? 3);
-        if (nextConsec >= maxConsec) {
+        if (maxConsec > 0 && nextConsec >= maxConsec) {
           patch.tripped_day = true;
           patch.block_new_orders = true;
           patch.trip_reason = "max_consecutive_losses";
@@ -261,37 +281,31 @@ export default async function handler(req, res) {
       await setLastProcessedTs(newest);
     }
 
-    // --- FINAL: check overall loss floor (realised + unrealised) and auto-enforce if breached ---
+    // --- LOSS-FLOOR CHECK ---
+    // load fresh state and compute totals
     try {
       const state = await getState();
-      const realised = Number(state.realised ?? state.realized ?? 0);
-      const unreal = Number(state.unrealised ?? state.unrealized ?? 0);
-      const total = realised + unreal; // net profit (negative when net loss)
+      const realised = Number(state.realised ?? 0);
+      const unreal = Number(state.unrealised ?? 0);
+      const total = realised + unreal;
 
-      // compute absolute max loss (prefer stored max_loss_abs, otherwise derive from capital & pct)
-      const capital = Number(state.capital_day_915 || 0);
-      const maxLossPct = Number(state.max_loss_pct ?? 0);
-      let max_loss_abs = Number(state.max_loss_abs || 0);
-
-      if ((!max_loss_abs || max_loss_abs === 0) && capital && maxLossPct) {
-        max_loss_abs = Math.round(capital * (maxLossPct / 100));
+      // derive max_loss_abs: prefer stored value else compute from capital_day_915 * max_loss_pct
+      let maxLossAbs = Number(state.max_loss_abs ?? 0);
+      if (!maxLossAbs || maxLossAbs === 0) {
+        const capital = Number(state.capital_day_915 ?? 0);
+        const pct = Number(state.max_loss_pct ?? 0);
+        if (capital > 0 && pct > 0) {
+          maxLossAbs = Math.round(capital * (pct / 100));
+        }
       }
 
-      // ensure numeric
-      max_loss_abs = Number.isFinite(max_loss_abs) ? max_loss_abs : 0;
+      // compute remaining-to-floor (for double-check). If state has remaining_to_max_loss, prefer that.
+      const remaining = (typeof state.remaining_to_max_loss === "number") ? Number(state.remaining_to_max_loss) : Math.round(maxLossAbs + total);
 
-      // remaining room before hitting the floor = max_loss_abs + total
-      // (total negative when in loss; so remaining decreases when in loss)
-      const remaining_to_max_loss = Math.round(max_loss_abs + total);
-
-      // persist these computed fields alongside existing state
-      await setState({
-        max_loss_abs,
-        remaining_to_max_loss
-      });
-
-      // trigger trip if loss exceeds floor (total <= -max_loss_abs)
-      if (max_loss_abs > 0 && total <= -max_loss_abs) {
+      // Decide whether to trip:
+      // Trip if: maxLossAbs > 0 AND (total <= -maxLossAbs OR remaining <= 0)
+      if (maxLossAbs > 0 && (total <= -maxLossAbs || remaining <= 0)) {
+        // mark tripped and block new orders
         const tripPatch = {
           tripped_day: true,
           block_new_orders: true,
@@ -300,7 +314,7 @@ export default async function handler(req, res) {
         };
         await setState(tripPatch);
 
-        // attempt immediate enforcement: cancel pending + square off all
+        // attempt immediate enforcement
         try {
           const cancelled = await cancelPending(kc);
           const squared = await squareOffAll(kc);
@@ -320,4 +334,4 @@ export default async function handler(req, res) {
     console.error("enforce-trades error:", err && err.stack ? err.stack : err);
     return res.status(500).json({ ok: false, error: String(err) });
   }
-          }
+                                                }
