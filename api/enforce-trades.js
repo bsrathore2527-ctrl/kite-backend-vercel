@@ -169,7 +169,6 @@ async function squareOffAll(kc) {
 // Return YYYY-MM-DD in Asia/Kolkata for given epoch/timestamp (ms)
 function istDateString(ts = Date.now()) {
   const d = new Date(ts);
-  // convert to UTC minutes +5:30 => shift by offset milliseconds
   const offset = 5.5 * 60; // minutes
   const localTs = ts + offset * 60 * 1000;
   const dd = new Date(localTs);
@@ -371,9 +370,78 @@ export default async function handler(req, res) {
       console.warn("loss-floor check failed:", e && e.message ? e.message : e);
     }
 
+    /* --------------------------
+       NEW BLOCK: use broker m2m_realised as fallback trigger
+       If no realized trade was processed (or even if there were),
+       check kc.getFunds() and use m2m_realised to start cooldown / increment consecutive_losses.
+       This avoids waiting for trade-parser when broker reports realized PnL earlier.
+    --------------------------- */
+    try {
+      // fetch funds (tolerant)
+      let funds = null;
+      try {
+        if (typeof kc.getFunds === "function") funds = await kc.getFunds();
+        else if (typeof kc.get_funds === "function") funds = await kc.get_funds();
+        else if (typeof kc.getMargins === "function") funds = await kc.getMargins();
+        else funds = kc.funds || null;
+      } catch (e) {
+        funds = null;
+      }
+
+      // extract m2m_realised from common paths
+      let m2m = null;
+      if (funds) {
+        if (funds?.funds?.equity?.utilised && typeof funds.funds.equity.utilised.m2m_realised !== "undefined") {
+          m2m = Number(funds.funds.equity.utilised.m2m_realised || 0);
+        } else if (funds?.utilised && typeof funds.utilised.m2m_realised !== "undefined") {
+          m2m = Number(funds.utilised.m2m_realised || 0);
+        } else if (typeof funds.m2m_realised !== "undefined") {
+          m2m = Number(funds.m2m_realised || 0);
+        } else if (typeof funds.net !== "undefined") {
+          m2m = Number(funds.net || 0);
+        }
+      }
+
+      if (m2m !== null) {
+        const s = await getState();
+        const lastSaved = Number(s.last_trade_pnl ?? 0);
+        // Only act if broker m2m differs from last recorded realized PnL to avoid duplicates
+        if (m2m !== lastSaved) {
+          const cooldownMin = Number(s.cooldown_min ?? 15);
+          const nowTs = Date.now();
+          const cooldownUntil = nowTs + cooldownMin * 60 * 1000;
+          const isLoss = Number(m2m) < 0;
+          const minLossToCount = Number(s.min_loss_to_count ?? 0);
+          const countsAsLoss = isLoss && (Math.abs(Number(m2m)) >= minLossToCount);
+          const nextConsec = countsAsLoss ? ((s.consecutive_losses || 0) + 1) : (isLoss ? (s.consecutive_losses || 0) + 1 : 0);
+
+          const patch = {
+            last_trade_pnl: Number(m2m),
+            last_trade_time: nowTs,
+            cooldown_until: cooldownUntil,
+            cooldown_active: true,
+            consecutive_losses: nextConsec
+          };
+
+          // consecutive loss limit check
+          const maxConsec = Number(s.max_consecutive_losses ?? 3);
+          if (nextConsec >= maxConsec) {
+            patch.tripped_day = true;
+            patch.block_new_orders = true;
+            patch.trip_reason = "max_consecutive_losses_via_m2m";
+          }
+
+          await setState(patch);
+          log && log.info && log.info("enforce-trades: m2m_realised applied to state", { m2m, patch });
+        }
+      }
+    } catch (e) {
+      console.warn("m2m fallback block failed:", e && e.message ? e.message : e);
+    }
+
     return res.status(200).json({ ok: true, processed, newest_ts: newest });
   } catch (err) {
     console.error("enforce-trades error:", err && err.stack ? err.stack : err);
     return res.status(500).json({ ok: false, error: String(err) });
   }
-    }
+                        }
