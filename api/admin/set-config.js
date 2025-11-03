@@ -1,7 +1,10 @@
 // api/admin/set-config.js
 // Merge admin rule updates into today's risk:{YYYY-MM-DD} record.
-// Accepts partial payloads. Normalizes p10_pct -> p10 (percentage).
-import { todayKey, setState, kv } from "../_lib/kv.js";
+// Accepts partial payloads. Normalizes p10_pct -> p10 (percentage) and computes
+// derived fields (p10_effective_amount, max_loss_abs, active_loss_floor,
+// remaining_to_max_loss) before persisting.
+
+import { todayKey, setState, kv, getState } from "../_lib/kv.js";
 
 function isAdmin(req) {
   const a = req.headers.authorization || "";
@@ -30,34 +33,6 @@ async function parseJson(req) {
 }
 
 export default async function handler(req, res) {
-  // --- Support GET?action=tradebook to read today's tradebook without creating new API file ---
-  try {
-    const url = (req.url && typeof req.url === "string") ? new URL(req.url, `http://${req.headers.host}`) : null;
-    const action = url ? url.searchParams.get("action") : null;
-    if (req.method === "GET" && action === "tradebook") {
-      if (!isAdmin(req)) {
-        return res.status(401).json({ ok: false, error: "unauthorized" });
-      }
-      try {
-        const day = (url && url.searchParams.get("day")) || todayKey();
-        const limit = Math.min(1000, Number((url && url.searchParams.get("limit")) || 200));
-        const key = `guardian:tradebook:${day}`;
-        const raw = await kv.lrange(key, 0, limit - 1);
-        const list = (raw || []).map(r => {
-          try { return JSON.parse(r); } catch { return { raw: r }; }
-        });
-        return res.setHeader("Cache-Control", "no-store").status(200).json({ ok: true, day, count: list.length, trades: list });
-      } catch (err) {
-        console.error("tradebook read error", err && err.stack ? err.stack : err);
-        return res.status(500).json({ ok: false, error: err.message || String(err) });
-      }
-    }
-  } catch (err) {
-    // If URL parsing fails for some reason, fall through to normal behavior
-    console.warn("set-config GET action check failed:", err && err.message ? err.message : err);
-  }
-
-  // Existing POST-only behavior
   if (req.method !== "POST") {
     res.status(405).json({ ok: false, error: "Method not allowed" });
     return;
@@ -98,7 +73,7 @@ export default async function handler(req, res) {
     if (typeof v !== "undefined") patch.max_consecutive_losses = v;
   }
 
-  // Max profit: prefer p10_pct (percentage). Accept legacy p10_amount (rupee).
+  // Max profit: accept percentage (p10_pct or p10) OR legacy rupee amount (p10_amount)
   if (typeof body.p10_pct !== "undefined") {
     const v = toNum(body.p10_pct);
     if (typeof v !== "undefined") {
@@ -108,6 +83,7 @@ export default async function handler(req, res) {
   } else if (typeof body.p10 !== "undefined") {
     const v = toNum(body.p10);
     if (typeof v !== "undefined") {
+      // treat p10 in body as percentage when provided as 'p10' (backwards-compatible)
       patch.p10 = v;
       patch.p10_is_pct = true;
     }
@@ -132,7 +108,7 @@ export default async function handler(req, res) {
   if (typeof body.profit_lock_10 !== "undefined") patch.profit_lock_10 = !!body.profit_lock_10;
   if (typeof body.allow_new_after_lock10 !== "undefined") patch.allow_new_after_lock10 = !!body.allow_new_after_lock10;
 
-  // ✅ Behavioral & Allow-new fixes (new section)
+  // Behavioral & Allow-new fixes (new section)
   if (typeof body.cooldown_on_profit !== "undefined") {
     patch.cooldown_on_profit = !!body.cooldown_on_profit;
   }
@@ -179,10 +155,78 @@ export default async function handler(req, res) {
   }
 
   try {
+    // Apply base patch to state first (so we can read back capital/current totals)
     const updated = await setState(patch);
-    const key = `risk:${todayKey()}`;
-    await kv.set(key, updated);
-    res.setHeader("Cache-Control", "no-store").status(200).json({ ok: true, updated });
+
+    // compute derived fields (p10_effective_amount, max_loss_abs, active_loss_floor, remaining_to_max_loss)
+    try {
+      // get freshest state after update
+      const state = await getState();
+
+      // determine capital to use
+      const capital = Number(state.capital_day_915 || 0);
+
+      // compute p10_effective_amount: prefer percent (p10 + p10_is_pct), else p10_amount
+      let p10_effective = undefined;
+      if (state.p10_is_pct === true && typeof state.p10 !== "undefined") {
+        const pct = Number(state.p10 || 0);
+        p10_effective = Math.round((capital * (pct / 100)) * 100) / 100; // round to 2 decimals
+      } else if (typeof state.p10_amount !== "undefined") {
+        p10_effective = Number(state.p10_amount || 0);
+      } else if (typeof state.p10 !== "undefined" && state.p10_is_pct === undefined) {
+        // legacy: if p10 present but p10_is_pct missing, treat p10 as percentage
+        const pct = Number(state.p10 || 0);
+        p10_effective = Math.round((capital * (pct / 100)) * 100) / 100;
+        // persist p10_is_pct true for clarity
+        await setState({ p10_is_pct: true });
+      }
+
+      // compute max_loss_abs & active_loss_floor using max_loss_pct
+      const maxLossPct = Number(state.max_loss_pct ?? 0);
+      const max_loss_abs = Math.round(capital * (maxLossPct / 100));
+      const active_loss_floor = -Math.abs(max_loss_abs);
+
+      // compute remaining_to_max_loss = max_loss_abs + total_pnl (total_pnl may be negative)
+      const realised = Number(state.realised ?? 0);
+      const unreal = Number(state.unrealised ?? 0);
+      const total = Number(state.total_pnl ?? (realised + unreal));
+      const remaining_to_max_loss = Math.round(max_loss_abs + total);
+
+      const derivedPatch = {
+        p10_effective_amount: typeof p10_effective !== "undefined" ? p10_effective : undefined,
+        max_loss_abs: Number(max_loss_abs),
+        active_loss_floor: Number(active_loss_floor),
+        remaining_to_max_loss: Number(remaining_to_max_loss)
+      };
+
+      // remove undefined keys
+      Object.keys(derivedPatch).forEach(k => {
+        if (derivedPatch[k] === undefined) delete derivedPatch[k];
+      });
+
+      if (Object.keys(derivedPatch).length > 0) {
+        const final = await setState(derivedPatch);
+        // persist today's snapshot
+        const key = `risk:${todayKey()}`;
+        await kv.set(key, final);
+        // return final merged state
+        res.setHeader("Cache-Control", "no-store").status(200).json({ ok: true, updated: final });
+        return;
+      } else {
+        // nothing to derive/persist further
+        const key = `risk:${todayKey()}`;
+        await kv.set(key, updated);
+        res.setHeader("Cache-Control", "no-store").status(200).json({ ok: true, updated });
+        return;
+      }
+    } catch (e) {
+      // derived fields computation failed -> still return base updated state
+      console.warn("set-config: derived field compute failed:", e && e.message ? e.message : e);
+      const key = `risk:${todayKey()}`;
+      await kv.set(key, updated);
+      res.setHeader("Cache-Control", "no-store").status(200).json({ ok: true, updated, warn: "derived_compute_failed" });
+      return;
+    }
   } catch (err) {
     console.error("set-config error", err && err.stack ? err.stack : err);
     res.status(500).json({ ok: false, error: err.message || String(err) });
