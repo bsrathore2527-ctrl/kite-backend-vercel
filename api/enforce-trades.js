@@ -1,6 +1,6 @@
 // api/enforce-trades.js
 // Scheduled job — process new trades, compute realized closes, start cooldown and track consecutive losses.
-// Also: when total (realised + unrealised) loss breaches max_loss_pct of capital_day_915,
+// Also: when total (realised + unrealised) loss breaches max_loss_abs (derived from capital or stored),
 // mark tripped_day and immediately attempt to enforce (cancel + square off).
 
 import { kv, getState, setState, todayKey } from "./_lib/kv.js";
@@ -9,6 +9,7 @@ import { instance } from "./_lib/kite.js";
 const LAST_TRADE_KEY = "guardian:last_trade_ts";
 const REALIZED_PREFIX = "guardian:realized:"; // store realized events idempotently
 const BOOK_PREFIX = "guardian:book:";          // per-instrument book
+const TRADEBOOK_KEY = "guardian:tradebook";
 
 function now() { return Date.now(); }
 
@@ -31,6 +32,19 @@ async function getBook(sym) {
 }
 async function setBook(sym, book) {
   await kv.set(BOOK_PREFIX + sym, book);
+}
+
+async function appendTradebook(entry) {
+  // keep tradebook in KV as array of most recent trades; store today's only (or rotate as you wish)
+  try {
+    const raw = (await kv.get(TRADEBOOK_KEY)) || [];
+    const arr = Array.isArray(raw) ? raw : [];
+    arr.unshift(entry);
+    if (arr.length > 500) arr.length = 500; // keep bounded
+    await kv.set(TRADEBOOK_KEY, arr);
+  } catch (e) {
+    // ignore
+  }
 }
 
 async function storeRealizedEvent(evt) {
@@ -194,6 +208,21 @@ export default async function handler(req, res) {
       const price = Number(t.price || t.trade_price || t.avg_price || 0);
       const side = (t.transaction_type || t.order_side || t.side || "").toUpperCase();
 
+      // append to server tradebook for UI (basic normalized entry)
+      try {
+        const entry = {
+          ts: t._ts,
+          iso_date: (new Date(t._ts)).toISOString(),
+          tradingsymbol: sym,
+          account_id: t.account_id || t.accountId || null,
+          order_timestamp: t.order_timestamp || t.order_time || null,
+          raw: t
+        };
+        await appendTradebook(entry);
+      } catch (e) {
+        // continue
+      }
+
       let book = await getBook(sym);
       let result;
       if (side === "SELL") {
@@ -252,13 +281,36 @@ export default async function handler(req, res) {
       const unreal = Number(state.unrealised ?? 0);
       const total = realised + unreal; // net profit (can be negative)
 
+      // derive absolute max loss in rupees:
+      // preferred: state.max_loss_abs (explicit). fallback: capital_day_915 * (max_loss_pct/100)
       const capital = Number(state.capital_day_915 || 0);
-      const maxLossPct = Number(state.max_loss_pct ?? 10);
-      const lossThreshold = -(capital * (maxLossPct / 100)); // e.g. -10000
+      const maxLossPct = Number(state.max_loss_pct ?? 0);
+      let max_loss_abs = Number(state.max_loss_abs ?? NaN);
+      if (!Number.isFinite(max_loss_abs)) {
+        if (capital > 0 && maxLossPct > 0) {
+          max_loss_abs = Math.round(capital * (maxLossPct / 100));
+        } else {
+          // fallback to 0 (disable)
+          max_loss_abs = 0;
+        }
+      }
 
-      // ✅ Improved loss-floor enforcement
-      if (capital > 0 && total <= lossThreshold) {
-        const alreadyTripped = !!state.tripped_day;
+      // update state with computed absolute values for UI
+      const computedPatch = {
+        max_loss_abs: max_loss_abs,
+        p10_effective_amount: state.p10_is_pct ? (Number(state.capital_day_915 || 0) * (Number(state.p10 || 0) / 100)) : Number(state.p10_amount || state.p10 || 0)
+      };
+
+      // remaining_to_max_loss uses *additive* formula: remaining = max_loss_abs + total
+      // Example: max_loss_abs=10000, total=-6532 => remaining=3468
+      // Example: max_loss_abs=10000, total=+189 => remaining=10189
+      computedPatch.remaining_to_max_loss = Math.round(max_loss_abs + total);
+
+      await setState(computedPatch);
+
+      // trip if total <= -max_loss_abs (i.e. net loss exceeded the configured absolute floor)
+      if (max_loss_abs > 0 && total <= -Math.abs(max_loss_abs)) {
+        // trip and enforce
         const tripPatch = {
           tripped_day: true,
           block_new_orders: true,
@@ -267,21 +319,17 @@ export default async function handler(req, res) {
         };
         await setState(tripPatch);
 
-        if (!alreadyTripped) {
-          try {
-            const cancelled = await cancelPending(kc);
-            const squared = await squareOffAll(kc);
-            const notePatch = { admin_last_enforce_result: { cancelled, squared, at: Date.now() } };
-            await setState(notePatch);
-            console.log("Auto-enforce executed (new trip):", notePatch.admin_last_enforce_result);
-          } catch (e) {
-            console.error("Auto-enforce failed:", e && e.stack ? e.stack : e);
-          }
-        } else {
-          console.log("Loss-floor breached again; already tripped, skipping repeat enforcement.");
+        // try immediate enforcement via kite (cancel + square off)
+        try {
+          const cancelled = await cancelPending(kc);
+          const squared = await squareOffAll(kc);
+          // persist note
+          const notePatch = { admin_last_enforce_result: { cancelled, squared, at: Date.now() } };
+          await setState(notePatch);
+          console.log("Auto-enforce executed:", notePatch.admin_last_enforce_result);
+        } catch (e) {
+          console.error("Auto-enforce failed:", e && e.stack ? e.stack : e);
         }
-      } else {
-        console.log(`Loss-floor check ok: total=${total}, threshold=${lossThreshold}`);
       }
     } catch (e) {
       console.warn("loss-floor check failed:", e && e.message ? e.message : e);
