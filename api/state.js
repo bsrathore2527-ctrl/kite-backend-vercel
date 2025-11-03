@@ -2,6 +2,8 @@
 // Returns merged guardian state + kite funds + computed PnL summary.
 // - Prefers live values from Kite when available.
 // - Ensures timestamps are epoch ms (Date.now()) to avoid timezone offset issues.
+// - If instance() fails, also probe KV for common stored kite-session/token keys
+//   so the UI can show "logged in" when a token/session exists.
 
 import { kv, todayKey } from "./_lib/kv.js";
 import { instance } from "./_lib/kite.js";
@@ -21,18 +23,55 @@ function nowISTString() {
   }
 }
 
+/**
+ * Try to fetch live Kite funds using the instance() helper.
+ * If that fails, return null (caller will fall back to KV).
+ */
 async function fetchKiteFunds() {
   try {
     const kc = await instance();
-    // kc.getFunds() or getFunds depending on client lib - try both
-    const fn = kc.getFunds ? kc.getFunds.bind(kc) : (kc.funds ? (() => kc.funds) : null);
-    if (fn) {
-      const funds = await fn();
+    // kc.getFunds() or kc.getFunds depending on client lib - try both
+    if (!kc) return null;
+    if (typeof kc.getFunds === "function") {
+      const funds = await kc.getFunds();
       return funds || null;
+    }
+    // Some older wrappers expose get_funds or funds object
+    if (typeof kc.get_funds === "function") {
+      const funds = await kc.get_funds();
+      return funds || null;
+    }
+    if (kc.funds) return kc.funds;
+    return null;
+  } catch (e) {
+    // bubble up the error to caller (we'll handle gracefully there)
+    throw e;
+  }
+}
+
+/**
+ * If instance() fails, we still want to detect whether a session/token
+ * exists in KV so the UI can show "kite logged in" instead of "not_logged_in".
+ * Try common keys used in this codebase (best-effort).
+ */
+async function probeKiteSessionInKV() {
+  try {
+    const candidates = [
+      "kite:session",
+      "kite:tokens",
+      "kite_session",
+      "kite_tokens",
+      "kite:auth",
+      "kite_auth",
+      "ZK_KITE_SESSION",
+      "kite:access_token"
+    ];
+    for (const k of candidates) {
+      const v = await kv.get(k);
+      if (v) return { key: k, value: v };
     }
     return null;
   } catch (e) {
-    // Kite may not be logged in
     return null;
   }
 }
@@ -64,27 +103,38 @@ export default async function handler(req, res) {
     // Try to get live Kite funds to populate balances and m2m fields
     let kiteFunds = null;
     let kite_status = "not_logged_in";
+    let kiteFetchError = null;
+
     try {
       kiteFunds = await fetchKiteFunds();
       if (kiteFunds) kite_status = "ok";
     } catch (e) {
-      kite_status = "error";
+      // log the error for debugging
+      console.error("api/state: fetchKiteFunds failed:", e && (e.stack || e.message) ? (e.stack || e.message) : String(e));
+      kiteFetchError = e;
+      // try probing KV for stored session/token keys (best-effort)
+      try {
+        const probe = await probeKiteSessionInKV();
+        if (probe) {
+          // we have something in KV that looks like a kite session/token — mark as 'session_present'
+          kite_status = "session_present";
+        } else {
+          kite_status = "error";
+        }
+      } catch (e2) {
+        kite_status = "error";
+      }
     }
 
     // compute live balance candidates (many kite responses differ across libs / versions)
     let live_balance = null;
-    let balance_candidate = null;
     let m2m_realised = null;
     let m2m_unrealised = null;
-    // Typical paths:
-    // kiteFunds.funds.available.live_balance
-    // kiteFunds.funds.net
-    // kiteFunds.balance
-    // kiteFunds.equity.available.live_balance (in some responses)
+
     if (kiteFunds) {
       try {
-        // nested safe access
         const f = kiteFunds.funds || kiteFunds;
+
         if (f && f.available && typeof f.available.live_balance !== "undefined") {
           live_balance = safeNum(f.available.live_balance, null);
         } else if (f && typeof f.net !== "undefined") {
@@ -95,7 +145,7 @@ export default async function handler(req, res) {
           live_balance = safeNum(kiteFunds.equity.available.live_balance, null);
         }
 
-        // m2m fields: check common places used by Kite
+        // m2m fields (try common paths)
         if (f && f.utilised && typeof f.utilised.m2m_realised !== "undefined") {
           m2m_realised = safeNum(f.utilised.m2m_realised, 0);
         } else if (kiteFunds.utilised && typeof kiteFunds.utilised.m2m_realised !== "undefined") {
@@ -112,13 +162,9 @@ export default async function handler(req, res) {
           m2m_unrealised = safeNum(kiteFunds.m2m_unrealised, 0);
         }
 
-        // some APIs return funds.available.cash/net under equity/commodity
-        if (live_balance === null && kiteFunds.equity && kiteFunds.equity.available && typeof kiteFunds.equity.available.live_balance !== "undefined") {
-          live_balance = safeNum(kiteFunds.equity.available.live_balance, null);
-        }
-
       } catch (e) {
         // ignore parsing errors - keep nulls
+        console.warn("api/state: parsing kiteFunds shape failed:", e && (e.stack || e.message) ? (e.stack || e.message) : String(e));
       }
     }
 
@@ -140,7 +186,6 @@ export default async function handler(req, res) {
     const remaining_to_max_loss = (() => {
       try {
         const capital = safeNum(state.capital_day_915, 0);
-        // If total_pnl negative, we count loss; otherwise remaining is full capital minus zero
         const loss = total_pnl < 0 ? Math.abs(total_pnl) : 0;
         return capital - loss;
       } catch (e) {
@@ -164,7 +209,8 @@ export default async function handler(req, res) {
       time_ms
     });
 
-    // Respond (no mutation) — UI will read these keys
+    // make sure kite_status 'ok' (if kiteFunds found) or 'session_present' if only token in KV
+    // the UI can interpret 'session_present' as "logged in but instance() couldn't be created"
     res.setHeader("Cache-Control", "no-store").status(200).json({
       ok: true,
       time,
@@ -174,7 +220,7 @@ export default async function handler(req, res) {
       state: exposed
     });
   } catch (err) {
-    console.error("api/state error:", err && err.stack ? err.stack : err);
+    console.error("api/state error:", err && (err.stack || err.message) ? (err.stack || err.message) : String(err));
     res.status(500).json({ ok: false, error: String(err) });
   }
 }
