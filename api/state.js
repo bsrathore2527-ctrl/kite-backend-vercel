@@ -1,6 +1,5 @@
 // api/state.js
-// Merged guardian state + live Kite connectivity check.
-// Fully backward compatible, fixes false "not_logged_in" flag and timezone mismatch.
+// Safely enhanced to fix live_balance, PnL, max loss/profit, and time logic.
 
 import { kv, todayKey } from "./_lib/kv.js";
 import { instance } from "./_lib/kite.js";
@@ -10,36 +9,25 @@ function safeNum(v, d = 0) {
   return Number.isFinite(n) ? n : d;
 }
 
-function nowIST() {
-  return new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour12: false });
+function getISTTime() {
+  return new Date().toLocaleTimeString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    hour12: false,
+  });
 }
 
-async function getKiteStatusAndFunds() {
+async function getKiteFunds() {
   try {
     const kc = await instance();
     if (!kc) return { kite_status: "not_logged_in" };
 
-    // ✅ 1️⃣ Try light ping first
-    try {
-      const prof = await kc.getProfile?.();
-      if (prof && prof.user_id) {
-        // minimal success
-      }
-    } catch (_) {
-      // profile may fail, but we’ll still continue
-    }
+    const profile = await kc.getProfile?.();
+    if (!profile?.user_id) return { kite_status: "not_logged_in" };
 
-    // ✅ 2️⃣ Try funds to update live balance
-    let funds = null;
-    try {
-      if (kc.getFunds) funds = await kc.getFunds();
-    } catch (e) {
-      console.warn("api/state: getFunds() failed", e?.message);
-    }
-
+    const funds = await kc.getFunds?.();
     return { kite_status: "ok", funds };
   } catch (err) {
-    console.error("api/state: kite instance() failed", err?.message);
+    console.warn("api/state: getKiteFunds() error", err?.message);
     return { kite_status: "not_logged_in" };
   }
 }
@@ -48,32 +36,46 @@ export default async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(204).end();
 
   const now = Date.now();
-  const timeStr = nowIST();
+  const timeStr = getISTTime();
 
   try {
-    const riskKey = `risk:${todayKey()}`;
-    const s = (await kv.get(riskKey)) || {};
+    const key = `risk:${todayKey()}`;
+    const s = (await kv.get(key)) || {};
 
-    const { kite_status, funds } = await getKiteStatusAndFunds();
+    // fetch kite funds and status
+    const { kite_status, funds } = await getKiteFunds();
 
-    let live_balance = s.live_balance ?? 0;
-    let realised = s.realised ?? 0;
-    let unrealised = s.unrealised ?? 0;
+    // extract values
+    let live_balance = safeNum(s.live_balance);
+    let realised = safeNum(s.realised);
+    let unrealised = safeNum(s.unrealised);
 
-    // ✅ If funds found — extract proper balances
     if (funds && funds.funds) {
-      try {
-        const eq = funds.funds.equity || {};
-        if (eq.available?.live_balance !== undefined) live_balance = eq.available.live_balance;
-        if (eq.utilised?.m2m_realised !== undefined) realised = eq.utilised.m2m_realised;
-        if (eq.utilised?.m2m_unrealised !== undefined) unrealised = eq.utilised.m2m_unrealised;
-      } catch (e) {
-        console.warn("api/state: fund parse error", e.message);
-      }
+      const f = funds.funds;
+      if (f.available?.live_balance !== undefined)
+        live_balance = safeNum(f.available.live_balance);
+      else if (f.net !== undefined) live_balance = safeNum(f.net);
+
+      if (f.utilised?.m2m_realised !== undefined)
+        realised = safeNum(f.utilised.m2m_realised);
+      if (f.utilised?.m2m_unrealised !== undefined)
+        unrealised = safeNum(f.utilised.m2m_unrealised);
     }
 
-    const total_pnl = safeNum(realised) + safeNum(unrealised);
-    const remaining_to_max_loss = safeNum(s.capital_day_915 ?? 0) - Math.abs(Math.min(total_pnl, 0));
+    // Derived values
+    const total_pnl = realised + unrealised;
+    const capital = safeNum(s.capital_day_915);
+    const maxLossPct = safeNum(s.max_loss_pct);
+    const maxLossRupees = Math.round((capital * maxLossPct) / 100);
+    const active_loss_floor = -Math.abs(maxLossRupees);
+    const remaining_to_max_loss = Math.round(maxLossRupees - Math.abs(total_pnl));
+
+    let p10_rupee = 0;
+    if (s.p10_is_pct) {
+      p10_rupee = Math.round((capital * safeNum(s.p10 || s.p10_amount)) / 100);
+    } else {
+      p10_rupee = safeNum(s.p10_amount || s.p10);
+    }
 
     const state = {
       ...s,
@@ -83,6 +85,8 @@ export default async function handler(req, res) {
       current_balance: live_balance,
       live_balance,
       remaining_to_max_loss,
+      active_loss_floor,
+      p10_resolved: p10_rupee,
       kite_status,
       time: timeStr,
       time_ms: now,
@@ -98,7 +102,7 @@ export default async function handler(req, res) {
       state,
     });
   } catch (err) {
-    console.error("api/state fatal:", err?.stack || err);
+    console.error("api/state fatal:", err);
     res.status(500).json({ ok: false, error: String(err.message || err) });
   }
 }
