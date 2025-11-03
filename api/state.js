@@ -1,107 +1,180 @@
-// api/state.js — public/admin state (read-only unless admin uses /api/admin/*)
-import { getState, todayKey, kv } from "./_lib/kv.js";
-import { getAccessToken } from "./_lib/kite.js";
+// api/state.js
+// Returns merged guardian state + kite funds + computed PnL summary.
+// - Prefers live values from Kite when available.
+// - Ensures timestamps are epoch ms (Date.now()) to avoid timezone offset issues.
 
-function isAdmin(req) {
-  const a = req.headers.authorization || "";
-  const token = a.startsWith("Bearer ") ? a.slice(7) : "";
-  return !!process.env.ADMIN_TOKEN && token === process.env.ADMIN_TOKEN;
+import { kv, todayKey } from "./_lib/kv.js";
+import { instance } from "./_lib/kite.js";
+
+function safeNum(v, d = 0) {
+  if (v === undefined || v === null || v === "") return d;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : d;
+}
+
+// format local time in IST hh:mm:ss (24h)
+function nowISTString() {
+  try {
+    return new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour12: false });
+  } catch (e) {
+    return new Date().toLocaleTimeString();
+  }
+}
+
+async function fetchKiteFunds() {
+  try {
+    const kc = await instance();
+    // kc.getFunds() or getFunds depending on client lib - try both
+    const fn = kc.getFunds ? kc.getFunds.bind(kc) : (kc.funds ? (() => kc.funds) : null);
+    if (fn) {
+      const funds = await fn();
+      return funds || null;
+    }
+    return null;
+  } catch (e) {
+    // Kite may not be logged in
+    return null;
+  }
 }
 
 export default async function handler(req, res) {
+  if (req.method === "OPTIONS") return res.status(204).end();
+  if (req.method !== "GET") return res.status(405).json({ ok: false, error: "Method not allowed" });
+
   try {
-    const admin = isAdmin(req);
-    const s = await getState(); // primary state object
-    const tok = await getAccessToken();
+    const time_ms = Date.now();
+    const time = nowISTString();
 
-    // Check for an admin override stored in risk:{today}
-    let override = null;
+    // read today's risk record from KV (if present)
+    const riskKey = `risk:${todayKey()}`;
+    const raw = await kv.get(riskKey);
+    const risk = (raw && typeof raw === "object") ? raw : {};
+
+    // start building the exposed state object (based on older behaviour)
+    const state = Object.assign({}, risk);
+
+    // ensure numeric fields exist with sane defaults
+    state.capital_day_915 = safeNum(state.capital_day_915, 0);
+    state.max_loss_pct = safeNum(state.max_loss_pct, 10);
+    state.trail_step_profit = safeNum(state.trail_step_profit, 0);
+    state.cooldown_min = safeNum(state.cooldown_min, 15);
+    state.max_consecutive_losses = safeNum(state.max_consecutive_losses, 3);
+    state.consecutive_losses = safeNum(state.consecutive_losses, 0);
+
+    // Try to get live Kite funds to populate balances and m2m fields
+    let kiteFunds = null;
+    let kite_status = "not_logged_in";
     try {
-      const riskKey = `risk:${todayKey()}`;
-      const r = await kv.get(riskKey);
-      if (r && typeof r === "object" && (typeof r.capital_day_915 !== "undefined")) {
-        override = r;
-      }
-    } catch (err) {
-      // ignore kv read errors - not fatal
-      console.warn("state: override check failed", err && err.message);
+      kiteFunds = await fetchKiteFunds();
+      if (kiteFunds) kite_status = "ok";
+    } catch (e) {
+      kite_status = "error";
     }
 
-    // prefer live_balance (set by funds fetch) -> current_balance (cached) -> 0
-    const liveBalance =
-      (s.live_balance !== undefined && s.live_balance !== null)
-        ? Number(s.live_balance)
-        : (s.current_balance !== undefined && s.current_balance !== null)
-          ? Number(s.current_balance)
-          : 0;
+    // compute live balance candidates (many kite responses differ across libs / versions)
+    let live_balance = null;
+    let balance_candidate = null;
+    let m2m_realised = null;
+    let m2m_unrealised = null;
+    // Typical paths:
+    // kiteFunds.funds.available.live_balance
+    // kiteFunds.funds.net
+    // kiteFunds.balance
+    // kiteFunds.equity.available.live_balance (in some responses)
+    if (kiteFunds) {
+      try {
+        // nested safe access
+        const f = kiteFunds.funds || kiteFunds;
+        if (f && f.available && typeof f.available.live_balance !== "undefined") {
+          live_balance = safeNum(f.available.live_balance, null);
+        } else if (f && typeof f.net !== "undefined") {
+          live_balance = safeNum(f.net, null);
+        } else if (typeof kiteFunds.balance !== "undefined") {
+          live_balance = safeNum(kiteFunds.balance, null);
+        } else if (kiteFunds.equity && kiteFunds.equity.available && typeof kiteFunds.equity.available.live_balance !== "undefined") {
+          live_balance = safeNum(kiteFunds.equity.available.live_balance, null);
+        }
 
-    // compute cooldown_active boolean
-    const nowTs = Date.now();
-    const cooldownUntil = Number(s.cooldown_until || 0);
-    const cooldownActive = cooldownUntil > nowTs;
+        // m2m fields: check common places used by Kite
+        if (f && f.utilised && typeof f.utilised.m2m_realised !== "undefined") {
+          m2m_realised = safeNum(f.utilised.m2m_realised, 0);
+        } else if (kiteFunds.utilised && typeof kiteFunds.utilised.m2m_realised !== "undefined") {
+          m2m_realised = safeNum(kiteFunds.utilised.m2m_realised, 0);
+        } else if (kiteFunds.m2m_realised !== undefined) {
+          m2m_realised = safeNum(kiteFunds.m2m_realised, 0);
+        }
 
-    // apply admin override capital if present
-    const capitalValue = (override && typeof override.capital_day_915 !== "undefined")
-      ? Number(override.capital_day_915)
-      : (s.capital_day_915 || 0);
+        if (f && f.utilised && typeof f.utilised.m2m_unrealised !== "undefined") {
+          m2m_unrealised = safeNum(f.utilised.m2m_unrealised, 0);
+        } else if (kiteFunds.utilised && typeof kiteFunds.utilised.m2m_unrealised !== "undefined") {
+          m2m_unrealised = safeNum(kiteFunds.utilised.m2m_unrealised, 0);
+        } else if (kiteFunds.m2m_unrealised !== undefined) {
+          m2m_unrealised = safeNum(kiteFunds.m2m_unrealised, 0);
+        }
 
-    // safe view with defaults
-    const safe = {
-      capital_day_915: Number(capitalValue || 0),
-      admin_override_capital: !!(override && override.admin_override_capital),
-      realised: s.realised || 0,
-      unrealised: s.unrealised || 0,
-      current_balance: s.current_balance || 0, // cached balance (fallback for UI)
-      live_balance: liveBalance,
-      tripped_day: !!s.tripped_day,
-      tripped_week: !!s.tripped_week,
-      tripped_month: !!s.tripped_month,
-      block_new_orders: !!s.block_new_orders,
-      consecutive_losses: s.consecutive_losses || 0,
-      cooldown_until: cooldownUntil,
-      cooldown_active: !!cooldownActive,
-      last_trade_time: s.last_trade_time || 0,
-      last_trade_pnl: (typeof s.last_trade_pnl === "number" ? s.last_trade_pnl : (s.last_trade_pnl ? Number(s.last_trade_pnl) : 0)),
-      profit_lock_10: !!s.profit_lock_10,
-      profit_lock_20: !!s.profit_lock_20,
-      expiry_flag: !!s.expiry_flag,
-      // rules (expose for admin UI)
-      max_loss_pct: s.max_loss_pct ?? 10,
-      trail_step_profit: s.trail_step_profit ?? 5000,
-      cooldown_min: s.cooldown_min ?? 15,
-      max_consecutive_losses: s.max_consecutive_losses ?? 3,
-      allow_new_after_lock10: s.allow_new_after_lock10 ?? false,
-      week_max_loss_pct: s.week_max_loss_pct ?? null,
-      month_max_loss_pct: s.month_max_loss_pct ?? null,
-      // behavioral flags
-      cooldown_on_profit: !!s.cooldown_on_profit,
-      min_loss_to_count: s.min_loss_to_count ?? 0
-    };
+        // some APIs return funds.available.cash/net under equity/commodity
+        if (live_balance === null && kiteFunds.equity && kiteFunds.equity.available && typeof kiteFunds.equity.available.live_balance !== "undefined") {
+          live_balance = safeNum(kiteFunds.equity.available.live_balance, null);
+        }
 
-    // --- ADD: fetch and include tradebook from KV (no new endpoint needed) ---
-    let tradebook = [];
-    try {
-      const tb = await kv.get("guardian:tradebook");
-      if (Array.isArray(tb)) {
-        // return the most recent 50 trades in reverse chronological order
-        tradebook = tb.slice(-50).reverse();
+      } catch (e) {
+        // ignore parsing errors - keep nulls
       }
-    } catch (err) {
-      console.warn("state: could not load tradebook", err && err.message);
     }
-    // attach tradebook to safe object for admin UI visibility
-    safe.tradebook = tradebook;
 
-    const now = new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour12: false });
-    res.setHeader("Cache-Control", "no-store").json({
-      ok: true,
-      time: now,
-      admin,
-      kite_status: tok ? "ok" : "not_logged_in",
-      state: safe,
-      key: todayKey()
+    // Use stored state values as fallback if kite didn't return m2m values
+    const realised_from_state = safeNum(state.realised ?? 0, 0);
+    const unreal_from_state = safeNum(state.unrealised ?? 0, 0);
+
+    // Prefer kite m2m fields if available
+    const realised = (m2m_realised !== null) ? m2m_realised : realised_from_state;
+    const unrealised = (m2m_unrealised !== null) ? m2m_unrealised : unreal_from_state;
+
+    // If live_balance available use it, else fallback to stored fields (current_balance, live_balance)
+    const current_balance = (live_balance !== null) ? live_balance : safeNum(state.current_balance ?? state.live_balance ?? 0, 0);
+
+    // compute total PnL (realised + unrealised)
+    const total_pnl = realised + unrealised;
+
+    // remaining to max loss: capital - abs(total) if total negative
+    const remaining_to_max_loss = (() => {
+      try {
+        const capital = safeNum(state.capital_day_915, 0);
+        // If total_pnl negative, we count loss; otherwise remaining is full capital minus zero
+        const loss = total_pnl < 0 ? Math.abs(total_pnl) : 0;
+        return capital - loss;
+      } catch (e) {
+        return safeNum(state.capital_day_915, 0);
+      }
+    })();
+
+    // Expose a normalized `state` object (merge the stored risk + computed fields)
+    const exposed = Object.assign({}, state, {
+      // computed/normalized fields
+      current_balance,
+      live_balance: current_balance,
+      realised,
+      unrealised: unrealised,
+      total_pnl,
+      remaining_to_max_loss,
+      // kite status
+      kite_status,
+      // time fields (IST string + epoch ms)
+      time,
+      time_ms
     });
-  } catch (e) {
-    res.status(500).json({ ok: false, error: e.message || String(e) });
+
+    // Respond (no mutation) — UI will read these keys
+    res.setHeader("Cache-Control", "no-store").status(200).json({
+      ok: true,
+      time,
+      time_ms,
+      admin: !!exposed.admin,
+      kite_status,
+      state: exposed
+    });
+  } catch (err) {
+    console.error("api/state error:", err && err.stack ? err.stack : err);
+    res.status(500).json({ ok: false, error: String(err) });
   }
 }
