@@ -2,16 +2,14 @@
 // Scheduled job — process new trades, compute realized closes, start cooldown and track consecutive losses.
 // Also: when total (realised + unrealised) loss breaches max_loss_pct of capital_day_915,
 // mark tripped_day and immediately attempt to enforce (cancel + square off).
-// Additionally: store recent trades into a server-side tradebook (KV) — only today's trades, capped.
 
 import { kv, getState, setState, todayKey } from "./_lib/kv.js";
 import { instance } from "./_lib/kite.js";
 
 const LAST_TRADE_KEY = "guardian:last_trade_ts";
-const REALIZED_PREFIX = "guardian:realized:";
-const BOOK_PREFIX = "guardian:book:";          // per-instrument book (unchanged)
-const TRADEBOOK_KEY = "guardian:tradebook";    // global tradebook (server)
-const TRADEBOOK_MAX = 500;                     // keep most recent N trades
+const REALIZED_PREFIX = "guardian:realized:"; // store realized events idempotently
+const BOOK_PREFIX = "guardian:book:";          // per-instrument book
+const TRADEBOOK_KEY = "guardian:tradebook";   // recent trades list (server-side for admin UI)
 
 function now() { return Date.now(); }
 
@@ -45,7 +43,21 @@ async function storeRealizedEvent(evt) {
   return true;
 }
 
-/* keep existing FIFO matching code (unchanged) */
+async function appendTradebookEntry(entry, maxLen = 500) {
+  try {
+    const raw = await kv.get(TRADEBOOK_KEY);
+    const arr = Array.isArray(raw) ? raw : [];
+    // newest-first
+    arr.unshift(entry);
+    if (arr.length > maxLen) arr.length = maxLen;
+    await kv.set(TRADEBOOK_KEY, arr);
+    return arr.length;
+  } catch (e) {
+    return 0;
+  }
+}
+
+// FIFO matching functions
 function matchSellAgainstBook(book, sellQty, sellPrice, tradeId, ts) {
   let qtyToMatch = sellQty;
   const realizedEvents = [];
@@ -111,7 +123,9 @@ function matchBuyAgainstBook(book, buyQty, buyPrice, tradeId, ts) {
 }
 
 /* ---------------------------
-   Helpers to cancel/square-off (kept inline)
+   Helpers to cancel/square-off
+   (duplicated small logic from api/enforce.js,
+    kept inline to avoid extra exports)
    --------------------------- */
 async function cancelPending(kc) {
   try {
@@ -125,7 +139,9 @@ async function cancelPending(kc) {
       try {
         await kc.cancelOrder(o.variety || "regular", o.order_id);
         cancelled++;
-      } catch (e) {}
+      } catch (e) {
+        // ignore individual failures
+      }
     }
     return cancelled;
   } catch (e) {
@@ -154,67 +170,13 @@ async function squareOffAll(kc) {
           validity: "DAY"
         });
         squared++;
-      } catch (e) {}
+      } catch (e) {
+        // ignore per-symbol failure
+      }
     }
     return squared;
   } catch (e) {
     return 0;
-  }
-}
-
-/* ---------------------------
-   Tradebook helpers
-   --------------------------- */
-
-// Return YYYY-MM-DD in Asia/Kolkata for given epoch/timestamp (ms)
-function istDateString(ts = Date.now()) {
-  const d = new Date(ts);
-  const offset = 5.5 * 60; // minutes
-  const localTs = ts + offset * 60 * 1000;
-  const dd = new Date(localTs);
-  const y = dd.getUTCFullYear();
-  const m = String(dd.getUTCMonth() + 1).padStart(2, '0');
-  const day = String(dd.getUTCDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
-
-// Normalize trade object for persisted tradebook (keep only fields UI needs)
-function normalizeTradeForBook(raw) {
-  const ts = raw.timestamp || raw.trade_time || raw.date || raw.exchange_timestamp || raw.utc_time || raw._ts || Date.now();
-  const tms = typeof ts === 'number' ? ts : (Date.parse(ts) || Date.now());
-  const side = (raw.transaction_type || raw.order_side || raw.side || '').toUpperCase() || (raw.qty && Number(raw.qty) < 0 ? 'SELL' : 'BUY');
-
-  return {
-    ts: tms,
-    iso_date: new Date(tms).toISOString(),
-    tradingsymbol: raw.tradingsymbol || raw.trading_symbol || raw.instrument || raw.instrument_token || '—',
-    order_id: raw.order_id || raw.orderId || null,
-    trade_id: raw.trade_id || raw.tradeId || null,
-    account_id: raw.account_id || raw.user_id || null,
-    quantity: Number(raw.quantity || raw.qty || raw.filled_qty || 0),
-    price: Number(raw.price || raw.trade_price || raw.avg_price || 0),
-    side,
-    raw: raw
-  };
-}
-
-// read tradebook (array)
-async function readTradebook() {
-  try {
-    const raw = await kv.get(TRADEBOOK_KEY);
-    return Array.isArray(raw) ? raw : [];
-  } catch (e) {
-    return [];
-  }
-}
-
-// write tradebook (array)
-async function writeTradebook(arr) {
-  try {
-    await kv.set(TRADEBOOK_KEY, arr);
-    return true;
-  } catch (e) {
-    return false;
   }
 }
 
@@ -231,26 +193,44 @@ export default async function handler(req, res) {
     const normalized = trades.map(t => {
       const ts = t.timestamp || t.trade_time || t.date || t.exchange_timestamp || t.utc_time || null;
       const tts = ts ? (typeof ts === "string" || typeof ts === "number" ? Number(ts) : Date.parse(ts)) : Date.now();
-      return { ...t, _ts: tts };
+      return {
+        _raw: t,
+        _ts: tts,
+        tradingsymbol: t.tradingsymbol || t.trading_symbol || t.instrument || null,
+        trade_id: t.trade_id || `${t.order_id || t.orderId}_${tts}`,
+        qty: Math.abs(Number(t.quantity || t.qty || 0)),
+        price: Number(t.price || t.trade_price || t.avg_price || 0),
+        side: (t.transaction_type || t.order_side || t.side || "").toUpperCase(),
+        order_timestamp: t.order_timestamp || t.order_time || t.order_date || null,
+      };
     }).sort((a,b) => a._ts - b._ts);
 
     const newTrades = normalized.filter(t => t._ts > lastTs);
 
     let newest = lastTs;
     let processed = 0;
-    const tradesToSave = []; // collect for tradebook
-
     for (const t of newTrades) {
       processed++;
       newest = Math.max(newest, t._ts);
-      const sym = t.tradingsymbol || t.trading_symbol || t.instrument_token || t.instrument;
-      const tradeId = t.trade_id || `${t.order_id || t.orderId}_${t._ts}`;
-      const qty = Math.abs(Number(t.quantity || t.qty || 0));
-      const price = Number(t.price || t.trade_price || t.avg_price || 0);
-      const side = (t.transaction_type || t.order_side || t.side || "").toUpperCase();
+      const sym = t.tradingsymbol || `SYM_${t.trade_id}`;
+      const tradeId = t.trade_id;
+      const qty = Number(t.qty || 0);
+      const price = Number(t.price || 0);
+      const side = (t.side || "").toUpperCase();
 
-      // save raw trade into tradebook candidates (normalized)
-      tradesToSave.push(normalizeTradeForBook({ ...t }));
+      // create compact tradebook entry for UI (include iso date/time)
+      const iso = new Date(t._ts).toISOString();
+      const entry = {
+        ts: t._ts,
+        iso_date: iso,
+        tradingsymbol: sym,
+        trade_id: tradeId,
+        side,
+        qty,
+        price,
+        raw: t._raw
+      };
+      await appendTradebookEntry(entry, 500);
 
       let book = await getBook(sym);
       let result;
@@ -303,140 +283,67 @@ export default async function handler(req, res) {
       await setLastProcessedTs(newest);
     }
 
-    // persist tradesToSave into tradebook (server-side)
-    try {
-      if (tradesToSave.length > 0) {
-        const existing = await readTradebook();
-        // keep only today's trades: filter existing by IST date equals today
-        const today = istDateString(Date.now());
-        const filteredExisting = (existing || []).filter(t => {
-          try { return istDateString(t.ts) === today; } catch (e) { return false; }
-        });
-        // merge existing (today) + new ones, dedupe by trade_id/order_id/ts
-        const merged = [...filteredExisting, ...tradesToSave];
-        // dedupe using trade_id + ts if available
-        const seen = new Set();
-        const deduped = [];
-        for (let i = merged.length - 1; i >= 0; i--) { // iterate from newest to oldest preserving newest first
-          const item = merged[i];
-          const key = `${item.trade_id||''}:${item.order_id||''}:${item.ts||''}:${item.tradingsymbol||''}`;
-          if (seen.has(key)) continue;
-          seen.add(key);
-          deduped.push(item);
-          if (deduped.length >= TRADEBOOK_MAX) break;
-        }
-        // deduped currently newest-first, reverse to store oldest -> newest
-        const finalArr = deduped.reverse();
-        await writeTradebook(finalArr);
-        console.log("enforce-trades | tradebook saved (today only)", finalArr.length);
-      }
-    } catch (e) {
-      console.warn("tradebook save failed:", e && e.message ? e.message : e);
-    }
-
-    // --- NEW: check overall loss floor (realised + unrealised) and auto-enforce if breached ---
+    // --- update realised/unrealised totals in state (prefer kite funds if available) ---
     try {
       const state = await getState();
-      const realised = Number(state.realised ?? 0);
-      const unreal = Number(state.unrealised ?? 0);
-      const total = realised + unreal; // net profit (can be negative)
+      let realised = Number(state.realised ?? 0);
+      let unreal = Number(state.unrealised ?? 0);
 
-      const capital = Number(state.capital_day_915 || 0);
-      const maxLossPct = Number(state.max_loss_pct ?? 10);
-      const lossThreshold = -(capital * (maxLossPct / 100)); // e.g. -10000
-
-      if (capital > 0 && total <= lossThreshold) {
-        // trip and enforce
-        const tripPatch = {
-          tripped_day: true,
-          block_new_orders: true,
-          trip_reason: "max_loss_floor",
-          last_enforced_at: Date.now()
-        };
-        await setState(tripPatch);
-
-        // try immediate enforcement via kite (cancel + square off)
-        try {
-          const cancelled = await cancelPending(kc);
-          const squared = await squareOffAll(kc);
-          const notePatch = { admin_last_enforce_result: { cancelled, squared, at: Date.now() } };
-          await setState(notePatch);
-          console.log("Auto-enforce executed:", notePatch.admin_last_enforce_result);
-        } catch (e) {
-          console.error("Auto-enforce failed:", e && e.stack ? e.stack : e);
-        }
-      }
-    } catch (e) {
-      console.warn("loss-floor check failed:", e && e.message ? e.message : e);
-    }
-
-    /* --------------------------
-       NEW BLOCK: use broker m2m_realised as fallback trigger
-       If no realized trade was processed (or even if there were),
-       check kc.getFunds() and use m2m_realised to start cooldown / increment consecutive_losses.
-       This avoids waiting for trade-parser when broker reports realized PnL earlier.
-    --------------------------- */
-    try {
-      // fetch funds (tolerant)
-      let funds = null;
+      // prefer Kite funds m2m if available
       try {
-        if (typeof kc.getFunds === "function") funds = await kc.getFunds();
-        else if (typeof kc.get_funds === "function") funds = await kc.get_funds();
-        else if (typeof kc.getMargins === "function") funds = await kc.getMargins();
-        else funds = kc.funds || null;
-      } catch (e) {
-        funds = null;
-      }
-
-      // extract m2m_realised from common paths
-      let m2m = null;
-      if (funds) {
-        if (funds?.funds?.equity?.utilised && typeof funds.funds.equity.utilised.m2m_realised !== "undefined") {
-          m2m = Number(funds.funds.equity.utilised.m2m_realised || 0);
-        } else if (funds?.utilised && typeof funds.utilised.m2m_realised !== "undefined") {
-          m2m = Number(funds.utilised.m2m_realised || 0);
-        } else if (typeof funds.m2m_realised !== "undefined") {
-          m2m = Number(funds.m2m_realised || 0);
+        const funds = await kc.getFunds?.();
+        if (funds && funds.utilised) {
+          if (typeof funds.utilised.m2m_realised !== "undefined") realised = Number(funds.utilised.m2m_realised);
+          if (typeof funds.utilised.m2m_unrealised !== "undefined") unreal = Number(funds.utilised.m2m_unrealised);
         } else if (typeof funds.net !== "undefined") {
-          m2m = Number(funds.net || 0);
+          // fallback: use 'net' as live balance but keep realised/unreal as before
         }
+      } catch (e) {
+        // ignore
       }
 
-      if (m2m !== null) {
+      const total = realised + unreal;
+      const patchTotals = { realised, unrealised: unreal, total_pnl: total };
+
+      await setState(patchTotals);
+
+      // --- NEW: check overall loss floor (realised + unrealised) and auto-enforce if breached ---
+      try {
         const s = await getState();
-        const lastSaved = Number(s.last_trade_pnl ?? 0);
-        // Only act if broker m2m differs from last recorded realized PnL to avoid duplicates
-        if (m2m !== lastSaved) {
-          const cooldownMin = Number(s.cooldown_min ?? 15);
-          const nowTs = Date.now();
-          const cooldownUntil = nowTs + cooldownMin * 60 * 1000;
-          const isLoss = Number(m2m) < 0;
-          const minLossToCount = Number(s.min_loss_to_count ?? 0);
-          const countsAsLoss = isLoss && (Math.abs(Number(m2m)) >= minLossToCount);
-          const nextConsec = countsAsLoss ? ((s.consecutive_losses || 0) + 1) : (isLoss ? (s.consecutive_losses || 0) + 1 : 0);
+        const capital = Number(s.capital_day_915 || 0);
+        const maxLossPct = Number(s.max_loss_pct ?? 10);
+        const maxLossRupees = Math.round((capital * maxLossPct) / 100);
+        const lossThreshold = -(maxLossRupees); // negative value
+        const currentTotal = Number(s.realised || 0) + Number(s.unrealised || 0);
 
-          const patch = {
-            last_trade_pnl: Number(m2m),
-            last_trade_time: nowTs,
-            cooldown_until: cooldownUntil,
-            cooldown_active: true,
-            consecutive_losses: nextConsec
+        if (capital > 0 && currentTotal <= lossThreshold) {
+          // trip and enforce
+          const tripPatch = {
+            tripped_day: true,
+            block_new_orders: true,
+            trip_reason: "max_loss_floor",
+            last_enforced_at: Date.now()
           };
+          await setState(tripPatch);
 
-          // consecutive loss limit check
-          const maxConsec = Number(s.max_consecutive_losses ?? 3);
-          if (nextConsec >= maxConsec) {
-            patch.tripped_day = true;
-            patch.block_new_orders = true;
-            patch.trip_reason = "max_consecutive_losses_via_m2m";
+          // try immediate enforcement via kite (cancel + square off)
+          try {
+            const cancelled = await cancelPending(kc);
+            const squared = await squareOffAll(kc);
+            // persist note
+            const notePatch = { admin_last_enforce_result: { cancelled, squared, at: Date.now() } };
+            await setState(notePatch);
+            console.log("Auto-enforce executed:", notePatch.admin_last_enforce_result);
+          } catch (e) {
+            console.error("Auto-enforce failed:", e && e.stack ? e.stack : e);
           }
-
-          await setState(patch);
-          log && log.info && log.info("enforce-trades: m2m_realised applied to state", { m2m, patch });
         }
+      } catch (e) {
+        console.warn("loss-floor check failed:", e && e.message ? e.message : e);
       }
+
     } catch (e) {
-      console.warn("m2m fallback block failed:", e && e.message ? e.message : e);
+      console.warn("update totals failed:", e && e.message ? e.message : e);
     }
 
     return res.status(200).json({ ok: true, processed, newest_ts: newest });
@@ -444,4 +351,4 @@ export default async function handler(req, res) {
     console.error("enforce-trades error:", err && err.stack ? err.stack : err);
     return res.status(500).json({ ok: false, error: String(err) });
   }
-                        }
+}
