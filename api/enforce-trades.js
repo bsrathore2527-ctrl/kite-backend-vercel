@@ -34,12 +34,30 @@ async function setBook(sym, book) {
   await kv.set(BOOK_PREFIX + sym, book);
 }
 
+
 async function storeRealizedEvent(evt) {
   const id = makeRealizedId(evt.trade_ids || [], evt.close_ts || now());
   const key = REALIZED_PREFIX + id;
   const existing = await kv.get(key);
   if (existing) return false;
   await kv.set(key, evt);
+
+  // Also update today's aggregated realised total in today's risk state
+  try {
+    const todayKey = `risk:${new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }).split(",")[0].replace(/\//g,'-')}`;
+    // safer: use getState/setState helpers if available
+    // get current persisted state (today) and increment realised
+    const state = await getState();
+    const currentReal = Number(state.realised ?? 0);
+    const add = Number(evt.realized_pnl || evt.realised_pnl || evt.realized || evt.realised || 0);
+    if (!isNaN(add) && add !== 0) {
+      const next = currentReal + add;
+      await setState({ realised: next });
+    }
+  } catch (e) {
+    console.warn("storeRealizedEvent: failed to update aggregated realised:", e && e.message ? e.message : e);
+  }
+
   return true;
 }
 
