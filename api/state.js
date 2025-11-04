@@ -108,6 +108,8 @@ export default async function handler(req, res) {
     const capital = safeNum(persisted.capital_day_915 ?? 0, 0);
     const maxLossPct = safeNum(persisted.max_loss_pct ?? 0, 0);
     const base_loss_abs = Math.round(capital * (maxLossPct / 100)); // e.g. 10000
+    // maintain backward-compatible alias
+    const max_loss_abs = base_loss_abs;
 
     // Active loss floor: moves with realised profit. active_loss_floor = realised - base_loss_abs
     const active_loss_floor = Math.round(realised - base_loss_abs);
