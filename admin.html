@@ -673,13 +673,38 @@ function tbRowHtml(t){
   const sym = t.tradingsymbol || t.trading_symbol || t.instrument || t.symbol || '—';
   const side = (t.transaction_type || t.side || '').toUpperCase() || '—';
   const qty = t.quantity || t.qty || t.filled_qty || '—';
-  const price = (typeof t.price !== 'undefined' && t.price !== null && t.price !== '') ? t.price : (t.avg_price || t.trade_price || t.average_price || '—');
-  const ts = t.trade_time || t.timestamp || t.exchange_timestamp || t.order_timestamp || t._ts || t.ts || null;
-  let time = '—';
-  if(ts){
-    const d = typeof ts === 'number' ? new Date(ts) : new Date(Date.parse(String(ts)));
-    if(!isNaN(d)) time = d.toLocaleTimeString('en-IN',{hour12:false});
+
+  // PRICE: prefer realistic fields, and hide zeros/invalid prices
+  let rawPrice = (typeof t.price !== 'undefined' && t.price !== null) ? t.price
+                 : (t.avg_price || t.average_price || t.trade_price || null);
+  if (typeof rawPrice === 'string' && rawPrice.trim() !== '') rawPrice = Number(rawPrice);
+  const price = (rawPrice === null || rawPrice === 0 || isNaN(rawPrice)) ? '—' : rawPrice;
+
+  // TIMESTAMP: try known fields, handle seconds vs ms, and force IST display
+  const tsCandidates = [t.trade_time, t.timestamp, t.exchange_timestamp, t.order_timestamp, t._ts, t.ts, t.created_at];
+  let ts = null;
+  for (const c of tsCandidates) {
+    if (c) { ts = c; break; }
   }
+  let time = '—';
+  if (ts) {
+    try {
+      let d;
+      if (typeof ts === 'number') {
+        d = (String(ts).length === 10) ? new Date(ts * 1000) : new Date(ts);
+      } else {
+        let s = String(ts);
+        if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(s)) s = s.replace(' ', 'T') + 'Z';
+        d = new Date(s);
+      }
+      if (!isNaN(d)) {
+        time = d.toLocaleTimeString('en-IN', { hour12:false, timeZone:'Asia/Kolkata' });
+      }
+    } catch (e) {
+      time = '—';
+    }
+  }
+
   return `<tr><td>${sym}</td><td>${side}</td><td>${qty}</td><td>${price}</td><td>${time}</td></tr>`;
 }
 
