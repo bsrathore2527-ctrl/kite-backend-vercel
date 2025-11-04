@@ -209,8 +209,22 @@ export default async function handler(req, res) {
     // normalize timestamps into numeric _ts
     const normalized = trades.map(t => {
       const ts = t.timestamp || t.trade_time || t.date || t.exchange_timestamp || t.utc_time || t.order_timestamp || null;
-      const tts = ts ? (typeof ts === "string" || typeof ts === "number" ? Number(ts) : Date.parse(ts)) : Date.now();
-      return { ...t, _ts: Number(tts || Date.now()) };
+      let tts = null;
+      if (!ts) {
+        tts = Date.now();
+      } else if (typeof ts === 'number') {
+        tts = (String(ts).length === 10) ? ts * 1000 : ts;
+      } else {
+        const sVal = String(ts).trim();
+        if (/^\d+$/.test(sVal)) {
+          const n = Number(sVal);
+          tts = (String(n).length === 10) ? n * 1000 : n;
+        } else {
+          const parsed = Date.parse(sVal);
+          tts = isNaN(parsed) ? Date.now() : parsed;
+        }
+      }
+      return { ...t, _ts: Number(tts) };
     }).sort((a,b) => a._ts - b._ts);
 
     const newTrades = normalized.filter(t => t._ts > lastTs);
