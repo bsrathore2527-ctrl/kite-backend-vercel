@@ -44,18 +44,31 @@ async function storeRealizedEvent(evt) {
 }
 
 // append trade into server-side tradebook (keeps latest first)
+
 async function appendToTradebook(t) {
   try {
     const raw = await kv.get(TRADEBOOK_KEY);
     const arr = Array.isArray(raw) ? raw : [];
-    // normalize minimal display fields
+
+    // helper: convert any ts into IST milliseconds
+    function toISTms(ts) {
+      try {
+        const base = (typeof ts === 'number' && String(Math.trunc(ts)).length === 10) ? new Date(ts * 1000) : new Date(ts || Date.now());
+        // get IST localized string and parse back to ms so stored value represents IST moment in epoch ms
+        const istString = base.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' });
+        return new Date(istString).getTime();
+      } catch (e) {
+        return Date.now();
+      }
+    }
+
     const rec = {
-      ts: t._ts || Date.now(),
-      iso_date: (typeof t._ts === "number") ? new Date(t._ts).toISOString() : t.iso_date || null,
+      ts: toISTms(t._ts || t.timestamp || Date.now()),
+      iso_date: new Date(toISTms(t._ts || t.timestamp || Date.now())).toISOString(),
       tradingsymbol: t.tradingsymbol || t.trading_symbol || t.instrument || t.symbol,
       account_id: t.account_id || t.accountId || null,
       trade_id: t.trade_id || t.tradeId || (t.order_id ? `${t.order_id}` : null),
-      side: (t.transaction_type || t.order_side || t.side || "").toUpperCase(),
+      side: (t.transaction_type || t.order_side || t.side || '').toUpperCase(),
       qty: Math.abs(Number(t.quantity || t.qty || 0)),
       price: Number(t.price || t.trade_price || t.avg_price || 0),
       raw: t.raw || t
@@ -66,6 +79,10 @@ async function appendToTradebook(t) {
     await kv.set(TRADEBOOK_KEY, arr);
     return true;
   } catch (e) {
+    return false;
+  }
+}
+ catch (e) {
     return false;
   }
 }
