@@ -103,16 +103,18 @@ export default async function handler(req, res) {
     unrealised = safeNum(unrealised, 0);
     total_pnl = Number(realised + unrealised);
 
-    // Capital and max loss (derive max loss absolute from capital * pct)
+    
+    // Capital and base loss (derive base loss absolute from capital * pct)
     const capital = safeNum(persisted.capital_day_915 ?? 0, 0);
     const maxLossPct = safeNum(persisted.max_loss_pct ?? 0, 0);
-    const max_loss_abs = Math.round(capital * (maxLossPct / 100)); // e.g. 10000
-    const active_loss_floor = -Math.abs(max_loss_abs);
+    const base_loss_abs = Math.round(capital * (maxLossPct / 100)); // e.g. 10000
 
-    // remaining_to_max_loss = max_loss_abs + total_pnl
-    const remaining_to_max_loss = Math.round(max_loss_abs + total_pnl);
+    // Active loss floor: moves with realised profit. active_loss_floor = realised - base_loss_abs
+    const active_loss_floor = Math.round(realised - base_loss_abs);
 
-    // p10 (max profit lock) compute:
+    // remaining_to_max_loss = total_pnl - active_loss_floor  (equivalently unrealised + base_loss_abs)
+    const remaining_to_max_loss = Math.round(total_pnl - active_loss_floor);
+// p10 (max profit lock) compute:
     // prefer explicit p10_amount (rupees) if present; otherwise use percentage field (p10_pct or p10)
     let p10_effective_amount = 0;
     const explicitAmount = safeNum(persisted.p10_amount ?? persisted.p10_amount_rupee ?? 0, 0);
