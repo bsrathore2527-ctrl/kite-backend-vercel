@@ -594,7 +594,7 @@ async function loadState(){
     if (s.last_trade_time && Number(s.last_trade_time) > 0) {
       const d = new Date(Number(s.last_trade_time));
       if (!isNaN(d)) {
-        $('last_trade_time').textContent = d.toLocaleTimeString('en-IN',{hour12:false});
+        $('last_trade_time').textContent = d.toLocaleTimeString('en-GB', { hour12:false, timeZone:'Asia/Kolkata' });
       } else {
         $('last_trade_time').textContent = '—';
       }
