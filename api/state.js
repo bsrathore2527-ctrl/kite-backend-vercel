@@ -13,6 +13,39 @@
 
 import { getState } from "./_lib/kv.js";
 import { instance } from "./_lib/kite.js";
+// ---- UTC timestamp helpers (inlined) ----
+function normalizeTsToMs(ts) {
+  if (ts == null) return null;
+  if (typeof ts === 'number' && Number.isFinite(ts)) {
+    return (String(Math.trunc(ts)).length === 10) ? ts * 1000 : ts;
+  }
+  const s = String(ts).trim();
+  if (/^\d+$/.test(s)) {
+    const n = Number(s);
+    return (String(Math.trunc(n)).length === 10) ? n * 1000 : n;
+  }
+  // common pattern 'YYYY-MM-DD HH:MM:SS' -> treat as UTC by appending Z
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(s)) {
+    return Date.parse(s.replace(' ', 'T') + 'Z');
+  }
+  const parsed = Date.parse(s);
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
+function msForUTCHourMinute(hour, minute, d = new Date()) {
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), hour, minute, 0, 0);
+}
+
+function todayKeyUTC(d = new Date()) {
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function nowMs() { return Date.now(); }
+// ---- end helpers ----
+
 
 function nowMs() { return Date.now(); }
 function safeNum(v, fallback = 0) {
