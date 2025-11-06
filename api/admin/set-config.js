@@ -187,9 +187,9 @@ export default async function handler(req, res) {
       const active_loss_floor = -Math.abs(max_loss_abs);
 
       // compute remaining_to_max_loss = max_loss_abs + total_pnl (total_pnl may be negative)
-      const realised = Number(state.realised ?? 0);
+      const state.total_pnl = Number(state.total_pnl ?? 0);
       const unreal = Number(state.unrealised ?? 0);
-      const total = Number(state.total_pnl ?? (realised + unreal));
+      const total = Number(state.total_pnl ?? (state.total_pnl + unreal));
       const remaining_to_max_loss = Math.round(max_loss_abs + total);
 
       const derivedPatch = {
