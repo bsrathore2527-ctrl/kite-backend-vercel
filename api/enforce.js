@@ -21,7 +21,7 @@ async function cancelPending(kc) {
         await kc.cancelOrder(o.variety || "regular", o.order_id);
         cancelled++;
       } catch (e) {
-        // ignore failures
+        // ignore individual cancel errors
       }
     }
     return cancelled;
@@ -62,23 +62,32 @@ async function squareOffAll(kc) {
   }
 }
 
-export default async function handler(req, res) {
+async function handler(req, res) {
   try {
     // accept GET or POST from UI / scheduler
-    if (req.method !== "GET" && req.method !== "POST") return bad(res, "Method not allowed");
+    if (req.method !== "GET" && req.method !== "POST")
+      return bad(res, "Method not allowed");
 
     const key = `risk:${todayKey()}`;
     const state = (await kv.get(key)) || {};
 
     if (!state.tripped_day && !state.block_new_orders) {
-      return ok(res, { tick: new Date().toISOString(), enforced: false, reason: "not_tripped" });
+      return ok(res, {
+        tick: new Date().toISOString(),
+        enforced: false,
+        reason: "not_tripped"
+      });
     }
 
     let kc;
     try {
       kc = await instance();
     } catch (e) {
-      return ok(res, { enforced: false, note: "Kite not connected", error: e.message });
+      return ok(res, {
+        enforced: false,
+        note: "Kite not connected",
+        error: e.message
+      });
     }
 
     const cancelled = await cancelPending(kc);
@@ -88,7 +97,10 @@ export default async function handler(req, res) {
     await kv.set(key, next);
 
     return ok(res, {
-      tick: new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour12: false }),
+      tick: new Date().toLocaleTimeString("en-IN", {
+        timeZone: "Asia/Kolkata",
+        hour12: false
+      }),
       enforced: true,
       cancelled,
       squared
@@ -97,3 +109,7 @@ export default async function handler(req, res) {
     return send(res, 500, { ok: false, error: err.message || String(err) });
   }
 }
+
+// ✅ Added for Option B internal calls:
+export { cancelPending, squareOffAll };
+export default handler;
