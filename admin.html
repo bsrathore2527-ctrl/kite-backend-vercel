@@ -293,9 +293,9 @@ const ENDPOINTS = {
 
 const $ = id => document.getElementById(id);
 function toast(msg, t=3000){ const el=$('toast'); el.textContent=msg; el.style.display='block'; clearTimeout(el._t); el._t=setTimeout(()=>el.style.display='none',t); }
-function nowUTC(){ return new Date().toLocaleTimeString('en-GB', { hour12:false, timeZone:'UTC' }); }); }
+function now(){ return new Date().toLocaleTimeString('en-GB', { hour12:false, timeZone:'UTC' }); }
 function fmtINR(v){ if(v==null||isNaN(Number(v))) return '—'; return '₹'+Number(v).toLocaleString('en-IN',{maximumFractionDigits:0}); }
-function logLine(s){ const pre = $('raw_responses'); pre.textContent = `[${new Date().toLocaleTimeString('en-GB', { hour12:false, timeZone:'UTC' })}] ${s}\n\n` + pre.textContent; }
+function logLine(s){ const pre = $('raw_responses'); pre.textContent = `[${new Date().toLocaleTimeString()}] ${s}\n\n` + pre.textContent; }
 
 /* pager */
 const pages = document.querySelectorAll('.page');
@@ -361,7 +361,7 @@ function init(){
 
   loadAll();
   // reduced refresh to 10s to reduce API pressure
-  setInterval(()=> $('now').textContent = nowUTC(), 10000);
+  setInterval(()=> $('now').textContent = now(), 10000);
 }
 
 /* token functions */
@@ -511,21 +511,7 @@ async function loadState(){
     if(!j || !j.ok){ toast('Failed load state'); return; }
 
     // time and statuses
-    // Prefer to set top-right clock from latest trade time so it matches trade timestamps below.
-    (async function(){
-      try{
-        const tResp = await fetch('/api/kite/trades');
-        const tJson = await tResp.json().catch(()=>null);
-        if (tJson && Array.isArray(tJson.trades) && tJson.trades.length) {
-          const first = tJson.trades[0];
-          const ms = first._ts || first.ts || (first._iso ? Date.parse(first._iso) : null);
-          if (ms) {
-            try { $('now').textContent = new Date(Number(ms)).toLocaleTimeString('en-GB', { hour12:false, timeZone:'UTC' }); return; } catch(e){}
-          }
-        }
-      }catch(e){}
-      $('now').textContent = nowUTC();
-    })();
+    $('now').textContent = j.time || (new Date().toLocaleTimeString('en-GB',{ hour12:false, timeZone:'UTC' }));
     $('guardian_status').textContent = j.admin ? 'admin' : 'online';
     $('kite_status').textContent = j.kite_status === 'ok' ? 'Kite: Connected' : (j.kite_status || 'not_logged_in');
 
@@ -607,7 +593,7 @@ async function loadState(){
     if (s.last_trade_time && Number(s.last_trade_time) > 0) {
       const d = new Date(Number(s.last_trade_time));
       if (!isNaN(d)) {
-        $('last_trade_time').textContent = d.toLocaleTimeString('en-GB', { hour12:false, timeZone:'UTC' });
+        $('last_trade_time').textContent = d.toLocaleTimeString('en-IN',{hour12:false});
       } else {
         $('last_trade_time').textContent = '—';
       }
@@ -767,16 +753,6 @@ async function loadTradebook(){
     const rows = arr.slice(0,50).map(tbRowHtml).join('');
     const table = `<table class="tradebook"><thead><tr><th>Instrument</th><th>Side</th><th>Qty</th><th>Price</th><th>Time</th></tr></thead><tbody>${rows}</tbody></table>`;
     out.innerHTML = table;
-    // set top-right clock to most recent trade time so UI uses same base time as tradebook
-    try{
-      const topNow = $('now');
-      if(topNow){
-        const first = arr[0];
-        const ms = (first && (first._ts || first.ts || first.__ts)) ? Number(first._ts || first.ts || first.__ts) : null;
-        if(ms && !isNaN(ms)) topNow.textContent = new Date(ms).toLocaleTimeString('en-GB', { hour12:false, timeZone:'UTC' });
-      }
-    }catch(e){}
-
   }catch(e){
     out.innerHTML = `<div class="tb-empty">Failed to load tradebook</div>`;
     logLine('loadTradebook err: '+(e.message||e));
