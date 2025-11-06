@@ -1,16 +1,14 @@
 // api/kite/trades.js
 // Returns today's trades — prefer server tradebook stored in KV (persisted by enforce-trades)
 // fallback to live Kite trades if no tradebook found.
-// 
-// This patched version also auto-evaluates MTM & triggers enforcement logic (Option A) 
-// whenever new trades are retrieved.
+//
+// This patched version also auto-evaluates MTM and triggers enforcement logic (Option A)
+// for Max Loss / Max Profit / Consecutive Losses / Cooldown violations.
 
 import { kv } from "../_lib/kv.js";
 import { instance } from "../_lib/kite.js";
-
-// === ADD: import helpers used for enforcement ===
-import { getState, setState } from "../_lib/state.js";  // adjust if your helpers are elsewhere
-import { cancelPending, squareOffAll } from "../enforce.js";  // adjust path if needed
+import { getState, setState } from "../_lib/state.js";   // must exist or map to your own helpers
+import { cancelPending, squareOffAll } from "../enforce.js";  // adjust import if needed
 
 const TRADEBOOK_KEY = "guardian:tradebook";
 
@@ -59,7 +57,8 @@ function normalizeTrade(t) {
   return out;
 }
 
-// === ADD: fetch MTM, update losses, trigger kill ===
+// === Helpers for live MTM and enforcement ===
+
 async function fetchKitePositions() {
   try {
     const kc = await instance();
@@ -77,22 +76,29 @@ async function fetchKitePositions() {
 }
 
 async function markTrippedAndKill(reason, meta = {}) {
-  const state = await getState();
-  if (state.tripped_day) return;
-  const now = Date.now();
-  state.tripped_day = true;
-  state.tripped_reason = reason;
-  state.tripped_meta = { ...meta, at: now };
-  state.block_new_orders = true;
-  state.last_enforced_at = now;
-  await setState(state);
   try {
-    const kc = await instance();
-    await cancelPending(kc);
-    await squareOffAll(kc);
-    console.log("Auto-kill executed:", reason);
-  } catch (e) {
-    console.error("Auto-kill failed:", e);
+    const state = await getState();
+    if (state.tripped_day) return;
+
+    const now = Date.now();
+    state.tripped_day = true;
+    state.tripped_reason = reason;
+    state.tripped_meta = { ...meta, at: now };
+    state.block_new_orders = true;
+    state.last_enforced_at = now;
+    await setState(state);
+
+    // Execute kill
+    try {
+      const kc = await instance();
+      await cancelPending(kc);
+      await squareOffAll(kc);
+      console.log("Auto-kill executed:", reason, meta);
+    } catch (e) {
+      console.error("Auto-kill failed:", e);
+    }
+  } catch (err) {
+    console.error("markTrippedAndKill error", err);
   }
 }
 
@@ -103,9 +109,27 @@ async function evaluateTradeForAutoLogic(trade) {
     const state = await getState();
     const now = Date.now();
 
+    // Fetch live MTM (for both BUY/SELL checks)
+    const pos = await fetchKitePositions();
+    const mtm = Number(pos.total_pnl ?? 0);
+
+    // --- Global checks: Max Loss & Max Profit ---
+    const maxLoss = Number(state.max_loss_abs ?? 0);
+    const maxProfit = Number(state.p10_effective_amount ?? 0);
+
+    if (!state.tripped_day) {
+      if (mtm <= -maxLoss) {
+        await markTrippedAndKill("max_loss_reached", { mtm, maxLoss });
+        return;
+      }
+      if (mtm >= maxProfit) {
+        await markTrippedAndKill("max_profit_reached", { mtm, maxProfit });
+        return;
+      }
+    }
+
+    // --- SELL logic: consecutive losses / cooldown ---
     if (typ === "SELL") {
-      const pos = await fetchKitePositions();
-      const mtm = Number(pos.total_pnl ?? 0);
       const lastMtm = Number(state.last_mtm ?? 0);
       const cooldownMin = Number(state.cooldown_min ?? 15);
       const maxConsec = Number(state.max_consecutive_losses ?? 0);
@@ -131,20 +155,33 @@ async function evaluateTradeForAutoLogic(trade) {
       }
     }
 
+    // --- BUY logic: kill if during cooldown ---
     if (typ === "BUY") {
       const cooldownUntil = Number(state.cooldown_until ?? 0);
       if (!state.tripped_day && cooldownUntil && now < cooldownUntil) {
         await markTrippedAndKill("buy_during_cooldown", { last_mtm: state.last_mtm });
       }
     }
+
   } catch (e) {
     console.error("evaluateTradeForAutoLogic error", e);
   }
 }
 
-// === MAIN HANDLER ===
+// === Main handler ===
 export default async function handler(req, res) {
   try {
+    // Allow admin raw fetch
+    if (isAdmin(req) && req.query && req.query.raw === "1") {
+      const raw = (await kv.get(TRADEBOOK_KEY)) || "[]";
+      try {
+        const arr = JSON.parse(raw);
+        return res.status(200).json({ ok: true, source: "kv", raw: true, trades: arr });
+      } catch {
+        return res.status(200).json({ ok: true, source: "kv", raw: true, trades: [] });
+      }
+    }
+
     // Try KV tradebook first
     let trades = [];
     let source = "empty";
@@ -171,7 +208,7 @@ export default async function handler(req, res) {
       }
     }
 
-    // === ADD: trigger Option A logic on the latest trade if any ===
+    // Trigger automation on latest trade
     if (Array.isArray(trades) && trades.length) {
       const latest = trades[trades.length - 1];
       evaluateTradeForAutoLogic(latest); // async, fire-and-forget
