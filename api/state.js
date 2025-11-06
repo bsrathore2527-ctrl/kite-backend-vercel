@@ -4,7 +4,7 @@
 // Minimal, defensive, avoids duplicate identifier imports.
 
 import { getState, setState } from './_lib/kv.js';
-import { todayKeyUTC, normalizeTsToMs } from './_lib/time.js';
+import { todayKeyUTC, normalizeTsToMs } from './_lib/admin-utils.js';
 
 function safeNum(v, fallback = 0) {
   const n = Number(v);
