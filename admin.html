@@ -511,7 +511,7 @@ async function loadState(){
     if(!j || !j.ok){ toast('Failed load state'); return; }
 
     // time and statuses
-    $('now').textContent = j.time || (new Date().toLocaleTimeString('en-GB',{ hour12:false, timeZone:'UTC' }));
+    $('now').textContent = j.time || (new Date().toLocaleTimeString(undefined, { hour12: false }));
     $('guardian_status').textContent = j.admin ? 'admin' : 'online';
     $('kite_status').textContent = j.kite_status === 'ok' ? 'Kite: Connected' : (j.kite_status || 'not_logged_in');
 
