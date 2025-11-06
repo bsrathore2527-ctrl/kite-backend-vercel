@@ -37,7 +37,7 @@ export default async function handler(req, res) {
 
     const safe = {
       capital_day_915: s.capital_day_915 || 0,
-      realised: s.realised || 0,
+      state.total_pnl: s.state.total_pnl || 0,
       unrealised: s.unrealised || 0,
       current_balance: s.current_balance || 0,
       live_balance: liveBalance,
