@@ -1,59 +1,38 @@
-// api/_lib/admin-utils.js
-// Utilities used by admin endpoints and trade processing
-import { kv, todayKey } from "./kv.js";
 
-/**
- * updateConsecutiveLossesOnRealised(realised, tradeId = null)
- * - realised: number (positive profit, negative loss)
- * - tradeId: optional unique id for the trade/fill (used to avoid double-counting)
- *
- * Persisted keys:
- *   - risk:{YYYY-MM-DD}         -> main state object
- *   - risk:{YYYY-MM-DD}:processed_fills -> object to track processed tradeIds
- */
-export async function updateConsecutiveLossesOnRealised(realised, tradeId = null) {
-  const dateKey = todayKey();
-  const key = `risk:${dateKey}`;
 
-  // guard: if tradeId provided, check processed map
-  if (tradeId) {
-    const processedKey = `risk:${dateKey}:processed_fills`;
-    const processed = (await kv.get(processedKey)) || {};
-    if (processed[tradeId]) {
-      // already processed
-      return { ok: true, note: "already_processed", consecutive_losses: (await kv.get(key))?.consecutive_losses ?? 0 };
-    }
-    // mark processed
-    processed[tradeId] = true;
-    await kv.set(processedKey, processed);
+// --- UTC / timestamp helpers merged from time.js ---
+export function normalizeTsToMs(ts) {
+  if (ts == null) return null;
+  if (typeof ts === 'number' && Number.isFinite(ts)) {
+    const s = String(Math.trunc(ts));
+    return s.length === 10 ? ts * 1000 : ts;
   }
-
-  const state = (await kv.get(key)) || {};
-
-  let consecutive = Number(state.consecutive_losses || 0);
-
-  if (Number(realised) < 0) {
-    consecutive = consecutive + 1;
-  } else if (Number(realised) > 0) {
-    consecutive = 0;
-  } // if zero: leave as-is
-
-  const nextState = {
-    ...state,
-    realised: (Number(state.realised || 0) + Number(realised || 0)),
-    consecutive_losses: consecutive
-  };
-
-  await kv.set(key, nextState);
-
-  return { ok: true, consecutive_losses: consecutive, state: nextState };
+  const raw = String(ts).trim();
+  if (/^\d+$/.test(raw)) {
+    const n = Number(raw);
+    return String(Math.trunc(n)).length === 10 ? n * 1000 : n;
+  }
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw)) {
+    const fixed = raw.replace(' ', 'T') + 'Z';
+    const p = Date.parse(fixed);
+    return Number.isNaN(p) ? null : p;
+  }
+  const parsed = Date.parse(raw);
+  return Number.isNaN(parsed) ? null : parsed;
 }
 
-/**
- * small helper to require admin in handlers
- */
-export function checkAdmin(req, adminToken) {
-  const a = req.headers.authorization || "";
-  const token = a.startsWith("Bearer ") ? a.slice(7) : a;
-  return !!adminToken && token === adminToken;
+export function todayKeyUTC(d = new Date()) {
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
+
+export function msForUTCHourMinute(hour, minute, d = new Date()) {
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), hour, minute, 0, 0);
+}
+
+export function nowMs() {
+  return Date.now();
+}
+
