@@ -1,6 +1,6 @@
 // api/enforce-trades.js
 // Scheduled job — process new trades, compute realized closes, start cooldown and track consecutive losses.
-// Also: when total (state.total_pnl + unrealised) loss breaches max_loss_abs derived from capital & max_loss_pct,
+// Also: when total (realised + unrealised) loss breaches max_loss_abs derived from capital & max_loss_pct,
 // mark tripped_day and immediately attempt to enforce (cancel + square off).
 
 import { kv, getState, setState } from "./_lib/kv.js";
@@ -75,20 +75,20 @@ async function storeRealizedEvent(evt) {
   if (existing) return false;
   await kv.set(key, evt);
 
-  // Also update today's aggregated state.total_pnl total in today's risk state
+  // Also update today's aggregated realised total in today's risk state
   try {
     const todayKey = `risk:${new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }).split(",")[0].replace(/\//g,'-')}`;
     // safer: use getState/setState helpers if available
-    // get current persisted state (today) and increment state.total_pnl
+    // get current persisted state (today) and increment realised
     const state = await getState();
-    const currentReal = Number(state.total_pnl ?? 0);
-    const add = Number(evt.realized_pnl || evt.realised_pnl || evt.realized || evt.state.total_pnl || 0);
+    const currentReal = Number(state.realised ?? 0);
+    const add = Number(evt.realized_pnl || evt.realised_pnl || evt.realized || evt.realised || 0);
     if (!isNaN(add) && add !== 0) {
       const next = currentReal + add;
-      await setState({ state.total_pnl: next });
+      await setState({ realised: next });
     }
   } catch (e) {
-    console.warn("storeRealizedEvent: failed to update aggregated state.total_pnl:", e && e.message ? e.message : e);
+    console.warn("storeRealizedEvent: failed to update aggregated realised:", e && e.message ? e.message : e);
   }
 
   return true;
@@ -383,9 +383,9 @@ export default async function handler(req, res) {
     // load fresh state and compute totals
     try {
       const state = await getState();
-      const state.total_pnl = Number(state.total_pnl ?? 0);
+      const realised = Number(state.realised ?? 0);
       const unreal = Number(state.unrealised ?? 0);
-      const total = state.total_pnl + unreal;
+      const total = realised + unreal;
 
       // derive max_loss_abs: prefer stored value else compute from capital_day_915 * max_loss_pct
       let maxLossAbs = Number(state.max_loss_abs ?? 0);
