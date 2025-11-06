@@ -511,21 +511,7 @@ async function loadState(){
     if(!j || !j.ok){ toast('Failed load state'); return; }
 
     // time and statuses
-    (function(){
-  const ms = (j && (j.time_ms || j.timeMs || j._ts)) ? Number(j.time_ms || j.timeMs || j._ts) : null;
-  if (ms && !Number.isNaN(ms)) {
-    $('now').textContent = new Date(ms).toLocaleTimeString(undefined, { hour12: false });
-  } else if (j && j.time) {
-    const p = Date.parse(j.time);
-    if (!Number.isNaN(p)) {
-      $('now').textContent = new Date(p).toLocaleTimeString(undefined, { hour12: false });
-    } else {
-      $('now').textContent = now();
-    }
-  } else {
-    $('now').textContent = now();
-  }
-})();
+    (function(){ const ms = (j && (j.time_ms || j.timeMs || j._ts)) ? Number(j.time_ms || j.timeMs || j._ts) : null; if (ms && !Number.isNaN(ms)) {$('now').textContent = new Date(ms).toLocaleTimeString(undefined, { hour12: false }); } else if (j && j.time) { const p = Date.parse(j.time); if (!Number.isNaN(p)) {$('now').textContent = new Date(p).toLocaleTimeString(undefined, { hour12: false }); } else {$('now').textContent = now(); } } else {$('now').textContent = now(); } })();
     $('guardian_status').textContent = j.admin ? 'admin' : 'online';
     $('kite_status').textContent = j.kite_status === 'ok' ? 'Kite: Connected' : (j.kite_status || 'not_logged_in');
 
