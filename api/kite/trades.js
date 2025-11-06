@@ -1,12 +1,16 @@
 // api/kite/trades.js
 // Returns today's trades — prefer server tradebook stored in KV (persisted by enforce-trades)
 // fallback to live Kite trades if no tradebook found.
-//
-// This patched version normalizes timestamps to milliseconds (_ts) and normalizes price fields
-// so the frontend can rely on consistent fields.
+// 
+// This patched version also auto-evaluates MTM & triggers enforcement logic (Option A) 
+// whenever new trades are retrieved.
 
 import { kv } from "../_lib/kv.js";
 import { instance } from "../_lib/kite.js";
+
+// === ADD: import helpers used for enforcement ===
+import { getState, setState } from "../_lib/state.js";  // adjust if your helpers are elsewhere
+import { cancelPending, squareOffAll } from "../enforce.js";  // adjust path if needed
 
 const TRADEBOOK_KEY = "guardian:tradebook";
 
@@ -23,21 +27,16 @@ function toNumberOrNull(v) {
 }
 
 function normalizeTsToMs(ts) {
-  // Accept number or numeric string or ISO string.
   if (ts === null || typeof ts === "undefined") return null;
-  // If it's already a number
   if (typeof ts === "number") {
-    // 10-digit => seconds, convert to ms
     if (String(Math.trunc(ts)).length === 10) return ts * 1000;
     return ts;
   }
-  // numeric string?
   if (/^\d+$/.test(String(ts).trim())) {
     const n = Number(ts);
     if (String(Math.trunc(n)).length === 10) return n * 1000;
     return n;
   }
-  // Try Date.parse on other strings (ISO or common formats)
   const parsed = Date.parse(String(ts));
   if (!Number.isNaN(parsed)) return parsed;
   return null;
@@ -46,81 +45,141 @@ function normalizeTsToMs(ts) {
 function normalizeTrade(t) {
   if (!t || typeof t !== "object") return t;
   const out = { ...t };
-
-  // Normalize price: prefer avg_price, then price, then average_price/trade_price
-  const candidates = [
-    out.avg_price,
-    out.average_price,
-    out.trade_price,
-    out.price,
-    out.last_price,
-  ];
+  const candidates = [out.avg_price, out.average_price, out.trade_price, out.price, out.last_price];
   let price = null;
   for (const c of candidates) {
     const p = toNumberOrNull(c);
     if (p !== null && p !== 0) { price = p; break; }
   }
-  // If still null, set to null (frontend will display '—')
   out.price_normalized = price;
-
-  // Normalize timestamp into _ts (milliseconds since epoch)
-  // prefer existing _ts, else common fields
   const possibleTs = out._ts || out.trade_time || out.timestamp || out.exchange_timestamp || out.order_timestamp || out.created_at || out.ts;
   const ms = normalizeTsToMs(possibleTs);
   out._ts = ms || out._ts || null;
-
-  // Also add a human-friendly ISO for clarity
   out._iso = out._ts ? new Date(out._ts).toISOString() : null;
-
   return out;
 }
 
+// === ADD: fetch MTM, update losses, trigger kill ===
+async function fetchKitePositions() {
+  try {
+    const kc = await instance();
+    const data = await kc.getPositions();
+    const net = data.net || [];
+    let total = 0;
+    for (const p of net) {
+      total += Number(p.m2m ?? p.unrealised ?? 0);
+    }
+    return { total_pnl: total, unrealised: total };
+  } catch (e) {
+    console.error("fetchKitePositions error", e);
+    return { total_pnl: 0 };
+  }
+}
+
+async function markTrippedAndKill(reason, meta = {}) {
+  const state = await getState();
+  if (state.tripped_day) return;
+  const now = Date.now();
+  state.tripped_day = true;
+  state.tripped_reason = reason;
+  state.tripped_meta = { ...meta, at: now };
+  state.block_new_orders = true;
+  state.last_enforced_at = now;
+  await setState(state);
+  try {
+    const kc = await instance();
+    await cancelPending(kc);
+    await squareOffAll(kc);
+    console.log("Auto-kill executed:", reason);
+  } catch (e) {
+    console.error("Auto-kill failed:", e);
+  }
+}
+
+async function evaluateTradeForAutoLogic(trade) {
+  try {
+    if (!trade || !trade.transaction_type) return;
+    const typ = String(trade.transaction_type).toUpperCase();
+    const state = await getState();
+    const now = Date.now();
+
+    if (typ === "SELL") {
+      const pos = await fetchKitePositions();
+      const mtm = Number(pos.total_pnl ?? 0);
+      const lastMtm = Number(state.last_mtm ?? 0);
+      const cooldownMin = Number(state.cooldown_min ?? 15);
+      const maxConsec = Number(state.max_consecutive_losses ?? 0);
+      let consec = Number(state.consecutive_losses ?? 0);
+
+      const isLoss = mtm < 0;
+      if (isLoss) {
+        consec += 1;
+        state.cooldown_until = now + cooldownMin * 60 * 1000;
+      } else {
+        consec = 0;
+      }
+      if (typeof state.last_mtm === "undefined" || mtm > lastMtm) {
+        state.last_mtm = mtm;
+        state.last_mtm_ts = now;
+      }
+      state.consecutive_losses = consec;
+      state.last_sell_ts = now;
+      await setState(state);
+
+      if (maxConsec > 0 && consec >= maxConsec && !state.tripped_day) {
+        await markTrippedAndKill("consecutive_losses", { consec, mtm });
+      }
+    }
+
+    if (typ === "BUY") {
+      const cooldownUntil = Number(state.cooldown_until ?? 0);
+      if (!state.tripped_day && cooldownUntil && now < cooldownUntil) {
+        await markTrippedAndKill("buy_during_cooldown", { last_mtm: state.last_mtm });
+      }
+    }
+  } catch (e) {
+    console.error("evaluateTradeForAutoLogic error", e);
+  }
+}
+
+// === MAIN HANDLER ===
 export default async function handler(req, res) {
   try {
-    // If admin asked for raw stored tradebook
-    if (isAdmin(req) && req.query && req.query.raw === "1") {
-      const raw = (await kv.get(TRADEBOOK_KEY)) || "[]";
-      try {
-        const arr = JSON.parse(raw);
-        return res.status(200).json({ ok: true, source: "kv", raw: true, trades: arr });
-      } catch (e) {
-        return res.status(200).json({ ok: true, source: "kv", raw: true, trades: [] });
-      }
-    }
-
-    // Try server-side persisted tradebook first (preferred)
+    // Try KV tradebook first
+    let trades = [];
+    let source = "empty";
     try {
       const raw = (await kv.get(TRADEBOOK_KEY)) || "[]";
-      let arr = [];
-      try {
-        arr = JSON.parse(raw);
-      } catch (e) {
-        arr = [];
-      }
+      const arr = JSON.parse(raw);
       if (Array.isArray(arr) && arr.length) {
-        // Normalize each trade before returning
-        const normalized = arr.slice(-200).map(normalizeTrade);
-        return res.status(200).json({ ok: true, source: "kv", trades: normalized });
+        trades = arr.slice(-200).map(normalizeTrade);
+        source = "kv";
       }
     } catch (e) {
-      console.warn("kite/trades kv read failed:", e && e.message ? e.message : e);
+      console.warn("kite/trades kv read failed:", e);
     }
 
-    // Fallback to live Kite trades
-    try {
-      const kc = await instance();
-      const trades = (await kc.getTrades()) || [];
-      if (trades.length) {
-        const normalized = trades.slice(-200).map(normalizeTrade);
-        return res.status(200).json({ ok: true, source: "kite", trades: normalized });
+    // Fallback to live Kite trades if no KV trades
+    if (!trades.length) {
+      try {
+        const kc = await instance();
+        const live = (await kc.getTrades()) || [];
+        trades = live.slice(-200).map(normalizeTrade);
+        source = "kite";
+      } catch (e) {
+        console.warn("kite/trades fallback failed:", e);
       }
-    } catch (e) {
-      console.warn("kite/trades fallback failed:", e && e.message ? e.message : e);
     }
 
-    return res.status(200).json({ ok: true, source: "empty", trades: [] });
+    // === ADD: trigger Option A logic on the latest trade if any ===
+    if (Array.isArray(trades) && trades.length) {
+      const latest = trades[trades.length - 1];
+      evaluateTradeForAutoLogic(latest); // async, fire-and-forget
+    }
+
+    return res.status(200).json({ ok: true, source, trades });
   } catch (err) {
-    console.error("kite/trades error:", err && err.stack ? err.stack : err);
+    console.error("kite/trades error:", err);
     return res.status(500).json({ ok: false, error: String(err) });
   }
 }
