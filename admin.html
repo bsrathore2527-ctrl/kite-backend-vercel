@@ -704,7 +704,7 @@ function tbRowHtml(t){
         }
       }
       if (!isNaN(d)) {
-        time = d.toLocaleTimeString('en-IN', { hour12:false, timeZone:'Asia/Kolkata' });
+        time = d.toLocaleTimeString(undefined, { hour12:false }); // use browser local timezone to match top-right clock
       }
     } catch (e) {
       time = '—';
