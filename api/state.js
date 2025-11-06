@@ -1,7 +1,7 @@
 // api/state.js
 // Return merged runtime "state" for admin UI.
 // - Reads persisted risk state from KV (getState).
-// - Augments with live kite info: kite_status, current_balance, state.total_pnl/unrealised totals.
+// - Augments with live kite info: kite_status, current_balance, realised/unrealised totals.
 // - Computes active_loss_floor and remaining_to_max_loss using the rule:
 //     max_loss_abs = round(capital_day_915 * (max_loss_pct/100))
 //     active_loss_floor = -max_loss_abs
@@ -32,9 +32,9 @@ export default async function handler(req, res) {
     let kite_status = "not_logged_in";
     let current_balance = safeNum(persisted.current_balance ?? persisted.live_balance ?? 0);
     let live_balance = safeNum(persisted.live_balance ?? persisted.current_balance ?? 0);
-    let state.total_pnl = safeNum(persisted.state.total_pnl ?? 0);
+    let realised = safeNum(persisted.realised ?? 0);
     let unrealised = safeNum(persisted.unrealised ?? 0);
-    let total_pnl = Number(state.total_pnl + unrealised);
+    let total_pnl = Number(realised + unrealised);
 
     // Try to fetch live kite info (best-effort)
     try {
@@ -69,9 +69,9 @@ export default async function handler(req, res) {
 
             // update only if kite returned meaningful numbers
             if (m2m_realised !== 0 || m2m_unrealised !== 0) {
-              state.total_pnl = m2m_realised;
+              realised = m2m_realised;
               unrealised = m2m_unrealised;
-              total_pnl = state.total_pnl + unrealised;
+              total_pnl = realised + unrealised;
             }
           } else {
             // fallback to positions if funds not available
@@ -85,7 +85,7 @@ export default async function handler(req, res) {
                 computedUnreal += v;
               }
               unrealised = computedUnreal;
-              total_pnl = state.total_pnl + unrealised;
+              total_pnl = realised + unrealised;
             }
           }
         } catch (e) {
@@ -99,9 +99,9 @@ export default async function handler(req, res) {
     }
 
     // Ensure numbers
-    state.total_pnl = safeNum(state.total_pnl, 0);
+    realised = safeNum(realised, 0);
     unrealised = safeNum(unrealised, 0);
-    total_pnl = Number(state.total_pnl + unrealised);
+    total_pnl = Number(realised + unrealised);
 
     
     // Capital and base loss (derive base loss absolute from capital * pct)
@@ -111,8 +111,8 @@ export default async function handler(req, res) {
     // maintain backward-compatible alias
     const max_loss_abs = base_loss_abs;
 
-    // Active loss floor: moves with state.total_pnl profit. active_loss_floor = (state.total_pnl || state.unrealised || 0) - base_loss_abs
-    const active_loss_floor = Math.round(state.total_pnl - base_loss_abs);
+    // Active loss floor: moves with realised profit. active_loss_floor = realised - base_loss_abs
+    const active_loss_floor = Math.round(realised - base_loss_abs);
 
     // remaining_to_max_loss = total_pnl - active_loss_floor  (equivalently unrealised + base_loss_abs)
     const remaining_to_max_loss = Math.round(total_pnl - active_loss_floor);
@@ -138,7 +138,7 @@ export default async function handler(req, res) {
       kite_status,
       current_balance,
       live_balance,
-      state.total_pnl,
+      realised,
       unrealised,
       total_pnl,
       capital_day_915: capital,
