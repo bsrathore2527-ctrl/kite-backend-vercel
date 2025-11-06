@@ -293,7 +293,7 @@ const ENDPOINTS = {
 
 const $ = id => document.getElementById(id);
 function toast(msg, t=3000){ const el=$('toast'); el.textContent=msg; el.style.display='block'; clearTimeout(el._t); el._t=setTimeout(()=>el.style.display='none',t); }
-function now(){ return new Date().toLocaleTimeString('en-IN',{timeZone:'Asia/Kolkata',hour12:false}); }
+function now(){ return new Date().toLocaleTimeString(undefined, { hour12:false }); }
 function fmtINR(v){ if(v==null||isNaN(Number(v))) return '—'; return '₹'+Number(v).toLocaleString('en-IN',{maximumFractionDigits:0}); }
 function logLine(s){ const pre = $('raw_responses'); pre.textContent = `[${new Date().toLocaleTimeString()}] ${s}\n\n` + pre.textContent; }
 
@@ -669,38 +669,7 @@ function formatTrade(t){
 /* ---------------------------
    TRADEBOOK UI (NEW)
    --------------------------- */
-function tbRowHtml
-// --- timestamp helper (use this in tbRowHtml) ---
-function parseAnyTimestampToMs(t) {
-  if (t == null) return null;
-  if (typeof t === 'number' && Number.isFinite(t)) {
-    return (String(Math.trunc(t)).length === 10) ? t * 1000 : t;
-  }
-  if (/^\d+$/.test(String(t).trim())) {
-    const n = Number(t);
-    return (String(Math.trunc(n)).length === 10) ? n * 1000 : n;
-  }
-  let s = String(t).trim();
-  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(s)) {
-    s = s.replace(' ', 'T') + 'Z';
-  }
-  if (/^\d{2}:\d{2}:\d{2}$/.test(s)) return null;
-  const parsed = Date.parse(s);
-  return Number.isNaN(parsed) ? null : parsed;
-}
-
-let ms = null;
-if (trade._ts) ms = Number(trade._ts);
-else if (trade.ts) ms = Number(trade.ts);
-else if (trade._iso) ms = parseAnyTimestampToMs(trade._iso);
-else if (trade.exchange_timestamp) ms = parseAnyTimestampToMs(trade.exchange_timestamp);
-else if (trade.fill_timestamp) ms = parseAnyTimestampToMs(trade.fill_timestamp);
-else if (trade.trade_time) ms = parseAnyTimestampToMs(trade.trade_time);
-else if (trade.order_timestamp) ms = parseAnyTimestampToMs(trade.order_timestamp);
-if (!ms || !Number.isFinite(ms)) ms = Date.now();
-const d = new Date(ms);
-const time = d.toLocaleTimeString(undefined, { hour12: false });
-(t){
+function tbRowHtml(t){
   const sym = t.tradingsymbol || t.trading_symbol || t.instrument || t.symbol || '—';
   const side = (t.transaction_type || t.side || '').toUpperCase() || (t.side ? String(t.side).toUpperCase() : '—');
   const qty = t.quantity || t.qty || t.filled_qty || t.qty_filled || '—';
@@ -735,7 +704,7 @@ const time = d.toLocaleTimeString(undefined, { hour12: false });
         }
       }
       if (!isNaN(d)) {
-        time = d.toLocaleTimeString(undefined, { hour12:false }); // use browser local timezone to match top-right clock
+        time = d.toLocaleTimeString(undefined, { hour12:false });
       }
     } catch (e) {
       time = '—';
