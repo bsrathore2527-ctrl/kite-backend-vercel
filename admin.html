@@ -523,10 +523,13 @@ async function loadState(){
     const maxLossPct = Number(s.max_loss_pct ?? 10);
     const max_loss_abs = Math.round(capital * (maxLossPct/100));
     $('capital915').textContent = fmtINR(capital);
-    $('live_mtm').textContent = fmtINR(s.unrealised ?? 0);
+    $('live_mtm').textContent = fmtINR(s.total_pnl ?? s.unrealised ?? 0);
 
-    const state.total_pnl = Number(s.state.total_pnl ?? 0), unreal = Number(s.unrealised ?? 0), total = state.total_pnl + unreal;
-    $('pnl_box').textContent = `${fmtINR(state.total_pnl)} / ${fmtINR(unreal)} / ${fmtINR(total)}`;
+    const total_pnl = Number(s.total_pnl ?? s.state?.total_pnl ?? 0);
+    const unreal = Number(s.unrealised ?? s.total_pnl ?? total_pnl ?? 0);
+    const realisedDisplay = 0;
+    const total = total_pnl;
+    $('pnl_box').textContent = `${fmtINR(realisedDisplay)} / ${fmtINR(unreal)} / ${fmtINR(total)}`;
     $('pnl_hint').textContent = total < 0 ? 'In loss' : (total>0 ? 'In profit' : '—');
 
     // consecutive losses
