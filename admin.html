@@ -293,7 +293,7 @@ const ENDPOINTS = {
 
 const $ = id => document.getElementById(id);
 function toast(msg, t=3000){ const el=$('toast'); el.textContent=msg; el.style.display='block'; clearTimeout(el._t); el._t=setTimeout(()=>el.style.display='none',t); }
-function now(){ return new Date().toLocaleTimeString('en-GB', { hour12:false, timeZone:'Asia/Kolkata' }); }
+function now(){ return new Date().toLocaleTimeString('en-IN',{timeZone:'Asia/Kolkata',hour12:false}); }
 function fmtINR(v){ if(v==null||isNaN(Number(v))) return '—'; return '₹'+Number(v).toLocaleString('en-IN',{maximumFractionDigits:0}); }
 function logLine(s){ const pre = $('raw_responses'); pre.textContent = `[${new Date().toLocaleTimeString()}] ${s}\n\n` + pre.textContent; }
 
@@ -511,7 +511,7 @@ async function loadState(){
     if(!j || !j.ok){ toast('Failed load state'); return; }
 
     // time and statuses
-    $('now').textContent = j.time || (new Date().toLocaleTimeString('en-GB',{ hour12:false, timeZone:'Asia/Kolkata' }));
+    $('now').textContent = j.time || now();
     $('guardian_status').textContent = j.admin ? 'admin' : 'online';
     $('kite_status').textContent = j.kite_status === 'ok' ? 'Kite: Connected' : (j.kite_status || 'not_logged_in');
 
@@ -704,7 +704,7 @@ function tbRowHtml(t){
         }
       }
       if (!isNaN(d)) {
-        time = d.toLocaleTimeString('en-GB', { hour12:false, timeZone:'UTC' });
+        time = d.toLocaleTimeString('en-IN', { hour12:false, timeZone:'Asia/Kolkata' });
       }
     } catch (e) {
       time = '—';
