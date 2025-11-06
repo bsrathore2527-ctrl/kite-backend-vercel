@@ -106,10 +106,7 @@ async function appendToTradebook(t) {
   } catch (e) {
     return false;
   }
-}
- catch (e) {
-    return false;
-  }
+
 }
 
 // FIFO matching functions (unchanged behavior)
