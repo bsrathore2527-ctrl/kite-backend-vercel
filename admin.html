@@ -293,9 +293,9 @@ const ENDPOINTS = {
 
 const $ = id => document.getElementById(id);
 function toast(msg, t=3000){ const el=$('toast'); el.textContent=msg; el.style.display='block'; clearTimeout(el._t); el._t=setTimeout(()=>el.style.display='none',t); }
-function now(){ return new Date().toLocaleTimeString('en-IN',{timeZone:'Asia/Kolkata',hour12:false}); }
+function nowUTC(){ return new Date().toLocaleTimeString('en-GB', { hour12:false, timeZone:'UTC' }); }); }
 function fmtINR(v){ if(v==null||isNaN(Number(v))) return '—'; return '₹'+Number(v).toLocaleString('en-IN',{maximumFractionDigits:0}); }
-function logLine(s){ const pre = $('raw_responses'); pre.textContent = `[${new Date().toLocaleTimeString()}] ${s}\n\n` + pre.textContent; }
+function logLine(s){ const pre = $('raw_responses'); pre.textContent = `[${new Date().toLocaleTimeString('en-GB', { hour12:false, timeZone:'UTC' })}] ${s}\n\n` + pre.textContent; }
 
 /* pager */
 const pages = document.querySelectorAll('.page');
@@ -361,7 +361,7 @@ function init(){
 
   loadAll();
   // reduced refresh to 10s to reduce API pressure
-  setInterval(()=> $('now').textContent = now(), 10000);
+  setInterval(()=> $('now').textContent = nowUTC(), 10000);
 }
 
 /* token functions */
@@ -520,11 +520,11 @@ async function loadState(){
           const first = tJson.trades[0];
           const ms = first._ts || first.ts || (first._iso ? Date.parse(first._iso) : null);
           if (ms) {
-            try { $('now').textContent = new Date(Number(ms)).toLocaleTimeString(undefined, { hour12:false }); return; } catch(e){}
+            try { $('now').textContent = new Date(Number(ms)).toLocaleTimeString('en-GB', { hour12:false, timeZone:'UTC' }); return; } catch(e){}
           }
         }
       }catch(e){}
-      $('now').textContent = j.time || now();
+      $('now').textContent = nowUTC();
     })();
     $('guardian_status').textContent = j.admin ? 'admin' : 'online';
     $('kite_status').textContent = j.kite_status === 'ok' ? 'Kite: Connected' : (j.kite_status || 'not_logged_in');
@@ -607,7 +607,7 @@ async function loadState(){
     if (s.last_trade_time && Number(s.last_trade_time) > 0) {
       const d = new Date(Number(s.last_trade_time));
       if (!isNaN(d)) {
-        $('last_trade_time').textContent = d.toLocaleTimeString('en-IN',{hour12:false});
+        $('last_trade_time').textContent = d.toLocaleTimeString('en-GB', { hour12:false, timeZone:'UTC' });
       } else {
         $('last_trade_time').textContent = '—';
       }
@@ -718,7 +718,7 @@ function tbRowHtml(t){
         }
       }
       if (!isNaN(d)) {
-        time = d.toLocaleTimeString('en-IN', { hour12:false, timeZone:'Asia/Kolkata' });
+        time = d.toLocaleTimeString('en-GB', { hour12:false, timeZone:'UTC' });
       }
     } catch (e) {
       time = '—';
@@ -773,7 +773,7 @@ async function loadTradebook(){
       if(topNow){
         const first = arr[0];
         const ms = (first && (first._ts || first.ts || first.__ts)) ? Number(first._ts || first.ts || first.__ts) : null;
-        if(ms && !isNaN(ms)) topNow.textContent = new Date(ms).toLocaleTimeString(undefined, { hour12:false });
+        if(ms && !isNaN(ms)) topNow.textContent = new Date(ms).toLocaleTimeString('en-GB', { hour12:false, timeZone:'UTC' });
       }
     }catch(e){}
 
