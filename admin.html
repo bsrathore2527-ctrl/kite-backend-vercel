@@ -525,8 +525,8 @@ async function loadState(){
     $('capital915').textContent = fmtINR(capital);
     $('live_mtm').textContent = fmtINR(s.unrealised ?? 0);
 
-    const realised = Number(s.realised ?? 0), unreal = Number(s.unrealised ?? 0), total = realised + unreal;
-    $('pnl_box').textContent = `${fmtINR(realised)} / ${fmtINR(unreal)} / ${fmtINR(total)}`;
+    const state.total_pnl = Number(s.state.total_pnl ?? 0), unreal = Number(s.unrealised ?? 0), total = state.total_pnl + unreal;
+    $('pnl_box').textContent = `${fmtINR(state.total_pnl)} / ${fmtINR(unreal)} / ${fmtINR(total)}`;
     $('pnl_hint').textContent = total < 0 ? 'In loss' : (total>0 ? 'In profit' : '—');
 
     // consecutive losses
@@ -537,7 +537,7 @@ async function loadState(){
     $('max_loss_pct').textContent = `Max Loss %: ${(maxLossPct).toFixed(2)}%`;
     $('active_floor').textContent = fmtINR(s.active_loss_floor ?? 0);
 
-    // remaining to max loss: base on max_loss_abs, subtract absolute total (realised+unrealised)
+    // remaining to max loss: base on max_loss_abs, subtract absolute total (state.total_pnl+unrealised)
     const remaining = Math.round((max_loss_abs) - Math.abs(total));
     $('remaining_loss').textContent = fmtINR(remaining);
 
@@ -763,6 +763,24 @@ async function loadTradebook(){
 /* initial loads */
 loadTradebook();
 
+</script>
+
+<script>
+async function loadTrades(){
+  try{
+    const r = await fetch('/api/kite/trades',{cache:'no-store'});
+    if(!r.ok) return;
+    const j = await r.json().catch(()=>null);
+    const trades = Array.isArray(j.trades)?j.trades:(Array.isArray(j)?j:[]);
+    if(trades.length>0){
+      const t = trades[0];
+      const ms = Number(t._ts || t.ts || t.time_ms) || (t._iso?Date.parse(t._iso):NaN);
+      const el = document.querySelector('#lastTrade') || document.querySelector('.last-trade-time');
+      if(el){ if(!Number.isNaN(ms)) el.textContent = new Date(ms).toLocaleTimeString(undefined,{hour12:false}); else el.textContent = ''; }
+    }
+  }catch(e){console.error('loadTrades',e)}
+}
+loadTrades(); setInterval(loadTrades,5000);
 </script>
 </body>
 </html>
