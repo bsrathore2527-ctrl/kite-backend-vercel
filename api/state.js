@@ -1,132 +1,165 @@
 // api/state.js
-// Central state endpoint for admin UI.
-// Returns JSON with persisted state + derived fields (UTC-based).
-// Minimal, defensive, avoids duplicate identifier imports.
+// Return merged runtime "state" for admin UI.
+// - Reads persisted risk state from KV (getState).
+// - Augments with live kite info: kite_status, current_balance, realised/unrealised totals.
+// - Computes active_loss_floor and remaining_to_max_loss using the rule:
+//     max_loss_abs = round(capital_day_915 * (max_loss_pct/100))
+//     active_loss_floor = -max_loss_abs
+//     remaining_to_max_loss = max_loss_abs + total_pnl
+//
+// Max profit lock (p10) is computed similarly (percentage of capital) unless explicit p10_amount provided.
+//
+// Timestamps are stored as epoch ms (UTC). UI should display local times using time_ms.
 
-import { getState, setState } from './_lib/kv.js';
-import { todayKeyUTC, normalizeTsToMs } from './_lib/admin-utils.js';
+import { getState } from "./_lib/kv.js";
+import { instance } from "./_lib/kite.js";
 
+function nowMs() { return Date.now(); }
 function safeNum(v, fallback = 0) {
+  if (v === null || v === undefined || v === "") return fallback;
   const n = Number(v);
   return Number.isFinite(n) ? n : fallback;
 }
 
 export default async function handler(req, res) {
+  if (req.method === "OPTIONS") return res.status(204).end();
+  if (req.method !== "GET") return res.status(405).json({ ok: false, error: "Method not allowed" });
+
   try {
-    // no caching
-    res.setHeader('Cache-Control', 'no-store');
+    const persisted = await getState() || {};
 
-    // now in UTC ms
-    const nowMs = Date.now();
-    const nowIso = new Date(nowMs).toISOString();
-    const nowTimeUTC = new Date(nowMs).toLocaleTimeString('en-GB', { hour12: false, timeZone: 'UTC' });
+    // Basic defaults
+    let kite_status = "not_logged_in";
+    let current_balance = safeNum(persisted.current_balance ?? persisted.live_balance ?? 0);
+    let live_balance = safeNum(persisted.live_balance ?? persisted.current_balance ?? 0);
+    let realised = safeNum(persisted.realised ?? 0);
+    let unrealised = safeNum(persisted.unrealised ?? 0);
+    let total_pnl = Number(realised + unrealised);
 
-    // load persisted state (best-effort)
-    let persisted = {};
+    // Try to fetch live kite info (best-effort)
     try {
-      const p = await getState(); // getState should return an object or null
-      if (p && typeof p === 'object') persisted = p;
+      const kc = await instance();
+      if (kc) {
+        kite_status = "ok";
+
+        // Try funds first (preferred)
+        try {
+          const funds = await (kc.getFunds?.() || kc.get_funds?.());
+          if (funds) {
+            // handle common shapes: funds.equity.available.live_balance etc.
+            const equity = funds.equity || funds;
+            const available = equity.available || {};
+            const utilised = equity.utilised || equity.utilization || {};
+
+            const liveBalCandidate = safeNum(
+              available.live_balance ??
+              available.liveBalance ??
+              available.opening_balance ??
+              available.openingBalance ??
+              0
+            );
+
+            if (liveBalCandidate !== 0) {
+              current_balance = liveBalCandidate;
+              live_balance = liveBalCandidate;
+            }
+
+            const m2m_realised = safeNum(utilised.m2m_realised ?? equity.m2m_realised ?? 0);
+            const m2m_unrealised = safeNum(utilised.m2m_unrealised ?? equity.m2m_unrealised ?? 0);
+
+            // update only if kite returned meaningful numbers
+            if (m2m_realised !== 0 || m2m_unrealised !== 0) {
+              realised = m2m_realised;
+              unrealised = m2m_unrealised;
+              total_pnl = realised + unrealised;
+            }
+          } else {
+            // fallback to positions if funds not available
+            const pos = await (kc.getPositions?.() || kc.get_positions?.());
+            if (pos) {
+              const net = pos.net || [];
+              let computedUnreal = 0;
+              for (const p of net) {
+                // handle varying field names
+                const v = safeNum(p.pnl?.unrealised ?? p.unrealised_pnl ?? p.m2m_unrealised ?? p.m2m ?? 0);
+                computedUnreal += v;
+              }
+              unrealised = computedUnreal;
+              total_pnl = realised + unrealised;
+            }
+          }
+        } catch (e) {
+          // kite funds/positions failed => keep persisted values
+          console.warn("api/state: kite funds/positions fetch failed:", e && e.message ? e.message : e);
+        }
+      }
     } catch (e) {
-      console.warn('getState error:', e && e.message ? e.message : e);
-      persisted = {};
+      // instance() failed -> not logged in
+      kite_status = "not_logged_in";
     }
 
-    // Base values
-    const realised = safeNum(persisted.realised ?? persisted.realized ?? 0, 0);
-    const unrealised = safeNum(persisted.unrealised ?? persisted.unrealized ?? 0, 0);
-    const total_pnl = Math.round(realised + unrealised);
+    // Ensure numbers
+    realised = safeNum(realised, 0);
+    unrealised = safeNum(unrealised, 0);
+    total_pnl = Number(realised + unrealised);
 
-    // Capital and base loss
-    const capital = safeNum(persisted.capital_day_915 ?? persisted.capital ?? persisted.base_capital ?? 0, 0);
-    const max_loss_pct = safeNum(persisted.max_loss_pct ?? 0, 0); // percent like 10
-    // prefer stored absolute max_loss_abs if present, else compute from capital and pct
-    let base_loss_abs = safeNum(persisted.max_loss_abs ?? persisted.base_loss_abs ?? 0, 0);
-    if (!base_loss_abs && capital > 0 && max_loss_pct > 0) {
-      base_loss_abs = Math.round(capital * (max_loss_pct / 100));
-    }
+    
+    // Capital and base loss (derive base loss absolute from capital * pct)
+    const capital = safeNum(persisted.capital_day_915 ?? 0, 0);
+    const maxLossPct = safeNum(persisted.max_loss_pct ?? 0, 0);
+    const base_loss_abs = Math.round(capital * (maxLossPct / 100)); // e.g. 10000
+    // maintain backward-compatible alias
+    const max_loss_abs = base_loss_abs;
 
-    // Active loss floor per your rule: active_loss_floor = realised - base_loss_abs
+    // Active loss floor: moves with realised profit. active_loss_floor = realised - base_loss_abs
     const active_loss_floor = Math.round(realised - base_loss_abs);
 
-    // Remaining to max loss (room before hitting floor) = total_pnl - active_loss_floor
-    // Equivalent to unrealised + base_loss_abs, but compute from total to avoid rounding mismatch
+    // remaining_to_max_loss = total_pnl - active_loss_floor  (equivalently unrealised + base_loss_abs)
     const remaining_to_max_loss = Math.round(total_pnl - active_loss_floor);
-
-    // last trade time normalization (if persisted stored something)
-    let last_trade_ts = null;
-    if (persisted.last_trade_time) {
-      // could be ms number or ISO or other; use normalizeTsToMs
-      const ms = normalizeTsToMs(persisted.last_trade_time) || normalizeTsToMs(persisted.last_trade_ts) || null;
-      if (ms) last_trade_ts = ms;
-    } else if (persisted.last_trade_ts) {
-      const ms = normalizeTsToMs(persisted.last_trade_ts);
-      if (ms) last_trade_ts = ms;
+// p10 (max profit lock) compute:
+    // prefer explicit p10_amount (rupees) if present; otherwise use percentage field (p10_pct or p10)
+    let p10_effective_amount = 0;
+    const explicitAmount = safeNum(persisted.p10_amount ?? persisted.p10_amount_rupee ?? 0, 0);
+    if (explicitAmount > 0) {
+      p10_effective_amount = Math.round(explicitAmount);
+    } else {
+      // prefer p10_pct (or p10) as percent of capital
+      const p10pct = safeNum(persisted.p10_pct ?? persisted.p10 ?? 0, 0);
+      if (p10pct > 0) {
+        p10_effective_amount = Math.round(capital * (p10pct / 100));
+      } else {
+        p10_effective_amount = 0;
+      }
     }
 
-    // prepare response state object (do not mutate persisted input unexpectedly)
-    const out = {
-      ok: true,
-      // timestamps
-      time: nowTimeUTC,
-      time_ms: nowMs,
-      time_iso: nowIso,
-      today_key_utc: todayKeyUTC(),
-
-      // persisted core values (fall back to 0)
+    // prepare merged state to return
+    const mergedState = {
+      ...persisted,
+      kite_status,
+      current_balance,
+      live_balance,
       realised,
       unrealised,
       total_pnl,
-
-      capital,
-      max_loss_pct,
-      base_loss_abs,
-
-      // derived protection values
+      capital_day_915: capital,
+      max_loss_pct: maxLossPct,
+      max_loss_abs,
       active_loss_floor,
       remaining_to_max_loss,
-
-      // cooldown / trip flags (propagate if present in persisted)
-      cooldown_active: Boolean(persisted.cooldown_active || false),
-      cooldown_until: persisted.cooldown_until ?? null,
-      consecutive_losses: safeNum(persisted.consecutive_losses ?? persisted.consec_losses ?? 0, 0),
-      tripped_day: Boolean(persisted.tripped_day || false),
-
-      // last trade info (ms and iso)
-      last_trade_ts: last_trade_ts,
-      last_trade_iso: last_trade_ts ? new Date(last_trade_ts).toISOString() : (persisted.last_trade_iso ?? null)
+      p10_effective_amount,
+      time_ms: nowMs(),
+      time: new Date(nowMs()).toISOString()
     };
 
-    // Merge a few other useful persisted fields into response (non-destructive)
-    const copyIfPresent = ['max_profit_pct', 'p10', 'p10_amount', 'trail_step_profit'];
-    for (const k of copyIfPresent) {
-      if (k in persisted) out[k] = persisted[k];
-    }
-
-    // Persist selected derived numeric fields back into today's state so other endpoints can read them.
-    // we write only a small subset to avoid overwriting user-config: realised/unrealised/total_pnl/base_loss_abs/active_loss_floor/remaining...
-    try {
-      const patch = {
-        realised: out.realised,
-        unrealised: out.unrealised,
-        total_pnl: out.total_pnl,
-        base_loss_abs: out.base_loss_abs,
-        active_loss_floor: out.active_loss_floor,
-        remaining_to_max_loss: out.remaining_to_max_loss,
-        last_trade_ts: out.last_trade_ts,
-        last_trade_iso: out.last_trade_iso
-      };
-      // Merge patch on top of persisted and write (getState/setState expected to handle object stored as JSON)
-      const merged = Object.assign({}, persisted, patch);
-      await setState(merged);
-    } catch (e) {
-      // non-fatal
-      console.warn('Failed to persist derived state patch:', e && e.message ? e.message : e);
-    }
-
-    return res.status(200).json(out);
+    res.setHeader("Cache-Control", "no-store").status(200).json({
+      ok: true,
+      time: new Date().toLocaleTimeString(),
+      time_ms: nowMs(),
+      kite_status,
+      state: mergedState
+    });
   } catch (err) {
-    console.error('Error in /api/state handler:', err && err.stack ? err.stack : err);
-    // Do not reveal internals to non-admins: return safe message
-    return res.status(500).json({ ok: false, error: String(err && err.message ? err.message : err) });
+    console.error("api/state error:", err && err.stack ? err.stack : err);
+    res.status(500).json({ ok: false, error: String(err) });
   }
 }
