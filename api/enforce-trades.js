@@ -69,20 +69,27 @@ async function appendToTradebook(t) {
     const arr = Array.isArray(raw) ? raw : [];
 
     // helper: convert any ts into IST milliseconds
-    function toISTms(ts) {
-      try {
-        const base = (typeof ts === 'number' && String(Math.trunc(ts)).length === 10) ? new Date(ts * 1000) : new Date(ts || Date.now());
-        // get IST localized string and parse back to ms so stored value represents IST moment in epoch ms
-        const istString = base.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' });
-        return new Date(istString).getTime();
-      } catch (e) {
-        return Date.now();
+    
+    // Normalize timestamps to epoch milliseconds (UTC-based). Accepts seconds (10-digit), ms (13-digit) or ISO strings.
+    function normalizeTsToMs(ts) {
+      if (ts === null || typeof ts === 'undefined') return null;
+      if (typeof ts === 'number') {
+        return (String(Math.trunc(ts)).length === 10) ? ts * 1000 : ts;
       }
+      const s = String(ts).trim();
+      if (/^\d+$/.test(s)) {
+        const n = Number(s);
+        return (String(Math.trunc(n)).length === 10) ? n * 1000 : n;
+      }
+      // Try parse as ISO/UTC — Date.parse will interpret timezone if present, else treat as local; to be safe append Z for common no-tz formats
+      let ps = s;
+      if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(ps)) ps = ps.replace(' ', 'T') + 'Z';
+      const parsed = Date.parse(ps);
+      return Number.isNaN(parsed) ? null : parsed;
     }
-
     const rec = {
-      ts: toISTms(t._ts || t.timestamp || Date.now()),
-      iso_date: new Date(toISTms(t._ts || t.timestamp || Date.now())).toISOString(),
+      ts: (function(){ const ms = normalizeTsToMs(t._ts || t.timestamp || Date.now()); return ms || Date.now(); })(),
+      iso_date: (function(){ const ms = normalizeTsToMs(t._ts || t.timestamp || Date.now()); return new Date(ms || Date.now()).toISOString(); })(),
       tradingsymbol: t.tradingsymbol || t.trading_symbol || t.instrument || t.symbol,
       account_id: t.account_id || t.accountId || null,
       trade_id: t.trade_id || t.tradeId || (t.order_id ? `${t.order_id}` : null),
