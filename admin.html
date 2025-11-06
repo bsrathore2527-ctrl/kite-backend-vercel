@@ -293,7 +293,7 @@ const ENDPOINTS = {
 
 const $ = id => document.getElementById(id);
 function toast(msg, t=3000){ const el=$('toast'); el.textContent=msg; el.style.display='block'; clearTimeout(el._t); el._t=setTimeout(()=>el.style.display='none',t); }
-function now(){ return new Date().toLocaleTimeString(undefined, { hour12: false }); }); }
+function now(){ return new Date().toLocaleTimeString('en-GB', { hour12:false, timeZone:'UTC' }); }
 function fmtINR(v){ if(v==null||isNaN(Number(v))) return '—'; return '₹'+Number(v).toLocaleString('en-IN',{maximumFractionDigits:0}); }
 function logLine(s){ const pre = $('raw_responses'); pre.textContent = `[${new Date().toLocaleTimeString()}] ${s}\n\n` + pre.textContent; }
 
@@ -511,7 +511,7 @@ async function loadState(){
     if(!j || !j.ok){ toast('Failed load state'); return; }
 
     // time and statuses
-    (function(){ const ms = (j && (j.time_ms || j.timeMs || j._ts)) ? Number(j.time_ms || j.timeMs || j._ts) : null; if (ms && !Number.isNaN(ms)) {$('now').textContent = new Date(ms).toLocaleTimeString(undefined, { hour12: false }); } else if (j && j.time) { const p = Date.parse(j.time); if (!Number.isNaN(p)) {$('now').textContent = new Date(p).toLocaleTimeString(undefined, { hour12: false }); } else {$('now').textContent = now(); } } else {$('now').textContent = now(); } })();
+    $('now').textContent = j.time || (new Date().toLocaleTimeString('en-GB',{ hour12:false, timeZone:'IST' }));
     $('guardian_status').textContent = j.admin ? 'admin' : 'online';
     $('kite_status').textContent = j.kite_status === 'ok' ? 'Kite: Connected' : (j.kite_status || 'not_logged_in');
 
@@ -704,7 +704,7 @@ function tbRowHtml(t){
         }
       }
       if (!isNaN(d)) {
-        time = d.toLocaleTimeString(undefined, { hour12: false });
+        time = d.toLocaleTimeString('en-GB', { hour12:false, timeZone:'UTC' });
       }
     } catch (e) {
       time = '—';
