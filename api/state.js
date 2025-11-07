@@ -1,11 +1,11 @@
 // api/state.js
 // Provides the canonical state view for the Admin UI.
-// - reads persisted state via getState()
+// - reads persisted state via getState() (from ./_lib/state.js)
 // - augments with live Kite position/funds data (best-effort, safe)
 // - returns both UTC and IST times
 
-import { getState } from "../_lib/state.js";
-import { instance } from "../_lib/kite.js";
+import { getState } from "./_lib/state.js";
+import { instance } from "./_lib/kite.js";
 
 function safeNumber(v, fallback = 0) {
   const n = Number(v);
@@ -60,20 +60,15 @@ export default async function handler(req, res) {
       // Try positions
       try {
         const pos = await kc.getPositions(); // shape depends on your wrapper
-        // many kite wrappers return { net: [...], day: [...], ... }
         const net = pos?.net ?? [];
         let totalMtm = 0;
-        // also try to detect realised if available
         let realisedFromPos = 0;
         for (const p of net) {
-          // p.m2m or p.unrealised may hold per-instrument MTM
           const m = safeNumber(p.m2m ?? p.unrealised ?? 0, 0);
           totalMtm += m;
-          // some wrappers include realised; accumulate if present
           realisedFromPos += safeNumber(p.realised ?? p.realised_pnl ?? 0, 0);
         }
         live_unrealised = totalMtm;
-        // If realised available from positions, use it; else keep 0
         live_realised = realisedFromPos || 0;
         live_total_pnl = safeNumber(live_realised + live_unrealised, 0);
       } catch (e) {
@@ -82,16 +77,13 @@ export default async function handler(req, res) {
 
       // Try funds / balances if available on Kite client
       try {
-        // some wrappers provide getFunds() or getMargins(); try common names
         let funds = null;
         if (typeof kc.getFunds === "function") {
           funds = await kc.getFunds();
         } else if (typeof kc.getMargins === "function") {
           funds = await kc.getMargins();
         }
-        // Try to extract useful values, be defensive
         if (funds) {
-          // different wrappers return different shapes; try a few
           current_balance = safeNumber(funds.available_cash ?? funds.wallet_balance ?? funds.total ?? funds.equity ?? current_balance, current_balance);
           live_balance = safeNumber(funds.net ?? funds.equity ?? funds.available_margin ?? current_balance, current_balance);
         }
@@ -112,14 +104,9 @@ export default async function handler(req, res) {
     state.live_balance = safeNumber(live_balance, safeNumber(state.live_balance, 0));
 
     // Compute p10 effective amount
-    // p10 may be configured as pct if p10_is_pct true, otherwise treated absolute
-    // For percent, multiply by capital_day_915 (or admin_override_capital if active)
     const p10 = safeNumber(state.p10 ?? 0, 0);
     const p10_is_pct = !!state.p10_is_pct;
-    // Determine base capital: prefer admin override if set, else capital_day_915 or 0
     const capitalFromState = safeNumber(state.admin_override_capital ? state.capital_day_915 ?? 0 : state.capital_day_915 ?? 0, 0);
-    // If admin_override_capital true and admin_override_capital value is stored differently, prefer admin_override_capital ? admin_override_value : capital_day_915
-    // Some earlier code had admin_override_capital flag and admin_override_at - keep current behavior: if admin_override_capital true, use capital_day_915 (assuming admin set it).
     const effectiveCapital = safeNumber(state.admin_override_capital ? state.capital_day_915 ?? state.admin_override_capital_amount ?? capitalFromState : capitalFromState, capitalFromState);
 
     let p10_effective_amount = 0;
@@ -134,7 +121,6 @@ export default async function handler(req, res) {
     const max_loss_pct = safeNumber(state.max_loss_pct ?? 0, 0);
     let max_loss_abs = safeNumber(state.max_loss_abs ?? 0, 0);
     if (max_loss_abs === 0 && max_loss_pct > 0) {
-      // if percent-based, compute from capital
       max_loss_abs = Math.round((max_loss_pct / 100) * effectiveCapital);
     }
     state.max_loss_abs = max_loss_abs;
@@ -143,27 +129,19 @@ export default async function handler(req, res) {
     const base_loss_abs = safeNumber(state.base_loss_abs ?? max_loss_abs ?? 0, max_loss_abs);
     state.base_loss_abs = base_loss_abs;
 
-    // active_loss_floor is often the negative floor value e.g. -10000
     const active_loss_floor = typeof state.active_loss_floor !== "undefined" ? safeNumber(state.active_loss_floor, -base_loss_abs) : -base_loss_abs;
     state.active_loss_floor = active_loss_floor;
 
-    // remaining_to_max_loss: how much room left before hitting loss floor
-    // If total_pnl is positive, remaining = max_loss_abs + total_pnl; (room to drop)
-    // If total_pnl is negative, remaining = max_loss_abs + total_pnl (smaller)
     if (max_loss_abs > 0) {
       state.remaining_to_max_loss = Math.round(max_loss_abs + state.total_pnl);
     } else {
       state.remaining_to_max_loss = safeNumber(state.remaining_to_max_loss ?? 0, 0);
     }
 
-    // Ensure cooldown fields exist with defaults
     state.cooldown_min = safeNumber(state.cooldown_min ?? 15, 15);
     state.cooldown_until = safeNumber(state.cooldown_until ?? 0, 0);
 
-    // last_trade fields: preserve persisted or leave null if unknown
-    // Some code expects last_trade_ts, last_trade_iso, last_trade_pnl; keep what exists
     if (typeof state.last_trade_ts === "undefined" && typeof state.last_trade_iso !== "undefined") {
-      // try to parse iso if present
       const parsed = Date.parse(String(state.last_trade_iso || ""));
       if (!Number.isNaN(parsed)) state.last_trade_ts = parsed;
     }
