@@ -1,7 +1,7 @@
 // api/kite/trades.js
 // Returns today's trades — prefer server tradebook stored in KV (persisted by enforce-trades)
 // fallback to live Kite trades if no tradebook found.
-// Includes MTM-based automation and price normalization fix.
+// This version filters persisted tradebook to only today's trades in IST (non-destructive).
 
 import { kv } from "../_lib/kv.js";
 import { instance } from "../_lib/kite.js";
@@ -38,7 +38,6 @@ function normalizeTsToMs(ts) {
   return null;
 }
 
-// ✅ Fixed normalizeTrade: preserves price for UI display
 function normalizeTrade(t) {
   if (!t || typeof t !== "object") return t;
   const out = { ...t };
@@ -64,7 +63,7 @@ function normalizeTrade(t) {
 
   if (price !== null) {
     out.price_normalized = price;
-    out.price = price; // also store under "price" for UI
+    out.price = price;
   } else {
     out.price_normalized = null;
     out.price = typeof out.price !== "undefined" ? out.price : null;
@@ -85,31 +84,77 @@ function normalizeTrade(t) {
   return out;
 }
 
+// returns epoch ms for start of "today" in Asia/Kolkata
+function todayStartMs() {
+  // Create IST-local date at midnight and convert to epoch ms.
+  // Approach: create a Date in the runtime's timezone that represents IST current time,
+  // then set hours to 0 and convert to epoch.
+  const now = new Date();
+  // 'en-GB' with timeZone Asia/Kolkata yields a locale string for IST local time.
+  const istStr = now.toLocaleString("en-GB", { timeZone: "Asia/Kolkata" });
+  const ist = new Date(istStr);
+  ist.setHours(0, 0, 0, 0);
+  // ist is a Date object representing today's midnight in IST, but its internal epoch depends on runtime;
+  // to ensure correct epoch, compute by formatting back as UTC:
+  // Return the epoch ms that corresponds to that IST midnight in absolute time.
+  const offset = new Date().getTimezoneOffset() * 60000;
+  return ist.getTime() - offset;
+}
+
 async function readTradebookFromKV() {
   try {
     const raw = await kv.get(TRADEBOOK_KEY);
     if (!raw) return [];
+    let arr = [];
     if (typeof raw === "object") {
-      return Array.isArray(raw) ? raw : [];
-    }
-    if (typeof raw === "string") {
+      arr = Array.isArray(raw) ? raw : [];
+    } else if (typeof raw === "string") {
       const s = raw.trim();
       if (s.startsWith("[") || s.startsWith("{")) {
         try {
           const parsed = JSON.parse(s);
-          return Array.isArray(parsed) ? parsed : [];
+          arr = Array.isArray(parsed) ? parsed : [];
         } catch (e) {
           console.warn("kite/trades kv: invalid JSON, ignoring KV value", e.message);
-          return [];
+          arr = [];
         }
       } else {
         console.warn("kite/trades kv: non-JSON string in KV, ignoring. head:", s.slice(0, 80));
-        return [];
+        arr = [];
       }
+    } else {
+      arr = [];
     }
-    return [];
+
+    if (!Array.isArray(arr) || arr.length === 0) return [];
+
+    // Filter to only keep trades whose timestamp is >= start of today's IST (non-destructive).
+    const startMs = todayStartMs();
+    const todays = arr.filter(t => {
+      if (!t) return false;
+      const ts =
+        t._ts ||
+        t.ts ||
+        t.exchange_timestamp ||
+        t.fill_timestamp ||
+        t.trade_time ||
+        t._iso ||
+        t.created_at;
+      if (!ts) return false;
+      const parsed =
+        typeof ts === "number"
+          ? ts
+          : !isNaN(Number(ts))
+          ? Number(ts)
+          : Date.parse(String(ts)) || null;
+      if (!parsed) return false;
+      const ms = normalizeTsToMs(parsed) || (typeof parsed === "number" ? parsed : null);
+      return ms && Number(ms) >= startMs;
+    });
+
+    return todays;
   } catch (e) {
-    console.warn("kite/trades kv read failed:", e.message);
+    console.warn("kite/trades kv read failed:", e && e.message ? e.message : e);
     return [];
   }
 }
@@ -121,10 +166,10 @@ async function fetchKitePositions() {
     const net = pos?.net || [];
     let total = 0;
     for (const p of net) total += Number(p.m2m ?? p.unrealised ?? 0);
-    return { total_pnl: total, unrealised: total, positions: pos };
+    return { total_pnl: total, unrealised: total, positions: pos, live_balance: 0, current_balance: 0 };
   } catch (e) {
-    console.error("fetchKitePositions error", e.message);
-    return { total_pnl: 0, unrealised: 0, positions: null };
+    console.error("fetchKitePositions error", e && e.message ? e.message : e);
+    return { total_pnl: 0, unrealised: 0, positions: null, live_balance: 0, current_balance: 0 };
   }
 }
 
@@ -154,10 +199,10 @@ async function markTrippedAndKillInternal(reason, meta = {}) {
       await setState(audited);
       console.log("Auto-enforce executed:", reason, { cancelled, squared });
     } catch (e) {
-      console.error("markTrippedAndKillInternal enforcement error", e.message);
+      console.error("markTrippedAndKillInternal enforcement error", e && e.message ? e.message : e);
     }
   } catch (e) {
-    console.error("markTrippedAndKillInternal error", e.message);
+    console.error("markTrippedAndKillInternal error", e && e.message ? e.message : e);
   }
 }
 
@@ -209,7 +254,7 @@ async function evaluateTradeForAutoLogic(trade) {
         await markTrippedAndKillInternal("buy_during_cooldown", { last_mtm: state.last_mtm ?? 0 });
     }
   } catch (e) {
-    console.error("evaluateTradeForAutoLogic error", e.message);
+    console.error("evaluateTradeForAutoLogic error", e && e.message ? e.message : e);
   }
 }
 
@@ -229,6 +274,8 @@ export default async function handler(req, res) {
 
     let trades = [];
     let source = "empty";
+
+    // Read persisted tradebook but only keep today's trades (IST) - non-destructive
     const arr = await readTradebookFromKV();
     if (Array.isArray(arr) && arr.length) {
       trades = arr.slice(-200).map(normalizeTrade);
@@ -240,13 +287,18 @@ export default async function handler(req, res) {
         trades = live.slice(-200).map(normalizeTrade);
         source = "kite";
       } catch (e) {
-        console.warn("kite/trades fallback failed:", e.message);
+        console.warn("kite/trades fallback failed:", e && e.message ? e.message : e);
       }
     }
 
     if (Array.isArray(trades) && trades.length) {
       const latest = trades[trades.length - 1];
       evaluateTradeForAutoLogic(latest);
+    } else {
+      // No trades found — still sync positions optionally if desired
+      // (you can uncomment to always update state from positions even with no trades)
+      // const pos = await fetchKitePositions();
+      // await syncStateWithPositions(pos, null);
     }
 
     return res.status(200).json({ ok: true, source, trades });
@@ -254,4 +306,4 @@ export default async function handler(req, res) {
     console.error("kite/trades error:", err.stack || err);
     return res.status(500).json({ ok: false, error: String(err) });
   }
-        }
+    }
