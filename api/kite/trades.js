@@ -285,7 +285,7 @@ export default async function handler(req, res) {
 
     if (Array.isArray(trades) && trades.length) {
       const latest = trades[trades.length - 1];
-      evaluateTradeForAutoLogic(latest);
+      await evaluateTradeForAutoLogic(latest);
     }
 
     return res.status(200).json({ ok: true, source, trades });
