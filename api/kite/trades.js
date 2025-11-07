@@ -84,21 +84,13 @@ function normalizeTrade(t) {
   return out;
 }
 
-// returns epoch ms for start of "today" in Asia/Kolkata
+// ✅ Clean, IST-safe helper
 function todayStartMs() {
-  // Create IST-local date at midnight and convert to epoch ms.
-  // Approach: create a Date in the runtime's timezone that represents IST current time,
-  // then set hours to 0 and convert to epoch.
+  // Compute start of "today" in IST, timezone-safe even on UTC servers.
   const now = new Date();
-  // 'en-GB' with timeZone Asia/Kolkata yields a locale string for IST local time.
-  const istStr = now.toLocaleString("en-GB", { timeZone: "Asia/Kolkata" });
-  const ist = new Date(istStr);
-  ist.setHours(0, 0, 0, 0);
-  // ist is a Date object representing today's midnight in IST, but its internal epoch depends on runtime;
-  // to ensure correct epoch, compute by formatting back as UTC:
-  // Return the epoch ms that corresponds to that IST midnight in absolute time.
-  const offset = new Date().getTimezoneOffset() * 60000;
-  return ist.getTime() - offset;
+  const istNow = new Date(now.toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }));
+  istNow.setHours(0, 0, 0, 0);
+  return istNow.getTime();
 }
 
 async function readTradebookFromKV() {
@@ -294,11 +286,6 @@ export default async function handler(req, res) {
     if (Array.isArray(trades) && trades.length) {
       const latest = trades[trades.length - 1];
       evaluateTradeForAutoLogic(latest);
-    } else {
-      // No trades found — still sync positions optionally if desired
-      // (you can uncomment to always update state from positions even with no trades)
-      // const pos = await fetchKitePositions();
-      // await syncStateWithPositions(pos, null);
     }
 
     return res.status(200).json({ ok: true, source, trades });
@@ -306,4 +293,4 @@ export default async function handler(req, res) {
     console.error("kite/trades error:", err.stack || err);
     return res.status(500).json({ ok: false, error: String(err) });
   }
-    }
+}
