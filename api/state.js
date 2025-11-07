@@ -4,12 +4,13 @@
 // - Augments with live kite info: kite_status, current_balance, realised/unrealised totals.
 // - Computes active_loss_floor and remaining_to_max_loss using the rule:
 //     max_loss_abs = round(capital_day_915 * (max_loss_pct/100))
-//     active_loss_floor = -max_loss_abs
-//     remaining_to_max_loss = max_loss_abs + total_pnl
+//     active_loss_floor = realised - max_loss_abs
+//     remaining_to_max_loss = (if total_pnl >= 0) max_loss_abs - total_pnl
+//                             else max_loss_abs + total_pnl
 //
-// Max profit lock (p10) is computed similarly (percentage of capital) unless explicit p10_amount provided.
-//
-// Timestamps are stored as epoch ms (UTC). UI should display local times using time_ms.
+// Records last_mtm and last_mtm_ts in returned state (last_mtm set either from persisted value
+// or from latest total_pnl). For precise "last_mtm on SELL" behaviour, also see the recommended
+// snippet for api/kite/trades.js below.
 
 import { getState } from "./_lib/kv.js";
 import { instance } from "./_lib/kite.js";
@@ -39,7 +40,7 @@ export default async function handler(req, res) {
   if (req.method !== "GET") return res.status(405).json({ ok: false, error: "Method not allowed" });
 
   try {
-    const persisted = await getState() || {};
+    const persisted = (await getState()) || {};
 
     // Basic defaults
     let kite_status = "not_logged_in";
@@ -47,6 +48,7 @@ export default async function handler(req, res) {
     let live_balance = safeNum(persisted.live_balance ?? persisted.current_balance ?? 0);
     let realised = safeNum(persisted.realised ?? 0);
     let unrealised = safeNum(persisted.unrealised ?? 0);
+    // total_pnl derives from realised + unrealised
     let total_pnl = Number(realised + unrealised);
 
     // Try to fetch live kite info (best-effort)
@@ -59,7 +61,6 @@ export default async function handler(req, res) {
         try {
           const funds = await (kc.getFunds?.() || kc.get_funds?.());
           if (funds) {
-            // handle common shapes: funds.equity.available.live_balance etc.
             const equity = funds.equity || funds;
             const available = equity.available || {};
             const utilised = equity.utilised || equity.utilization || {};
@@ -102,12 +103,10 @@ export default async function handler(req, res) {
             }
           }
         } catch (e) {
-          // kite funds/positions failed => keep persisted values
           console.warn("api/state: kite funds/positions fetch failed:", e && e.message ? e.message : e);
         }
       }
     } catch (e) {
-      // instance() failed -> not logged in
       kite_status = "not_logged_in";
     }
 
@@ -119,24 +118,29 @@ export default async function handler(req, res) {
     // Capital and base loss (derive base loss absolute from capital * pct)
     const capital = safeNum(persisted.capital_day_915 ?? 0, 0);
     const maxLossPct = safeNum(persisted.max_loss_pct ?? 0, 0);
-    const base_loss_abs = Math.round(capital * (maxLossPct / 100)); // e.g. 10000
-    // maintain backward-compatible alias
-    const max_loss_abs = base_loss_abs;
+    const base_loss_abs = Math.round(capital * (maxLossPct / 100));
+    const max_loss_abs = base_loss_abs; // alias for compatibility
 
-    // Active loss floor: moves with realised profit. active_loss_floor = realised - base_loss_abs
+    // Active loss floor (moves with realised profit)
     const active_loss_floor = Math.round(realised - base_loss_abs);
 
-    // remaining_to_max_loss = total_pnl - active_loss_floor  (equivalently unrealised + base_loss_abs)
-    const remaining_to_max_loss = Math.round(total_pnl - active_loss_floor);
+    // NEW rule for remaining_to_max_loss:
+    // - if total_pnl >= 0: remaining = max_loss_abs - total_pnl
+    // - if total_pnl < 0: remaining = max_loss_abs + total_pnl (keep old behaviour)
+    let remaining_to_max_loss;
+    if (Number.isFinite(total_pnl) && total_pnl >= 0) {
+      remaining_to_max_loss = Math.round(max_loss_abs - total_pnl);
+      if (remaining_to_max_loss < 0) remaining_to_max_loss = 0; // safety floor
+    } else {
+      remaining_to_max_loss = Math.round(max_loss_abs + (Number.isFinite(total_pnl) ? total_pnl : 0));
+    }
 
-    // p10 (max profit lock) compute:
-    // prefer explicit p10_amount (rupees) if present; otherwise use percentage field (p10_pct or p10)
+    // p10 (max profit lock) compute (unchanged)
     let p10_effective_amount = 0;
     const explicitAmount = safeNum(persisted.p10_amount ?? persisted.p10_amount_rupee ?? 0, 0);
     if (explicitAmount > 0) {
       p10_effective_amount = Math.round(explicitAmount);
     } else {
-      // prefer p10_pct (or p10) as percent of capital
       const p10pct = safeNum(persisted.p10_pct ?? persisted.p10 ?? 0, 0);
       if (p10pct > 0) {
         p10_effective_amount = Math.round(capital * (p10pct / 100));
@@ -145,8 +149,18 @@ export default async function handler(req, res) {
       }
     }
 
-    // prepare merged state to return
+    // Determine last_mtm / last_mtm_ts:
+    // Prefer persisted last_mtm if present (so manual / trade-based updates remain authoritative).
+    // Otherwise, set to the current snapshot total_pnl.
     const now = nowMs();
+    const last_mtm = (typeof persisted.last_mtm !== "undefined" && persisted.last_mtm !== null)
+      ? Number(persisted.last_mtm)
+      : Number.isFinite(total_pnl) ? total_pnl : 0;
+    const last_mtm_ts = (typeof persisted.last_mtm_ts !== "undefined" && persisted.last_mtm_ts !== null)
+      ? Number(persisted.last_mtm_ts)
+      : now;
+
+    // Prepare merged state to return
     const time_utc = new Date(now).toISOString();
     const time_ist = formatIst(now);
 
@@ -164,8 +178,11 @@ export default async function handler(req, res) {
       active_loss_floor,
       remaining_to_max_loss,
       p10_effective_amount,
+      // timestamps & MTM snapshot
       time_ms: now,
-      time: time_ist
+      time: time_ist,
+      last_mtm,
+      last_mtm_ts
     };
 
     res.setHeader("Cache-Control", "no-store").status(200).json({
