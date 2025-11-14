@@ -160,6 +160,19 @@ export default async function handler(req, res) {
       ? Number(persisted.last_mtm_ts)
       : now;
 
+    // Read additional SELL snapshot fields if present
+    const last_sell_ts = (typeof persisted.last_sell_ts !== "undefined" && persisted.last_sell_ts !== null)
+      ? Number(persisted.last_sell_ts)
+      : (persisted.last_trade_time ? Number(persisted.last_trade_time) : 0);
+
+    const last_realised_change = (typeof persisted.last_realised_change !== "undefined" && persisted.last_realised_change !== null)
+      ? Number(persisted.last_realised_change)
+      : 0;
+
+    const last_realised_change_ts = (typeof persisted.last_realised_change_ts !== "undefined" && persisted.last_realised_change_ts !== null)
+      ? Number(persisted.last_realised_change_ts)
+      : null;
+
     // Prepare merged state to return
     const time_utc = new Date(now).toISOString();
     const time_ist = formatIst(now);
@@ -182,7 +195,11 @@ export default async function handler(req, res) {
       time_ms: now,
       time: time_ist,
       last_mtm,
-      last_mtm_ts
+      last_mtm_ts,
+      // SELL snapshot fields exposed for UI/debug
+      last_sell_ts,
+      last_realised_change,
+      last_realised_change_ts
     };
 
     res.setHeader("Cache-Control", "no-store").status(200).json({
