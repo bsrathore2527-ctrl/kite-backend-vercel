@@ -1,61 +1,44 @@
 // api/_lib/state.js
-// Centralized state management and normalization.
+import { kv } from "./kv.js";
 
-import { kv } from "./kv.js"; // existing low-level KV wrapper (Upstash or fallback)
-
-export const STATE_KEY = "guardian:state:v1";
-
-const DEFAULT_STATE = {
-  capital: 0,
-  realised: 0,
-  unrealised: 0,
-  total_pnl: 0,
-  max_loss_pct: 10,
-  trail_step_profit: 0,
-  cooldown_minutes: 0,
-  tradebook: [],
-  last_updated_ms: 0
-};
-
-function safeNum(v, fallback = 0) {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : fallback;
-}
-
-function mergeDefaults(raw) {
-  if (!raw || typeof raw !== "object") raw = {};
-  const s = { ...DEFAULT_STATE, ...raw };
-  s.capital = safeNum(s.capital, DEFAULT_STATE.capital);
-  s.realised = safeNum(s.realised, DEFAULT_STATE.realised);
-  s.unrealised = safeNum(s.unrealised, DEFAULT_STATE.unrealised);
-  s.total_pnl = safeNum(s.total_pnl, DEFAULT_STATE.total_pnl);
-  s.max_loss_pct = safeNum(s.max_loss_pct, DEFAULT_STATE.max_loss_pct);
-  s.trail_step_profit = safeNum(s.trail_step_profit, DEFAULT_STATE.trail_step_profit);
-  s.cooldown_minutes = safeNum(s.cooldown_minutes, DEFAULT_STATE.cooldown_minutes);
-  s.tradebook = Array.isArray(s.tradebook) ? s.tradebook : DEFAULT_STATE.tradebook.slice();
-  s.last_updated_ms = safeNum(s.last_updated_ms, Date.now());
-  return s;
-}
+export const STATE_KEY = "guardian:state";
 
 export async function getState() {
   try {
     const raw = await kv.get(STATE_KEY);
-    let parsed = raw;
+    if (!raw) return {};
+    // If SDK returns an object already, just return it
+    if (typeof raw === "object") return raw;
+    // If it's a string, and looks like JSON, try to parse
     if (typeof raw === "string") {
-      try { parsed = JSON.parse(raw); } catch (e) { parsed = raw; }
+      const s = raw.trim();
+      if (s.startsWith("{") || s.startsWith("[")) {
+        try {
+          return JSON.parse(s);
+        } catch (e) {
+          console.warn("getState: invalid JSON in KV, returning empty object", e && e.message ? e.message : e);
+          return {};
+        }
+      }
+      // If it's obviously a "[object Object]" or some stringified non-json, log and return {}
+      console.warn("getState: KV value not JSON, returning empty object. KV value head:", s.slice(0,80));
+      return {};
     }
-    return mergeDefaults(parsed);
-  } catch (e) {
-    // on error return defaults (do not overwrite persisted store)
-    return mergeDefaults(null);
+    // Anything else — return empty state
+    return {};
+  } catch (err) {
+    console.error("getState error", err && err.stack ? err.stack : err);
+    return {};
   }
 }
 
-export async function setState(patch = {}) {
-  const current = await getState();
-  const merged = { ...current, ...patch, last_updated_ms: Date.now() };
-  const normalized = mergeDefaults(merged);
-  // store as JSON string to be consistent across kv wrappers
-  await kv.set(STATE_KEY, JSON.stringify(normalized));
-  return normalized;
+export async function setState(state) {
+  try {
+    // Always stringify to guarantee valid JSON is stored
+    await kv.set(STATE_KEY, JSON.stringify(state));
+    return true;
+  } catch (err) {
+    console.error("setState error", err && err.stack ? err.stack : err);
+    throw err;
+  }
 }
