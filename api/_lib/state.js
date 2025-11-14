@@ -1,5 +1,7 @@
 // api/_lib/state.js
-import { kv } from "./kv.js";
+// Centralized state management and normalization.
+
+import { kv } from "./kv.js"; // existing low-level KV wrapper (Upstash or fallback)
 
 export const STATE_KEY = "guardian:state:v1";
 
@@ -44,6 +46,7 @@ export async function getState() {
     }
     return mergeDefaults(parsed);
   } catch (e) {
+    // on error return defaults (do not overwrite persisted store)
     return mergeDefaults(null);
   }
 }
@@ -52,6 +55,7 @@ export async function setState(patch = {}) {
   const current = await getState();
   const merged = { ...current, ...patch, last_updated_ms: Date.now() };
   const normalized = mergeDefaults(merged);
+  // store as JSON string to be consistent across kv wrappers
   await kv.set(STATE_KEY, JSON.stringify(normalized));
   return normalized;
 }
