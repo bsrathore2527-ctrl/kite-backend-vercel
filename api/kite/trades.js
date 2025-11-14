@@ -221,23 +221,52 @@ async function evaluateTradeForAutoLogic(trade) {
     }
 
     if (typ === "SELL") {
+      // --- PATCHED SELL LOGIC: MTM-delta realised method ---
+      // Calculates approximate realised P/L as delta between current MTM and last saved MTM.
+      // If the delta is negative, we count it as a loss; else profit/neutral resets streak.
+
+      const prevMtm = Number(state.last_mtm ?? 0); // previous snapshot MTM
+      const mtmNow = Number(mtm ?? 0); // current MTM from positions
+      const realisedDelta = mtmNow - prevMtm;
+      const isLoss = realisedDelta < 0;
+
       let consec = Number(state.consecutive_losses ?? 0);
-      const isLoss = mtm < 0;
+
+      // optional time-window support for streaks
+      const windowMin = Number(state.consecutive_time_window_min ?? 60);
+      const lastLossTs = Number(state.last_loss_ts ?? 0);
+
       if (isLoss) {
-        consec += 1;
+        if (!lastLossTs || (now - lastLossTs) > windowMin * 60 * 1000) {
+          consec = 1;
+        } else {
+          consec = consec + 1;
+        }
+        state.last_loss_ts = now;
+
+        // start cooldown window
         state.cooldown_until = now + cooldownMin * 60 * 1000;
       } else {
         consec = 0;
       }
-      if (typeof state.last_mtm === "undefined" || mtm > Number(state.last_mtm ?? 0)) {
-        state.last_mtm = mtm;
-        state.last_mtm_ts = now;
-      }
-      state.consecutive_losses = consec;
+
+      // ALWAYS update MTM snapshot and timestamps on SELL (fixes previous bug)
+      state.last_mtm = mtmNow;
+      state.last_mtm_ts = now;
+
+      // store last realised change for debugging/audit
+      state.last_realised_change = realisedDelta;
+      state.last_realised_change_ts = now;
+
+      // update SELL timestamp and consecutive counter
       state.last_sell_ts = now;
+      state.consecutive_losses = consec;
+
       await setState(state);
-      if (maxConsec > 0 && consec >= maxConsec && !state.tripped_day)
-        await markTrippedAndKillInternal("consecutive_losses", { consec, mtm });
+
+      if (maxConsec > 0 && consec >= maxConsec && !state.tripped_day) {
+        await markTrippedAndKillInternal("consecutive_losses", { consec, realisedDelta, mtm: mtmNow });
+      }
     }
 
     if (typ === "BUY") {
