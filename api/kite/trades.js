@@ -5,7 +5,7 @@
 
 import { kv } from "../_lib/kv.js";
 import { instance } from "../_lib/kite.js";
-import { getState, setState } from "../_lib/state.js";
+import { getState, setState, updateState } from "../_lib/state.js";
 import { cancelPending, squareOffAll } from "../enforce.js";
 
 const TRADEBOOK_KEY = "guardian:tradebook";
@@ -160,7 +160,7 @@ async function fetchKitePositions() {
     for (const p of net) total += Number(p.m2m ?? p.unrealised ?? 0);
     return { total_pnl: total, unrealised: total, positions: pos, live_balance: 0, current_balance: 0 };
   } catch (e) {
-    console.error("fetchKitePositions error", e && e.message ? e.message : e);
+    console.error("fetchKitePositions error", e && e.message ? e : e);
     return { total_pnl: 0, unrealised: 0, positions: null, live_balance: 0, current_balance: 0 };
   }
 }
@@ -221,51 +221,51 @@ async function evaluateTradeForAutoLogic(trade) {
     }
 
     if (typ === "SELL") {
-      // --- PATCHED SELL LOGIC: MTM-delta realised method ---
-      // Calculates approximate realised P/L as delta between current MTM and last saved MTM.
-      // If the delta is negative, we count it as a loss; else profit/neutral resets streak.
+      // --- ATOMIC SELL LOGIC via updateState ---
+      // We perform the read-modify-write inside updateState to avoid races.
 
-      const prevMtm = Number(state.last_mtm ?? 0); // previous snapshot MTM
-      const mtmNow = Number(mtm ?? 0); // current MTM from positions
-      const realisedDelta = mtmNow - prevMtm;
-      const isLoss = realisedDelta < 0;
+      const updated = await updateState((s = {}) => {
+        const prevMtm = Number(s.last_mtm ?? 0);
+        const mtmNow = Number(mtm ?? 0);
+        const realisedDelta = mtmNow - prevMtm;
+        const isLoss = realisedDelta < 0;
 
-      let consec = Number(state.consecutive_losses ?? 0);
+        let consec = Number(s.consecutive_losses ?? 0);
+        const windowMin = Number(s.consecutive_time_window_min ?? 60);
+        const lastLossTs = Number(s.last_loss_ts ?? 0);
 
-      // optional time-window support for streaks
-      const windowMin = Number(state.consecutive_time_window_min ?? 60);
-      const lastLossTs = Number(state.last_loss_ts ?? 0);
-
-      if (isLoss) {
-        if (!lastLossTs || (now - lastLossTs) > windowMin * 60 * 1000) {
-          consec = 1;
+        if (isLoss) {
+          if (!lastLossTs || (Date.now() - lastLossTs) > windowMin * 60 * 1000) {
+            consec = 1;
+          } else {
+            consec = consec + 1;
+          }
+          s.last_loss_ts = Date.now();
+          s.cooldown_until = Date.now() + cooldownMin * 60 * 1000;
         } else {
-          consec = consec + 1;
+          consec = 0;
         }
-        state.last_loss_ts = now;
 
-        // start cooldown window
-        state.cooldown_until = now + cooldownMin * 60 * 1000;
-      } else {
-        consec = 0;
-      }
+        s.last_mtm = mtmNow;
+        s.last_mtm_ts = Date.now();
 
-      // ALWAYS update MTM snapshot and timestamps on SELL (fixes previous bug)
-      state.last_mtm = mtmNow;
-      state.last_mtm_ts = now;
+        s.last_realised_change = realisedDelta;
+        s.last_realised_change_ts = Date.now();
 
-      // store last realised change for debugging/audit
-      state.last_realised_change = realisedDelta;
-      state.last_realised_change_ts = now;
+        s.last_sell_ts = Date.now();
+        s.consecutive_losses = consec;
 
-      // update SELL timestamp and consecutive counter
-      state.last_sell_ts = now;
-      state.consecutive_losses = consec;
+        return s;
+      });
 
-      await setState(state);
-
-      if (maxConsec > 0 && consec >= maxConsec && !state.tripped_day) {
-        await markTrippedAndKillInternal("consecutive_losses", { consec, realisedDelta, mtm: mtmNow });
+      // After updateState returns, check the persisted consecutive count to decide trip
+      const consecAfter = Number(updated.consecutive_losses ?? 0);
+      if (maxConsec > 0 && consecAfter >= maxConsec && !updated.tripped_day) {
+        await markTrippedAndKillInternal("consecutive_losses", {
+          consec: consecAfter,
+          realisedDelta: Number(updated.last_realised_change ?? 0),
+          mtm: Number(updated.last_mtm ?? mtm)
+        });
       }
     }
 
@@ -322,4 +322,4 @@ export default async function handler(req, res) {
     console.error("kite/trades error:", err.stack || err);
     return res.status(500).json({ ok: false, error: String(err) });
   }
-}
+        }
