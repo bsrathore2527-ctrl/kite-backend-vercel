@@ -1,7 +1,8 @@
 // api/guardian.js
 
-import { getState, todayKey, setState } from "./_lib/kv.js";
+import { getState, todayKey } from "./_lib/kv.js";
 import { getAccessToken, instance } from "./_lib/kite.js";
+import { updateState } from "./_lib/state.js";
 
 function isAdmin(req) {
   const a = req.headers?.authorization || "";
@@ -20,21 +21,24 @@ async function refreshMtmSnapshots(state) {
 
     const now = Date.now();
 
-    // Update MTM fields (non-destructive)
-    state.unrealised = total;
-    state.realised = state.realised ?? 0;  // untouched
-    state.total_pnl = total + (state.realised ?? 0);
+    // Use updateState to atomically set MTM snapshot fields (avoids races)
+    await updateState((s = {}) => {
+      s.unrealised = total;
+      s.realised = typeof s.realised !== "undefined" ? s.realised : 0;
+      s.total_pnl = Number((s.realised ?? 0) + total);
 
-    // 🔥 Update last_mtm snapshot (ONLY if changed)
-    state.last_mtm = total;
-    state.last_mtm_ts = now;
+      s.last_mtm = total;
+      s.last_mtm_ts = now;
 
-    // If last SELL exists, preserve the timestamp
-    state.last_sell_ts = state.last_sell_ts ?? 0;
+      // preserve last_sell_ts if present, don't overwrite with zero
+      s.last_sell_ts = typeof s.last_sell_ts !== "undefined" ? s.last_sell_ts : 0;
 
-    await setState(state);
+      return s;
+    });
 
-    return state;
+    // return newest state for caller convenience
+    const refreshed = await getState();
+    return refreshed;
   } catch (e) {
     console.error("guardian refreshMtmSnapshots error:", e?.message || e);
     return state;
@@ -53,14 +57,14 @@ export default async function handler(req, res) {
     // safe fetch of state
     let s = await getState().catch(() => ({}));
 
-    // safe access token check
+    // safe access token check (kite library may throw)
     let tok = null;
     try { tok = await getAccessToken(); } catch (e) { tok = null; }
 
     // ------ 🔥 NEW LOGIC ------
     // Auto-refresh MTM snapshots IF:
     // 1) Admin page requested
-    // 2) State has no last_mtm or is stale
+    // 2) State has no last_mtm or is stale (older than 30s)
     const needsRefresh =
       admin &&
       (!s.last_mtm_ts || Date.now() - Number(s.last_mtm_ts) > 30000);
@@ -95,7 +99,7 @@ export default async function handler(req, res) {
       cooldown_until: cooldownUntil,
       cooldown_active: !!cooldownActive,
 
-      // 🔥 these two fields will ALWAYS be fresh now
+      // these fields are now refreshed by guardian when admin opens the page
       last_sell_ts: s.last_sell_ts || 0,
       last_mtm: s.last_mtm || 0,
       last_mtm_ts: s.last_mtm_ts || 0,
