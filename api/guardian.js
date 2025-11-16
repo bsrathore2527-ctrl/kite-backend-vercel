@@ -3,6 +3,7 @@
 import { getState, todayKey } from "./_lib/kv.js";
 import { getAccessToken, instance } from "./_lib/kite.js";
 import { updateState } from "./_lib/state.js";
+import { cancelPending, squareOffAll } from "./enforce.js";
 
 function isAdmin(req) {
   const a = req.headers?.authorization || "";
@@ -10,6 +11,79 @@ function isAdmin(req) {
   return !!process.env.ADMIN_TOKEN && token === process.env.ADMIN_TOKEN;
 }
 
+// ---------- LIVE MTM FETCH ----------
+async function fetchLiveMtm() {
+  try {
+    const kc = await instance();
+    const pos = await kc.getPositions();
+    const net = pos?.net || [];
+    let total = 0;
+    for (const p of net) total += Number(p.m2m ?? p.unrealised ?? 0);
+    return total;
+  } catch (e) {
+    console.error("LIVE MTM fetch error:", e?.message || e);
+    return null;
+  }
+}
+
+// ---------- AUTOMATIC ENFORCEMENT (max loss / max profit) ----------
+async function enforceIfThresholdCrossed(state) {
+  try {
+    // Already tripped? Do nothing.
+    if (state.tripped_day) return state;
+
+    const liveMtm = await fetchLiveMtm();
+    if (liveMtm === null) return state;
+
+    const maxLossAbs = Number(state.max_loss_abs ?? 0);
+    const maxProfitAmt = Number(state.p10_effective_amount ?? 0);
+
+    const now = Date.now();
+
+    // ==== MAX LOSS ====
+    if (maxLossAbs > 0 && liveMtm <= -maxLossAbs) {
+      const next = {
+        ...state,
+        tripped_day: true,
+        block_new_orders: true,
+        trip_reason: "max_loss_reached",
+        last_enforced_at: now,
+      };
+
+      await updateState(() => next);
+
+      try { await cancelPending(); } catch (e) { console.error("cancelPending", e); }
+      try { await squareOffAll(); } catch (e) { console.error("squareOffAll", e); }
+
+      return next;
+    }
+
+    // ==== MAX PROFIT ====
+    if (maxProfitAmt > 0 && liveMtm >= maxProfitAmt) {
+      const next = {
+        ...state,
+        tripped_day: true,
+        block_new_orders: true,
+        trip_reason: "max_profit_reached",
+        last_enforced_at: now,
+      };
+
+      await updateState(() => next);
+
+      try { await cancelPending(); } catch (e) { console.error("cancelPending", e); }
+      try { await squareOffAll(); } catch (e) { console.error("squareOffAll", e); }
+
+      return next;
+    }
+
+    return state;
+  } catch (err) {
+    console.error("Auto-enforce check error:", err);
+    return state;
+  }
+}
+
+// ---------- ADMIN DASHBOARD MTM REFRESH ----------
 async function refreshMtmSnapshots(state) {
   try {
     const kc = await instance();
@@ -21,30 +95,24 @@ async function refreshMtmSnapshots(state) {
 
     const now = Date.now();
 
-    // Use updateState to atomically set MTM snapshot fields (avoids races)
     await updateState((s = {}) => {
       s.unrealised = total;
-      s.realised = typeof s.realised !== "undefined" ? s.realised : 0;
+      s.realised = s.realised ?? 0;
       s.total_pnl = Number((s.realised ?? 0) + total);
-
       s.last_mtm = total;
       s.last_mtm_ts = now;
-
-      // preserve last_sell_ts if present, don't overwrite with zero
-      s.last_sell_ts = typeof s.last_sell_ts !== "undefined" ? s.last_sell_ts : 0;
-
+      s.last_sell_ts = s.last_sell_ts ?? 0;
       return s;
     });
 
-    // return newest state for caller convenience
-    const refreshed = await getState();
-    return refreshed;
+    return await getState();
   } catch (e) {
     console.error("guardian refreshMtmSnapshots error:", e?.message || e);
     return state;
   }
 }
 
+// ---------- MAIN HANDLER ----------
 export default async function handler(req, res) {
   try {
     if (req.method !== "GET") {
@@ -54,25 +122,21 @@ export default async function handler(req, res) {
 
     const admin = isAdmin(req);
 
-    // safe fetch of state
     let s = await getState().catch(() => ({}));
 
-    // safe access token check (kite library may throw)
+    // Auto trip check ALWAYS happens (admin or not)
+    s = await enforceIfThresholdCrossed(s);
+
+    // Safe access token check
     let tok = null;
     try { tok = await getAccessToken(); } catch (e) { tok = null; }
 
-    // ------ 🔥 NEW LOGIC ------
-    // Auto-refresh MTM snapshots IF:
-    // 1) Admin page requested
-    // 2) State has no last_mtm or is stale (older than 30s)
+    // Admin UI refresh of MTM if older than 30s
     const needsRefresh =
       admin &&
       (!s.last_mtm_ts || Date.now() - Number(s.last_mtm_ts) > 30000);
 
-    if (needsRefresh) {
-      s = await refreshMtmSnapshots(s);
-    }
-    // ------ END NEW LOGIC ------
+    if (needsRefresh) s = await refreshMtmSnapshots(s);
 
     const liveBalance =
       (s.live_balance !== undefined && s.live_balance !== null)
@@ -98,19 +162,13 @@ export default async function handler(req, res) {
       consecutive_losses: s.consecutive_losses || 0,
       cooldown_until: cooldownUntil,
       cooldown_active: !!cooldownActive,
-
-      // these fields are now refreshed by guardian when admin opens the page
       last_sell_ts: s.last_sell_ts || 0,
       last_mtm: s.last_mtm || 0,
       last_mtm_ts: s.last_mtm_ts || 0,
-
       last_trade_time: s.last_trade_time || 0,
-      last_trade_pnl: (typeof s.last_trade_pnl === "number"
+      last_trade_pnl: typeof s.last_trade_pnl === "number"
         ? s.last_trade_pnl
-        : (s.last_trade_pnl ? Number(s.last_trade_pnl) : 0)),
-      profit_lock_10: !!s.profit_lock_10,
-      profit_lock_20: !!s.profit_lock_20,
-      expiry_flag: !!s.expiry_flag,
+        : Number(s.last_trade_pnl || 0),
 
       // rules
       max_loss_pct: s.max_loss_pct ?? 10,
@@ -122,7 +180,7 @@ export default async function handler(req, res) {
       month_max_loss_pct: s.month_max_loss_pct ?? null
     };
 
-    const now = new Date().toLocaleTimeString("en-IN", {
+    const nowStr = new Date().toLocaleTimeString("en-IN", {
       timeZone: "Asia/Kolkata",
       hour12: false
     });
@@ -130,7 +188,7 @@ export default async function handler(req, res) {
     res.setHeader("Cache-Control", "no-store");
     return res.json({
       ok: true,
-      time: now,
+      time: nowStr,
       admin,
       kite_status: tok ? "ok" : "not_logged_in",
       state: safe,
