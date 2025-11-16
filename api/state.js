@@ -1,18 +1,14 @@
 // api/state.js
 // Return merged runtime "state" for admin UI.
-// - Reads persisted risk state from KV (getState).
+// - Reads persisted risk state from STATE helper (getState from ./_lib/state.js).
 // - Augments with live kite info: kite_status, current_balance, realised/unrealised totals.
 // - Computes active_loss_floor and remaining_to_max_loss using the rule:
 //     max_loss_abs = round(capital_day_915 * (max_loss_pct/100))
 //     active_loss_floor = realised - max_loss_abs
 //     remaining_to_max_loss = (if total_pnl >= 0) max_loss_abs - total_pnl
 //                             else max_loss_abs + total_pnl
-//
-// Records last_mtm and last_mtm_ts in returned state (last_mtm set either from persisted value
-// or from latest total_pnl). For precise "last_mtm on SELL" behaviour, also see the recommended
-// snippet for api/kite/trades.js below.
 
-import { getState } from "./_lib/kv.js";
+import { getState } from "./_lib/state.js";
 import { instance } from "./_lib/kite.js";
 
 function nowMs() { return Date.now(); }
@@ -150,8 +146,6 @@ export default async function handler(req, res) {
     }
 
     // Determine last_mtm / last_mtm_ts:
-    // Prefer persisted last_mtm if present (so manual / trade-based updates remain authoritative).
-    // Otherwise, set to the current snapshot total_pnl.
     const now = nowMs();
     const last_mtm = (typeof persisted.last_mtm !== "undefined" && persisted.last_mtm !== null)
       ? Number(persisted.last_mtm)
