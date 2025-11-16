@@ -1,13 +1,13 @@
 // api/guardian.js
 // FINAL STABLE VERSION – auto-enforces max-loss/max-profit and ALWAYS persists
-// to the correct KV through setState().
+// to the correct KV using setState()
 
 import { getState } from "./_lib/kv.js";
-import { setState } from "./_lib/state.js";   // THIS IS THE MAIN PERSISTENCE METHOD
+import { setState } from "./_lib/state.js";
 import { todayKey } from "./_lib/kv.js";
 import { getAccessToken, instance } from "./_lib/kite.js";
 import { cancelPending, squareOffAll } from "./enforce.js";
-import { kv } from "./_lib/kv.js"; // fallback writers if needed
+import { kv } from "./_lib/kv.js"; // fallback
 
 // ------------------------------------------------------------
 // AUTH CHECK
@@ -19,7 +19,7 @@ function isAdmin(req) {
 }
 
 // ------------------------------------------------------------
-// FETCH LIVE MTM SAFE
+// FETCH LIVE MTM (safe)
 // ------------------------------------------------------------
 async function fetchLiveMtmSafe() {
   try {
@@ -29,76 +29,74 @@ async function fetchLiveMtmSafe() {
     let total = 0;
     for (const p of net) total += Number(p.m2m ?? p.unrealised ?? 0);
     return total;
-  } catch (err) {
-    console.error("fetchLiveMtmSafe error:", err);
+  } catch {
     return null;
   }
 }
 
 // ------------------------------------------------------------
-// PERSISTENCE (FORCE USING setState FIRST)
+// PERSISTENCE — always use setState first
 // ------------------------------------------------------------
 async function persistStateObj(next) {
-  // 1) Preferred method: setState writes to guardian:state in Upstash
+  // Primary method
   try {
     await setState(next);
     return;
-  } catch (e) {
-    console.error("setState failed:", e);
+  } catch (err) {
+    console.error("setState failed:", err);
   }
 
-  // 2) Fallback: kv.put
+  // Fallback to kv.put
   try {
     if (kv && typeof kv.put === "function") {
       await kv.put("guardian:state", JSON.stringify(next));
       return;
     }
-  } catch (e) {
-    console.error("kv.put failed:", e);
+  } catch (err) {
+    console.error("kv.put failed:", err);
   }
 
-  // 3) Fallback: kv.set
+  // Fallback to kv.set
   try {
     if (kv && typeof kv.set === "function") {
       await kv.set("guardian:state", JSON.stringify(next));
       return;
     }
-  } catch (e) {
-    console.error("kv.set failed:", e);
+  } catch (err) {
+    console.error("kv.set failed:", err);
   }
 
-  throw new Error("persistStateObj: no valid persistence method found");
+  throw new Error("No valid persistence method");
 }
 
 // ------------------------------------------------------------
-// MAIN AUTO-ENFORCEMENT
+// AUTO ENFORCEMENT LOGIC — max loss / max profit
 // ------------------------------------------------------------
 async function enforceIfThresholdCrossed(state) {
   try {
-    if (!state) state = await getState();
+    state = state || await getState();
 
     if (state.tripped_day) return state;
 
-    // Try live MTM, else fallback
     const liveMtm = await fetchLiveMtmSafe();
     const fallback = Number(state.total_pnl ?? state.unrealised ?? state.last_mtm ?? 0);
     const effectiveMtm = (liveMtm === null ? fallback : Number(liveMtm));
 
-    // DEBUG FIELDS (to help us see exactly what backend saw)
-    const withDebug = {
+    // Debug write
+    const debugState = {
       ...state,
       __debug_last_live_mtm: liveMtm,
       __debug_effective_mtm: effectiveMtm,
       __debug_enforce_attempt_ts: Date.now()
     };
-    await persistStateObj(withDebug);
-    state = withDebug;
+    await persistStateObj(debugState);
+    state = debugState;
 
     const maxLossAbs = Number(state.max_loss_abs ?? 0);
     const maxProfitAmt = Number(state.p10_effective_amount ?? 0);
     const now = Date.now();
 
-    // ------------------- MAX LOSS -------------------
+    // -------- MAX LOSS TRIP --------
     if (maxLossAbs > 0 && effectiveMtm <= -maxLossAbs) {
       const tripped = {
         ...state,
@@ -111,17 +109,16 @@ async function enforceIfThresholdCrossed(state) {
 
       await persistStateObj(tripped);
 
-      // attempt cancel + square
       let cancelled = null, squared = null;
       try { cancelled = await cancelPending(); } catch (e) { cancelled = { error: String(e) }; }
       try { squared = await squareOffAll(); } catch (e) { squared = { error: String(e) }; }
 
-      const audited = { ...tripped, admin_last_enforce_result: { cancelled, squared, at: Date.now() } };
-      await persistStateObj(audited);
-      return audited;
+      const final = { ...tripped, admin_last_enforce_result: { cancelled, squared, at: Date.now() } };
+      await persistStateObj(final);
+      return final;
     }
 
-    // ------------------- MAX PROFIT -------------------
+    // -------- MAX PROFIT TRIP --------
     if (maxProfitAmt > 0 && effectiveMtm >= maxProfitAmt) {
       const tripped = {
         ...state,
@@ -138,12 +135,13 @@ async function enforceIfThresholdCrossed(state) {
       try { cancelled = await cancelPending(); } catch (e) { cancelled = { error: String(e) }; }
       try { squared = await squareOffAll(); } catch (e) { squared = { error: String(e) }; }
 
-      const audited = { ...tripped, admin_last_enforce_result: { cancelled, squared, at: Date.now() } };
-      await persistStateObj(audited);
-      return audited;
+      const final = { ...tripped, admin_last_enforce_result: { cancelled, squared, at: Date.now() } };
+      await persistStateObj(final);
+      return final;
     }
 
     return state;
+
   } catch (err) {
     console.error("enforceIfThresholdCrossed error:", err);
     return state;
@@ -194,17 +192,19 @@ export default async function handler(req, res) {
     let s = await getState();
     s = await enforceIfThresholdCrossed(s);
 
-    // token status
     let tok = null;
     try { tok = await getAccessToken(); } catch {}
 
-    // Admin UI refresh
-    const needsRefresh = admin && (!s.last_mtm_ts || Date.now() - Number(s.last_mtm_ts) > 30000);
-    if (needsRefresh) s = await refreshMtmSnapshots(s);
-
     const nowTs = Date.now();
-    const cooldownUntil = Number(s.cooldown_until || 0);
+    const needsRefresh =
+      admin &&
+      (!s.last_mtm_ts || nowTs - Number(s.last_mtm_ts) > 30000);
 
+    if (needsRefresh) {
+      s = await refreshMtmSnapshots(s);
+    }
+
+    const cooldownUntil = Number(s.cooldown_until || 0);
     const safe = {
       capital_day_915: s.capital_day_915 || 0,
       realised: s.realised || 0,
@@ -216,7 +216,7 @@ export default async function handler(req, res) {
       tripped_month: !!s.tripped_month,
       block_new_orders: !!s.block_new_orders,
       consecutive_losses: s.consecutive_losses || 0,
-      cooldown_until,
+      cooldown_until: cooldownUntil,
       cooldown_active: cooldownUntil > nowTs,
       last_sell_ts: s.last_sell_ts || 0,
       last_mtm: s.last_mtm || 0,
