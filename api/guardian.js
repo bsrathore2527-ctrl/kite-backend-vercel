@@ -1,7 +1,6 @@
 // api/guardian.js
-// Guardian endpoint — shows current state to admin UI.
-// Also performs automatic immediate enforcement on max-loss / max-profit using live MTM.
-// IMPORTANT: this file persists enforcement results directly into Upstash KV so /api/state is authoritative.
+// Robust guardian with guaranteed enforcement fallback and instrumentation.
+// Replaces previous file — writes authoritative state to Upstash KV ("guardian:state").
 
 import { getState, todayKey, kv } from "./_lib/kv.js";
 import { getAccessToken, instance } from "./_lib/kite.js";
@@ -13,8 +12,7 @@ function isAdmin(req) {
   return !!process.env.ADMIN_TOKEN && token === process.env.ADMIN_TOKEN;
 }
 
-// Fetch live MTM using Kite positions (same as dashboard)
-async function fetchLiveMtm() {
+async function fetchLiveMtmSafe() {
   try {
     const kc = await instance();
     const pos = await kc.getPositions();
@@ -23,12 +21,11 @@ async function fetchLiveMtm() {
     for (const p of net) total += Number(p.m2m ?? p.unrealised ?? 0);
     return total;
   } catch (e) {
-    console.error("fetchLiveMtm error:", e && e.message ? e.message : e);
+    console.error("fetchLiveMtmSafe error:", e && e.message ? e.message : e);
     return null;
   }
 }
 
-// Persist state object to authoritative KV key
 async function persistStateObj(next) {
   try {
     await kv.put("guardian:state", JSON.stringify(next));
@@ -38,7 +35,6 @@ async function persistStateObj(next) {
   }
 }
 
-// Read authoritative state from KV (convenience wrapper)
 async function readStateObj() {
   try {
     const s = await getState();
@@ -49,23 +45,38 @@ async function readStateObj() {
   }
 }
 
-// Enforcement: if thresholds crossed, persist tripped state and attempt cancel/square
+// Main enforcement check with guaranteed fallback and instrumentation
 async function enforceIfThresholdCrossed(state) {
   try {
     if (!state) state = await readStateObj();
-    if (state.tripped_day) return state; // already tripped
+    if (state.tripped_day) return state;
 
-    const liveMtm = await fetchLiveMtm();
-    const effectiveMtm = (liveMtm === null || typeof liveMtm === "undefined")
-      ? Number(state.total_pnl ?? state.unrealised ?? state.last_mtm ?? 0)
-      : Number(liveMtm);
+    // try live MTM
+    const live = await fetchLiveMtmSafe();
+
+    // compute effective MTM: prefer live, otherwise fall back to persisted values
+    const fallback = Number(state.total_pnl ?? state.unrealised ?? state.last_mtm ?? 0);
+    const effectiveMtm = (live === null || typeof live === "undefined") ? fallback : Number(live);
+
+    // write debug info so we can see what was read
+    try {
+      const dbg = {
+        ...(state || {}),
+        __debug_last_live_mtm: live,
+        __debug_effective_mtm: effectiveMtm,
+        __debug_enforce_attempt_ts: Date.now()
+      };
+      await persistStateObj(dbg);
+      state = dbg;
+    } catch (e) {
+      console.error("persist debug failed", e);
+    }
 
     const maxLossAbs = Number(state.max_loss_abs ?? 0);
     const maxProfitAmt = Number(state.p10_effective_amount ?? 0);
-
     const now = Date.now();
 
-    // MAX LOSS
+    // Immediate max-loss enforcement (no extra checks)
     if (maxLossAbs > 0 && effectiveMtm <= -maxLossAbs) {
       const next = {
         ...(state || {}),
@@ -76,35 +87,21 @@ async function enforceIfThresholdCrossed(state) {
         last_enforced_at: now
       };
 
-      // Persist tripped flag IMMEDIATELY (authoritative)
+      // persist immediately
       await persistStateObj(next);
 
-      // Attempt to cancel + square off; capture results for audit
-      let cancelled = null;
-      let squared = null;
-      try {
-        cancelled = await cancelPending();
-      } catch (err) {
-        console.error("cancelPending error:", err && err.message ? err.message : err);
-        cancelled = { error: String(err) };
-      }
-      try {
-        squared = await squareOffAll();
-      } catch (err) {
-        console.error("squareOffAll error:", err && err.message ? err.message : err);
-        squared = { error: String(err) };
-      }
+      // attempt cancel & square
+      let cancelled = null, squared = null;
+      try { cancelled = await cancelPending(); } catch (e) { console.error("cancelPending error", e); cancelled = { error: String(e) }; }
+      try { squared = await squareOffAll(); } catch (e) { console.error("squareOffAll error", e); squared = { error: String(e) }; }
 
-      // Persist audit results
-      const withAudit = {
-        ...next,
-        admin_last_enforce_result: { cancelled, squared, at: Date.now() }
-      };
-      await persistStateObj(withAudit);
-      return withAudit;
+      // persist audit
+      const audited = { ...next, admin_last_enforce_result: { cancelled, squared, at: Date.now() } };
+      await persistStateObj(audited);
+      return audited;
     }
 
-    // MAX PROFIT
+    // Immediate max-profit enforcement
     if (maxProfitAmt > 0 && effectiveMtm >= maxProfitAmt) {
       const next = {
         ...(state || {}),
@@ -117,29 +114,16 @@ async function enforceIfThresholdCrossed(state) {
 
       await persistStateObj(next);
 
-      let cancelled = null;
-      let squared = null;
-      try {
-        cancelled = await cancelPending();
-      } catch (err) {
-        console.error("cancelPending error:", err && err.message ? err.message : err);
-        cancelled = { error: String(err) };
-      }
-      try {
-        squared = await squareOffAll();
-      } catch (err) {
-        console.error("squareOffAll error:", err && err.message ? err.message : err);
-        squared = { error: String(err) };
-      }
+      let cancelled = null, squared = null;
+      try { cancelled = await cancelPending(); } catch (e) { console.error("cancelPending error", e); cancelled = { error: String(e) }; }
+      try { squared = await squareOffAll(); } catch (e) { console.error("squareOffAll error", e); squared = { error: String(e) }; }
 
-      const withAudit = {
-        ...next,
-        admin_last_enforce_result: { cancelled, squared, at: Date.now() }
-      };
-      await persistStateObj(withAudit);
-      return withAudit;
+      const audited = { ...next, admin_last_enforce_result: { cancelled, squared, at: Date.now() } };
+      await persistStateObj(audited);
+      return audited;
     }
 
+    // Nothing to enforce — return current state
     return state;
   } catch (err) {
     console.error("enforceIfThresholdCrossed error:", err && err.message ? err.message : err);
@@ -147,7 +131,6 @@ async function enforceIfThresholdCrossed(state) {
   }
 }
 
-// Refresh MTM snapshots for admin UI (updates last_mtm/unrealised/total_pnl)
 async function refreshMtmSnapshots(state) {
   try {
     if (!state) state = await readStateObj();
@@ -156,7 +139,6 @@ async function refreshMtmSnapshots(state) {
     const net = pos?.net || [];
     let total = 0;
     for (const p of net) total += Number(p.m2m ?? p.unrealised ?? 0);
-
     const now = Date.now();
     const next = {
       ...(state || {}),
@@ -167,7 +149,6 @@ async function refreshMtmSnapshots(state) {
       last_mtm_ts: now,
       last_sell_ts: state.last_sell_ts ?? 0
     };
-
     await persistStateObj(next);
     return next;
   } catch (e) {
@@ -176,7 +157,6 @@ async function refreshMtmSnapshots(state) {
   }
 }
 
-// Main handler
 export default async function handler(req, res) {
   try {
     if (req.method !== "GET") {
@@ -186,39 +166,27 @@ export default async function handler(req, res) {
 
     const admin = isAdmin(req);
 
-    // Read current persisted state
+    // read authoritative state
     let s = await readStateObj();
 
-    // Run automatic enforcement check immediately (this will persist if it trips)
-    try {
-      s = await enforceIfThresholdCrossed(s);
-    } catch (e) {
-      console.error("auto enforce check failed:", e && e.message ? e.message : e);
-    }
+    // run immediate enforcement check
+    s = await enforceIfThresholdCrossed(s);
 
-    // Safe access token check (kite library may throw)
+    // token check for kite
     let tok = null;
     try { tok = await getAccessToken(); } catch (e) { tok = null; }
 
-    // If admin UI requests and snapshot is stale (older than 30s), refresh MTM snapshots
-    const needsRefresh =
-      admin &&
-      (!s.last_mtm_ts || Date.now() - Number(s.last_mtm_ts) > 30000);
-
+    // refresh snapshots for admin if stale
+    const needsRefresh = admin && (!s.last_mtm_ts || Date.now() - Number(s.last_mtm_ts) > 30000);
     if (needsRefresh) {
-      try {
-        s = await refreshMtmSnapshots(s);
-      } catch (e) {
-        console.error("refresh snapshot failed:", e && e.message ? e.message : e);
-      }
+      s = await refreshMtmSnapshots(s);
     }
 
-    const liveBalance =
-      (s.live_balance !== undefined && s.live_balance !== null)
-        ? Number(s.live_balance)
-        : (s.current_balance !== undefined && s.current_balance !== null)
-          ? Number(s.current_balance)
-          : 0;
+    const liveBalance = (s.live_balance !== undefined && s.live_balance !== null)
+      ? Number(s.live_balance)
+      : (s.current_balance !== undefined && s.current_balance !== null)
+        ? Number(s.current_balance)
+        : 0;
 
     const nowTs = Date.now();
     const cooldownUntil = Number(s.cooldown_until || 0);
@@ -241,10 +209,7 @@ export default async function handler(req, res) {
       last_mtm: s.last_mtm || 0,
       last_mtm_ts: s.last_mtm_ts || 0,
       last_trade_time: s.last_trade_time || 0,
-      last_trade_pnl: typeof s.last_trade_pnl === "number"
-        ? s.last_trade_pnl
-        : Number(s.last_trade_pnl || 0),
-
+      last_trade_pnl: typeof s.last_trade_pnl === "number" ? s.last_trade_pnl : Number(s.last_trade_pnl || 0),
       // rules
       max_loss_pct: s.max_loss_pct ?? 10,
       trail_step_profit: s.trail_step_profit ?? 5000,
@@ -256,18 +221,10 @@ export default async function handler(req, res) {
     };
 
     const now = new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour12: false });
-
     res.setHeader("Cache-Control", "no-store");
-    return res.json({
-      ok: true,
-      time: now,
-      admin,
-      kite_status: tok ? "ok" : "not_logged_in",
-      state: safe,
-      key: todayKey()
-    });
+    return res.json({ ok: true, time: now, admin, kite_status: tok ? "ok" : "not_logged_in", state: safe, key: todayKey() });
   } catch (e) {
     console.error("guardian handler error:", e);
     res.status(500).json({ ok: false, error: e.message || String(e) });
   }
-      }
+}
