@@ -3,9 +3,7 @@
 // Accepts partial payloads. Normalizes p10_pct -> p10 (percentage) and computes
 // derived fields (p10_effective_amount, max_loss_abs, active_loss_floor,
 // remaining_to_max_loss) before persisting.
-
-import { setState, getState, updateState } from "../_lib/state.js";
-import { todayKey } from "../_lib/kv.js";           // only for history snapshots
+import { todayKey, setState, kv, getState } from "../_lib/kv.js";
 function isAdmin(req) {
   const a = req.headers.authorization || "";
   const token = a.startsWith("Bearer ") ? a.slice(7) : "";
