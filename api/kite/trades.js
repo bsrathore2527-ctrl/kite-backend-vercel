@@ -1,11 +1,12 @@
 // api/kite/trades.js
 // Returns today's trades — prefer server tradebook stored in KV (persisted by enforce-trades)
 // fallback to live Kite trades if no tradebook found.
-// This version filters persisted tradebook to only today's trades in IST (non-destructive).
+// This version normalizes trades, uses live MTM for thresholds (same as dashboard),
+// and ensures SELL updates persist to KV before enforcement logic runs.
 
 import { kv } from "../_lib/kv.js";
 import { instance } from "../_lib/kite.js";
-import { getState, setState, updateState } from "../_lib/state.js";
+import { getState, setState } from "../_lib/state.js";
 import { cancelPending, squareOffAll } from "../enforce.js";
 
 const TRADEBOOK_KEY = "guardian:tradebook";
@@ -151,16 +152,34 @@ async function readTradebookFromKV() {
   }
 }
 
-async function fetchKitePositions() {
+// Fetch live MTM the same way dashboard uses (sum of p.m2m or p.unrealised)
+async function fetchLiveMtm() {
   try {
     const kc = await instance();
     const pos = await kc.getPositions();
     const net = pos?.net || [];
     let total = 0;
+    for (const p of net) {
+      total += Number(p.m2m ?? p.unrealised ?? 0);
+    }
+    return total;
+  } catch (e) {
+    console.error("fetchLiveMtm error", e && e.message ? e.message : e);
+    return null;
+  }
+}
+
+// Keep a fallback helper (returns an object shape if needed)
+async function fetchKitePositionsFallback() {
+  try {
+    const kc = await instance();
+    const pos = await kc.getPositions();
+    let total = 0;
+    const net = pos?.net || [];
     for (const p of net) total += Number(p.m2m ?? p.unrealised ?? 0);
     return { total_pnl: total, unrealised: total, positions: pos, live_balance: 0, current_balance: 0 };
   } catch (e) {
-    console.error("fetchKitePositions error", e && e.message ? e : e);
+    console.error("fetchKitePositionsFallback error", e && e.message ? e.message : e);
     return { total_pnl: 0, unrealised: 0, positions: null, live_balance: 0, current_balance: 0 };
   }
 }
@@ -181,9 +200,8 @@ async function markTrippedAndKillInternal(reason, meta = {}) {
     await setState(next);
 
     try {
-      const kc = await instance();
-      const cancelled = await cancelPending(kc);
-      const squared = await squareOffAll(kc);
+      const cancelled = await cancelPending();
+      const squared = await squareOffAll();
       const audited = {
         ...next,
         admin_last_enforce_result: { cancelled, squared, at: Date.now() },
@@ -205,74 +223,84 @@ async function evaluateTradeForAutoLogic(trade) {
     const state = (await getState()) || {};
     const now = Date.now();
 
-    const pos = await fetchKitePositions();
-    const mtm = Number(pos.total_pnl ?? 0);
+    // Fetch live MTM (same as dashboard) for threshold checks
+    let liveMtm = await fetchLiveMtm();
+    if (liveMtm === null) {
+      // fallback to older helper or last_mtm
+      try {
+        const fallback = await fetchKitePositionsFallback();
+        liveMtm = Number(fallback?.total_pnl ?? state.last_mtm ?? 0);
+      } catch (e) {
+        liveMtm = Number(state.last_mtm ?? 0);
+      }
+    }
 
     const maxLossAbs = Number(state.max_loss_abs ?? 0);
     const maxProfitAmt = Number(state.p10_effective_amount ?? 0);
     const cooldownMin = Number(state.cooldown_min ?? 15);
     const maxConsec = Number(state.max_consecutive_losses ?? 0);
 
+    // If not yet tripped, check global thresholds using live MTM
     if (!state.tripped_day) {
-      if (maxLossAbs > 0 && mtm <= -maxLossAbs)
-        return await markTrippedAndKillInternal("max_loss_reached", { mtm, maxLossAbs });
-      if (maxProfitAmt > 0 && mtm >= maxProfitAmt)
-        return await markTrippedAndKillInternal("max_profit_reached", { mtm, maxProfitAmt });
-    }
-
-    if (typ === "SELL") {
-      // --- ATOMIC SELL LOGIC via updateState ---
-      // We perform the read-modify-write inside updateState to avoid races.
-
-      const updated = await updateState((s = {}) => {
-        const prevMtm = Number(s.last_mtm ?? 0);
-        const mtmNow = Number(mtm ?? 0);
-        const realisedDelta = mtmNow - prevMtm;
-        const isLoss = realisedDelta < 0;
-
-        let consec = Number(s.consecutive_losses ?? 0);
-        const windowMin = Number(s.consecutive_time_window_min ?? 60);
-        const lastLossTs = Number(s.last_loss_ts ?? 0);
-
-        if (isLoss) {
-          if (!lastLossTs || (Date.now() - lastLossTs) > windowMin * 60 * 1000) {
-            consec = 1;
-          } else {
-            consec = consec + 1;
-          }
-          s.last_loss_ts = Date.now();
-          s.cooldown_until = Date.now() + cooldownMin * 60 * 1000;
-        } else {
-          consec = 0;
-        }
-
-        s.last_mtm = mtmNow;
-        s.last_mtm_ts = Date.now();
-
-        s.last_realised_change = realisedDelta;
-        s.last_realised_change_ts = Date.now();
-
-        s.last_sell_ts = Date.now();
-        s.consecutive_losses = consec;
-
-        return s;
-      });
-
-      // After updateState returns, check the persisted consecutive count to decide trip
-      const consecAfter = Number(updated.consecutive_losses ?? 0);
-      if (maxConsec > 0 && consecAfter >= maxConsec && !updated.tripped_day) {
-        await markTrippedAndKillInternal("consecutive_losses", {
-          consec: consecAfter,
-          realisedDelta: Number(updated.last_realised_change ?? 0),
-          mtm: Number(updated.last_mtm ?? mtm)
-        });
+      if (maxLossAbs > 0 && Number(liveMtm) <= -maxLossAbs) {
+        console.log("AUTO-TRIP: max_loss_reached", { liveMtm, maxLossAbs });
+        return await markTrippedAndKillInternal("max_loss_reached", { mtm: liveMtm, maxLossAbs });
+      }
+      if (maxProfitAmt > 0 && Number(liveMtm) >= maxProfitAmt) {
+        console.log("AUTO-TRIP: max_profit_reached", { liveMtm, maxProfitAmt });
+        return await markTrippedAndKillInternal("max_profit_reached", { mtm: liveMtm, maxProfitAmt });
       }
     }
 
+    // SELL handling: persist last_mtm snapshot and consecutive loss bookkeeping
+    if (typ === "SELL") {
+      // Read fresh state again to avoid race
+      const s = (await getState()) || {};
+      // Determine mtm at this sell moment (use live MTM for snapshot)
+      const mtm = Number(liveMtm ?? (s.last_mtm ?? 0));
+      const prevLastMtm = Number(s.last_mtm ?? 0);
+      const realisedDelta = Number(mtm) - prevLastMtm;
+      const isLoss = realisedDelta < 0;
+
+      let consec = Number(s.consecutive_losses ?? 0);
+      if (isLoss) {
+        consec += 1;
+        s.cooldown_until = now + cooldownMin * 60 * 1000;
+        s.last_loss_ts = now;
+      } else {
+        consec = 0;
+      }
+
+      // update persisted state with atomic set
+      const next = {
+        ...(s || {}),
+        last_mtm: Number(mtm),
+        last_mtm_ts: now,
+        last_realised_change: realisedDelta,
+        last_realised_change_ts: now,
+        last_sell_ts: now,
+        consecutive_losses: consec,
+      };
+
+      await setState(next);
+
+      // read authoritative state back
+      const final = (await getState()) || {};
+
+      // If consecutive threshold reached and not already tripped, enforce
+      if (maxConsec > 0 && Number(final.consecutive_losses ?? 0) >= maxConsec && !final.tripped_day) {
+        await markTrippedAndKillInternal("consecutive_losses", { consec: final.consecutive_losses, mtm });
+      }
+
+      return;
+    }
+
+    // BUY handling: buys during cooldown may trip
     if (typ === "BUY") {
       const cooldownUntil = Number(state.cooldown_until ?? 0);
-      if (!state.tripped_day && cooldownUntil && now < cooldownUntil)
+      if (!state.tripped_day && cooldownUntil && now < cooldownUntil) {
         await markTrippedAndKillInternal("buy_during_cooldown", { last_mtm: state.last_mtm ?? 0 });
+      }
     }
   } catch (e) {
     console.error("evaluateTradeForAutoLogic error", e && e.message ? e.message : e);
@@ -319,7 +347,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json({ ok: true, source, trades });
   } catch (err) {
-    console.error("kite/trades error:", err.stack || err);
+    console.error("kite/trades error:", err && err.stack ? err.stack : err);
     return res.status(500).json({ ok: false, error: String(err) });
   }
-        }
+  }
