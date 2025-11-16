@@ -4,8 +4,8 @@
 // derived fields (p10_effective_amount, max_loss_abs, active_loss_floor,
 // remaining_to_max_loss) before persisting.
 
-import { todayKey, setState, kv, getState } from "../_lib/kv.js";
-
+import { setState, getState } from "../_lib/state.js";
+import { todayKey, kv } from "../_lib/kv.js";           // only for history snapshots
 function isAdmin(req) {
   const a = req.headers.authorization || "";
   const token = a.startsWith("Bearer ") ? a.slice(7) : "";
