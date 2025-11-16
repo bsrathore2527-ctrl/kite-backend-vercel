@@ -1,5 +1,5 @@
 // api/admin/set-capital.js
-import { setState } from "../_lib/state.js";
+import { setState } from "../_lib/kv.js";
 
 /**
  * Safe JSON body parser that works on Vercel Node serverless
