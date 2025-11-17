@@ -7,24 +7,21 @@
 import { kv } from "../_lib/kv.js";
 import { instance } from "../_lib/kite.js";
 import { getState, setState } from "../_lib/state.js";
-
-import {
-  recordSellOrder,
-  computeTodayConsecutive,
-} from "../_lib/sellbook.js";
-
-import killNow from "../_lib/kill.js";
+import { cancelPending, squareOffAll } from "../enforce.js";
+import killNow from "../_lib/kill.js"; // <-- patched: use shared kill function
 
 const TRADEBOOK_KEY = "guardian:tradebook";
 
 function isAdmin(req) {
   const a = req.headers.authorization || "";
-  if (!a) return false;
-  try {
-    return a.trim() === (`Bearer ${process.env.ADMIN_KEY || ""}`).trim();
-  } catch (e) {
-    return false;
-  }
+  const token = a.startsWith("Bearer ") ? a.slice(7) : "";
+  return !!process.env.ADMIN_TOKEN && token === process.env.ADMIN_TOKEN;
+}
+
+function toNumberOrNull(v) {
+  if (v === null || typeof v === "undefined") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
 }
 
 function normalizeTsToMs(ts) {
@@ -43,275 +40,335 @@ function normalizeTsToMs(ts) {
   return null;
 }
 
-async function fetchLiveMtm() {
-  try {
-    const pos = await instance.getPositions();
-    if (!pos) return null;
-    let t = 0;
-    for (const p of pos.net || []) {
-      t += Number(p.m2m ?? p.unrealised ?? 0);
+function normalizeTrade(t) {
+  if (!t || typeof t !== "object") return t;
+  const out = { ...t };
+
+  const candidates = [
+    out.avg_price,
+    out.average_price,
+    out.trade_price,
+    out.price,
+    out.last_price,
+  ];
+
+  let price = null;
+  for (const c of candidates) {
+    if (typeof c !== "undefined" && c !== null && c !== "") {
+      const p = Number(c);
+      if (!Number.isNaN(p)) {
+        price = p;
+        break;
+      }
     }
-    return t;
+  }
+
+  if (price !== null) {
+    out.price_normalized = price;
+    out.price = price;
+  } else {
+    out.price_normalized = null;
+    out.price = typeof out.price !== "undefined" ? out.price : null;
+  }
+
+  const possibleTs =
+    out._ts ||
+    out.trade_time ||
+    out.timestamp ||
+    out.exchange_timestamp ||
+    out.order_timestamp ||
+    out.created_at ||
+    out.ts;
+  const ms = normalizeTsToMs(possibleTs);
+  out._ts = ms || out._ts || null;
+  out._iso = out._ts ? new Date(out._ts).toISOString() : null;
+
+  return out;
+}
+
+// ✅ Clean, IST-safe helper
+function todayStartMs() {
+  // Compute start of "today" in IST, timezone-safe even on UTC servers.
+  const now = new Date();
+  const istNow = new Date(now.toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }));
+  istNow.setHours(0, 0, 0, 0);
+  return istNow.getTime();
+}
+
+async function readTradebookFromKV() {
+  try {
+    const raw = await kv.get(TRADEBOOK_KEY);
+    if (!raw) return [];
+    let arr = [];
+    if (typeof raw === "object") {
+      arr = Array.isArray(raw) ? raw : [];
+    } else if (typeof raw === "string") {
+      const s = raw.trim();
+      if (s.startsWith("[") || s.startsWith("{")) {
+        try {
+          const parsed = JSON.parse(s);
+          arr = Array.isArray(parsed) ? parsed : [];
+        } catch (e) {
+          console.warn("kite/trades kv: invalid JSON, ignoring KV value", e.message);
+          arr = [];
+        }
+      } else {
+        console.warn("kite/trades kv: non-JSON string in KV, ignoring. head:", s.slice(0, 80));
+        arr = [];
+      }
+    } else {
+      arr = [];
+    }
+
+    if (!Array.isArray(arr) || arr.length === 0) return [];
+
+    // Filter to only keep trades whose timestamp is >= start of today's IST (non-destructive).
+    const startMs = todayStartMs();
+    const todays = arr.filter(t => {
+      if (!t) return false;
+      const ts =
+        t._ts ||
+        t.ts ||
+        t.exchange_timestamp ||
+        t.fill_timestamp ||
+        t.trade_time ||
+        t._iso ||
+        t.created_at;
+      if (!ts) return false;
+      const parsed =
+        typeof ts === "number"
+          ? ts
+          : !isNaN(Number(ts))
+          ? Number(ts)
+          : Date.parse(String(ts)) || null;
+      if (!parsed) return false;
+      const ms = normalizeTsToMs(parsed) || (typeof parsed === "number" ? parsed : null);
+      return ms && Number(ms) >= startMs;
+    });
+
+    return todays;
   } catch (e) {
-    console.warn("fetchLiveMtm error:", e);
-    return null;
+    console.warn("kite/trades kv read failed:", e && e.message ? e.message : e);
+    return [];
   }
 }
 
-/** fallback positions fetch */
-async function fetchKitePositionsFallback() {
+// Fetch live MTM the same way dashboard uses (sum of p.m2m or p.unrealised)
+async function fetchLiveMtm() {
   try {
-    const pos = await instance.getPositions();
-    if (!pos) return { total_pnl: 0 };
-    const net = pos.net || [];
+    const kc = await instance();
+    const pos = await kc.getPositions();
+    const net = pos?.net || [];
     let total = 0;
     for (const p of net) {
       total += Number(p.m2m ?? p.unrealised ?? 0);
     }
-    return { total_pnl: total };
+    return total;
   } catch (e) {
-    console.error("fetchKitePositionsFallback error", e);
-    return { total_pnl: 0 };
+    console.error("fetchLiveMtm error", e && e.message ? e.message : e);
+    return null;
   }
 }
 
-/** Unified kill handler */
+// Keep a fallback helper (returns an object shape if needed)
+async function fetchKitePositionsFallback() {
+  try {
+    const kc = await instance();
+    const pos = await kc.getPositions();
+    let total = 0;
+    const net = pos?.net || [];
+    for (const p of net) total += Number(p.m2m ?? p.unrealised ?? 0);
+    return { total_pnl: total, unrealised: total, positions: pos, live_balance: 0, current_balance: 0 };
+  } catch (e) {
+    console.error("fetchKitePositionsFallback error", e && e.message ? e.message : e);
+    return { total_pnl: 0, unrealised: 0, positions: null, live_balance: 0, current_balance: 0 };
+  }
+}
+
+/**
+ * Reworked to call shared killNow() so behavior is identical to admin kill.
+ * The previous code called cancelPending() and squareOffAll() here.
+ */
 async function markTrippedAndKillInternal(reason, meta = {}) {
   try {
     const state = await getState();
-    if (state?.tripped_day) return;
-
+    if (state && state.tripped_day) return;
     const now = Date.now();
-
     const next = {
       ...(state || {}),
       tripped_day: true,
       tripped_reason: reason,
+      tripped_meta: { ...meta, at: now },
+      block_new_orders: true,
       last_enforced_at: now,
     };
-
     await setState(next);
 
     try {
+      // Use the centralized killNow() so admin UI and auto-kill are identical.
+      // killNow will attempt to cancel pending orders and square off positions.
       const result = await killNow({ meta: { reason, ...meta } });
 
-      await setState({
+      const audited = {
         ...next,
         admin_last_enforce_result: result,
-      });
+      };
+      await setState(audited);
 
-      console.log("Auto-enforce executed:", reason, result);
+      console.log("Auto-enforce executed (via killNow):", reason, result);
     } catch (e) {
-      console.error("killNow failed:", e);
+      console.error("markTrippedAndKillInternal enforcement error (killNow):", e && e.message ? e.message : e);
+      // attempt fallback: try older functions if killNow fails
+      try {
+        const cancelled = await cancelPending();
+        const squared = await squareOffAll();
+        const auditedFallback = {
+          ...next,
+          admin_last_enforce_result: { cancelled, squared, fallback: true, at: Date.now() },
+        };
+        await setState(auditedFallback);
+        console.log("Auto-enforce fallback executed:", reason, { cancelled, squared });
+      } catch (e2) {
+        console.error("markTrippedAndKillInternal fallback enforcement error", e2 && e2.message ? e2.message : e2);
+      }
     }
   } catch (e) {
-    console.error("markTrippedAndKillInternal failed:", e);
+    console.error("markTrippedAndKillInternal error", e && e.message ? e.message : e);
   }
 }
 
-//
-// =======================
-//   AUTO-LOGIC PROCESSOR
-// =======================
-//
 async function evaluateTradeForAutoLogic(trade) {
-  if (!trade || !trade.transaction_type) return;
-
   try {
+    if (!trade || !trade.transaction_type) return;
     const typ = String(trade.transaction_type).toUpperCase();
     const state = (await getState()) || {};
     const now = Date.now();
 
-    // Live MTM (same as dashboard)
+    // Fetch live MTM (same as dashboard) for threshold checks
     let liveMtm = await fetchLiveMtm();
     if (liveMtm === null) {
+      // fallback to older helper or last_mtm
       try {
-        const fb = await fetchKitePositionsFallback();
-        liveMtm = Number(fb.total_pnl ?? state.last_mtm ?? 0);
+        const fallback = await fetchKitePositionsFallback();
+        liveMtm = Number(fallback?.total_pnl ?? state.last_mtm ?? 0);
       } catch (e) {
         liveMtm = Number(state.last_mtm ?? 0);
       }
     }
 
-    const maxLossAbs = Number(state.max_loss_abs || 0);
+    const maxLossAbs = Number(state.max_loss_abs ?? 0);
     const maxProfitAmt = Number(state.p10_effective_amount ?? 0);
+    const cooldownMin = Number(state.cooldown_min ?? 15);
     const maxConsec = Number(state.max_consecutive_losses ?? 0);
 
-    //
-    // === GLOBAL THRESHOLD CHECKS (MAX LOSS / PROFIT)
-    //
+    // If not yet tripped, check global thresholds using live MTM
     if (!state.tripped_day) {
-      if (maxLossAbs > 0 && liveMtm <= -maxLossAbs) {
-        return await markTrippedAndKillInternal("max_loss_reached", {
-          mtm: liveMtm,
-          maxLossAbs,
-        });
+      if (maxLossAbs > 0 && Number(liveMtm) <= -maxLossAbs) {
+        console.log("AUTO-TRIP: max_loss_reached", { liveMtm, maxLossAbs });
+        return await markTrippedAndKillInternal("max_loss_reached", { mtm: liveMtm, maxLossAbs });
       }
-      if (maxProfitAmt > 0 && liveMtm >= maxProfitAmt) {
-        return await markTrippedAndKillInternal("max_profit_reached", {
-          mtm: liveMtm,
-          maxProfitAmt,
-        });
+      if (maxProfitAmt > 0 && Number(liveMtm) >= maxProfitAmt) {
+        console.log("AUTO-TRIP: max_profit_reached", { liveMtm, maxProfitAmt });
+        return await markTrippedAndKillInternal("max_profit_reached", { mtm: liveMtm, maxProfitAmt });
       }
     }
 
-    //
-    // ===========================================
-    //   SELL HANDLING (OUR NEW SELLBOOK LOGIC)
-    // ===========================================
-    //
+    // SELL handling: persist last_mtm snapshot and consecutive loss bookkeeping
     if (typ === "SELL") {
+      // Read fresh state again to avoid race
       const s = (await getState()) || {};
+      // Determine mtm at this sell moment (use live MTM for snapshot)
       const mtm = Number(liveMtm ?? (s.last_mtm ?? 0));
+      const prevLastMtm = Number(s.last_mtm ?? 0);
+      const realisedDelta = Number(mtm) - prevLastMtm;
+      const isLoss = realisedDelta < 0;
 
-      const entry = {
-        tradeTs: now,
-        instrument:
-          trade.instrument ||
-          trade.tradingsymbol ||
-          trade.symbol ||
-          "unknown",
-        qty:
-          Number(trade.quantity ||
-          trade.qty ||
-          trade.fill_quantity ||
-          0),
-        mtm,
-      };
-
-      // 1) Record SELL in Sellbook
-      try {
-        await recordSellOrder(entry);
-      } catch (e) {
-        console.error("recordSellOrder failed", e);
+      let consec = Number(s.consecutive_losses ?? 0);
+      if (isLoss) {
+        consec += 1;
+        s.cooldown_until = now + cooldownMin * 60 * 1000;
+        s.last_loss_ts = now;
+      } else {
+        consec = 0;
       }
 
-      // 2) Compute consecutive-worsening count
-      let cons = { consecutiveCount: 0 };
-      try {
-        cons = await computeTodayConsecutive();
-      } catch (e) {
-        console.error("computeTodayConsecutive failed", e);
-      }
-
-      // 3) Update guardian state
+      // update persisted state with atomic set
       const next = {
         ...(s || {}),
-        last_mtm: mtm,
+        last_mtm: Number(mtm),
         last_mtm_ts: now,
-        last_realised_change: mtm - Number(s.last_mtm ?? 0),
+        last_realised_change: realisedDelta,
         last_realised_change_ts: now,
         last_sell_ts: now,
-        consecutive_losses: Number(cons.consecutiveCount || 0),
+        consecutive_losses: consec,
       };
 
       await setState(next);
 
+      // read authoritative state back
       const final = (await getState()) || {};
 
-      // 4) Enforce if triggered
-      if (
-        maxConsec > 0 &&
-        final.consecutive_losses >= maxConsec &&
-        !final.tripped_day
-      ) {
-        await markTrippedAndKillInternal("consecutive_losses", {
-          consec: final.consecutive_losses,
-          mtm,
-        });
+      // If consecutive threshold reached and not already tripped, enforce
+      if (maxConsec > 0 && Number(final.consecutive_losses ?? 0) >= maxConsec && !final.tripped_day) {
+        await markTrippedAndKillInternal("consecutive_losses", { consec: final.consecutive_losses, mtm });
       }
 
       return;
     }
 
-    //
-    // BUY HANDLING (unchanged logic)
-    //
+    // BUY handling: buys during cooldown may trip
     if (typ === "BUY") {
-      const s2 = (await getState()) || {};
-      const cooldownUntil = Number(s2.cooldown_until ?? 0);
-      if (!s2.tripped_day && cooldownUntil && now < cooldownUntil) {
-        await markTrippedAndKillInternal("buy_during_cooldown", {
-          last_mtm: s2.last_mtm ?? 0,
-        });
+      const cooldownUntil = Number(state.cooldown_until ?? 0);
+      if (!state.tripped_day && cooldownUntil && now < cooldownUntil) {
+        await markTrippedAndKillInternal("buy_during_cooldown", { last_mtm: state.last_mtm ?? 0 });
       }
     }
   } catch (e) {
-    console.error("evaluateTradeForAutoLogic error:", e);
+    console.error("evaluateTradeForAutoLogic error", e && e.message ? e.message : e);
   }
 }
 
-//
-// ======================
-//      API HANDLER
-// ======================
-//
 export default async function handler(req, res) {
   try {
-    //
-    // Admin raw dump
-    //
-    if (isAdmin(req) && req.query?.raw === "1") {
+    if (isAdmin(req) && req.query && req.query.raw === "1") {
       const raw = await kv.get(TRADEBOOK_KEY);
       try {
         const arr = typeof raw === "string" ? JSON.parse(raw) : raw;
-        return res.status(200).json({
-          ok: true,
-          source: "kv",
-          raw: true,
-          trades: Array.isArray(arr) ? arr : [],
-        });
-      } catch {}
+        return res
+          .status(200)
+          .json({ ok: true, source: "kv", raw: true, trades: Array.isArray(arr) ? arr : [] });
+      } catch (e) {
+        return res.status(200).json({ ok: true, source: "kv", raw: true, trades: [] });
+      }
     }
 
     let trades = [];
-    let source = "live";
+    let source = "empty";
 
-    //
-    // Prefer KV tradebook
-    //
-    try {
-      const raw = await kv.get(TRADEBOOK_KEY);
-      if (raw) {
-        trades = typeof raw === "string" ? JSON.parse(raw) : raw;
-        source = "kv";
-      } else {
-        const live = await instance.getTrades();
-        trades = Array.isArray(live) ? live : [];
+    // Read persisted tradebook but only keep today's trades (IST) - non-destructive
+    const arr = await readTradebookFromKV();
+    if (Array.isArray(arr) && arr.length) {
+      trades = arr.slice(-200).map(normalizeTrade);
+      source = "kv";
+    } else {
+      try {
+        const kc = await instance();
+        const live = (await kc.getTrades()) || [];
+        trades = live.slice(-200).map(normalizeTrade);
         source = "kite";
+      } catch (e) {
+        console.warn("kite/trades fallback failed:", e && e.message ? e.message : e);
       }
-    } catch {
-      const live = await instance.getTrades();
-      trades = Array.isArray(live) ? live : [];
-      source = "kite";
     }
 
-    //
-    // Normalize trade timestamps
-    //
-    trades = trades.map((t) => ({
-      ...t,
-      trade_time:
-        normalizeTsToMs(
-          t.trade_time ||
-            t.timestamp_ms ||
-            t.timestamp ||
-            t.time ||
-            t.exchange_time
-        ) ?? t.trade_time,
-    }));
-
-    //
-    // Run AUTO LOGIC on the latest trade
-    //
-    if (Array.isArray(trades) && trades.length > 0) {
+    if (Array.isArray(trades) && trades.length) {
       const latest = trades[trades.length - 1];
       await evaluateTradeForAutoLogic(latest);
     }
 
     return res.status(200).json({ ok: true, source, trades });
-  } catch (e) {
-    console.error("kite/trades error:", e);
-    return res.status(500).json({ ok: false, error: String(e) });
+  } catch (err) {
+    console.error("kite/trades error:", err && err.stack ? err.stack : err);
+    return res.status(500).json({ ok: false, error: String(err) });
   }
-}
+      }
