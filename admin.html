@@ -1,3 +1,4 @@
+
 <!doctype html>
 <html lang="en">
 <head>
@@ -200,49 +201,7 @@
       </div>
     </section>
 
-    <!-- page 4: Simulation Tools -->
-    <section class="page card" id="page_simulator">
-      <h3 style="margin:0">Simulation Tools (Admin Only)</h3>
-      <div class="small muted" style="margin-top:6px">
-        Simulate BUY/SELL events without placing real Zerodha orders.  
-        Uses <code>/api/debug/sim-trade</code>. Requires admin login.
-      </div>
-
-      <div style="margin-top:14px" class="card" id="sim_sell_box">
-        <div class="muted">Simulate SELL</div>
-        <div class="small">A SELL updates realised PnL using MTM difference.</div>
-
-        <div class="row" style="margin-top:10px;gap:8px;align-items:center">
-          <input id="sim_sell_mtm" type="number" placeholder="Enter MTM value e.g. 9500" style="flex:1;padding:8px;border-radius:6px;border:1px solid #ccc" />
-          <button id="sim_sell_btn" class="btn primary" style="padding:8px 12px;border-radius:6px">Simulate SELL</button>
-        </div>
-      </div>
-
-      <div style="margin-top:14px" class="card" id="sim_buy_box">
-        <div class="muted">Simulate BUY</div>
-        <div class="small">Trips if cooldown is active.</div>
-
-        <button id="sim_buy_btn" class="btn ghost" style="margin-top:8px;padding:8px 12px;border-radius:6px">Simulate BUY</button>
-      </div>
-
-      <div style="margin-top:14px" class="card" id="sim_loss3_box">
-        <div class="muted">Simulate 3 Losses (Consecutive)</div>
-        <div class="small">Triggers consecutive-loss trip if threshold is 3.</div>
-
-        <button id="sim_loss3_btn" class="btn warn" style="margin-top:8px;padding:8px 12px;border-radius:6px">Simulate 3 Loss SELLs</button>
-      </div>
-
-      <div style="margin-top:14px" class="card" id="sim_reset_box">
-        <div class="muted">Reset Simulation State</div>
-        <div class="small">Clears consecutive-losses, cooldown, last_mtm, tripped, realised logic (safe reset via admin API).</div>
-
-        <button id="sim_reset_btn" class="btn danger" style="margin-top:8px;padding:8px 12px;border-radius:6px">Reset Simulation State</button>
-      </div>
-
-      <div id="sim_output" class="small" style="margin-top:16px;white-space:pre-wrap;color:#b4dfff;background:#011; padding:10px;border-radius:6px"></div>
-    </section>
-
-    <!-- page 5: Rules -->
+    <!-- page 4: Rules -->
     <section class="page card" id="page_rules">
       <h3 style="margin:0">Rules (admin editable)</h3>
 
@@ -283,7 +242,7 @@
       <div class="small muted" style="margin-top:8px">Only editable when admin token is saved. Saving posts to <code>/api/admin/set-config</code>.</div>
     </section>
 
-    <!-- page 6: Logs & actions -->
+    <!-- page 5: Logs & actions -->
     <section class="page card" id="page_logs">
       <h3 style="margin:0">Logs & actions</h3>
 
@@ -692,19 +651,15 @@ async function showExecutedTrades(){
 
   // fallback: scan client logs for lines mentioning trade fields
   const lines = getRawLogLines();
-  const candidates = lines.filter(l => /\b(trade_id|tradingsymbol|trade_time|avg_price|filled_qty)\b/i.test(l));
-  if(candidates.length){
-    out.innerHTML = `<pre class="log">${candidates.join("\n\n")}</pre>`;
-    toast('Showing trades from client logs (fallback)');
-    return;
-  }
+  const candidates = lines.filter(l => /\b(trade|trade_id|order_id|executed|filled|avg_price|filled_qty|tradingsymbol)\b/i.test(l));
+  if(candidates.length){ pre.textContent = candidates.join('\n\n'); toast('Showing trades from client logs (fallback)'); return; }
   pre.textContent = 'No executed trades found in server endpoint or logs.'; toast('No trades found');
 }
 
 function formatTrade(t){
   const id = t.trade_id || t.tradeId || t.order_id || t.orderId || t.id || '—';
   const sym = t.tradingsymbol || t.trading_symbol || t.instrument || t.symbol || '—';
-  const qty = t.quantity || t.qty || t.filled_qty || t.qty_filled || '—';
+  const qty = t.quantity || t.qty || t.filled_qty || '—';
   const price = t.price || t.trade_price || t.avg_price || t.price_executed || '—';
   const side = (t.transaction_type || t.side || t.order_side || '').toUpperCase() || (t.qty && Number(t.qty) < 0 ? 'SELL' : 'BUY');
   const ts = t.trade_time || t.timestamp || t.exchange_timestamp || t.time || t._ts || null;
@@ -805,152 +760,9 @@ async function loadTradebook(){
   }
 }
 
-/* ===========================================
-   SIMULATOR BUTTON HANDLERS (Admin Only)
-   Uses existing helpers: authHeader(), loadAll(), logLine(), toast()
-   =========================================== */
-
-(function(){
-  // short helper reference
-  const $id = id => document.getElementById(id);
-
-  async function simRequest(payload) {
-    try {
-      const outEl = $id('sim_output');
-      if (outEl) outEl.textContent = 'Running...';
-
-      const r = await fetch('/api/debug/sim-trade', {
-        method: 'POST',
-        headers: Object.assign({ 'Content-Type':'application/json' }, authHeader()),
-        body: JSON.stringify(payload)
-      });
-
-      const txt = await r.text().catch(()=>null);
-      let j = null; try { j = txt ? JSON.parse(txt) : null; } catch (e) { j = null; }
-      logLine(`SIM POST /api/debug/sim-trade => ${r.status}`);
-      if (outEl) outEl.textContent = JSON.stringify(j ?? txt, null, 2);
-
-      // refresh UI state after simulation
-      if (typeof loadAll === 'function') {
-        await loadAll();
-      } else if (typeof loadState === 'function'){
-        await loadState();
-      } else {
-        try {
-          const sRes = await fetch('/api/state', { headers: authHeader() }).then(r=>r.json()).catch(()=>null);
-          if (sRes && sRes.state && outEl) {
-            outEl.textContent += '\n\nSTATE_AFTER:\n' + JSON.stringify({
-              last_mtm: sRes.state.last_mtm,
-              last_mtm_ts: sRes.state.last_mtm_ts,
-              last_sell_ts: sRes.state.last_sell_ts,
-              last_realised_change: sRes.state.last_realised_change,
-              consecutive_losses: sRes.state.consecutive_losses,
-              tripped_day: sRes.state.tripped_day
-            }, null, 2);
-          }
-        } catch(e){}
-      }
-
-      return j || txt;
-    } catch (e) {
-      const outEl = $id('sim_output');
-      if (outEl) outEl.textContent = 'ERROR: ' + (e.message || e);
-      console.error('simRequest error', e);
-      throw e;
-    }
-  }
-
-  // Wire buttons (safe guards)
-  const sellBtn = $id('sim_sell_btn');
-  if (sellBtn) sellBtn.addEventListener('click', async function(){
-    const mtmVal = Number(($id('sim_sell_mtm')||{}).value || NaN);
-    if (isNaN(mtmVal)) { if (typeof toast === 'function') toast('Enter valid MTM'); else alert('Enter valid MTM'); return; }
-    sellBtn.disabled = true;
-    try { await simRequest({ type:'SELL', mtm: mtmVal, enforce: false }); } catch(e){} finally { sellBtn.disabled = false; }
-  });
-
-  const buyBtn = $id('sim_buy_btn');
-  if (buyBtn) buyBtn.addEventListener('click', async function(){
-    buyBtn.disabled = true;
-    try { await simRequest({ type:'BUY' }); } catch(e){} finally { buyBtn.disabled = false; }
-  });
-
-  const loss3Btn = $id('sim_loss3_btn');
-  if (loss3Btn) loss3Btn.addEventListener('click', async function(){
-    loss3Btn.disabled = true;
-    const outEl = $id('sim_output'); if (outEl) outEl.textContent = 'Running 3 consecutive simulated SELLs...';
-    // simulate decreasing MTM so deltas are negative
-    let prev = 10000;
-    try {
-      // try to use current last_mtm if available
-      const st = await fetch('/api/state', { headers: authHeader() }).then(r=>r.json()).catch(()=>null);
-      if (st && st.state && typeof st.state.last_mtm !== 'undefined') prev = Number(st.state.last_mtm || prev);
-    } catch(e){}
-    const sequence = [prev - 500, prev - 1000, prev - 1500];
-    for (let i=0;i<sequence.length;i++){
-      await simRequest({ type:'SELL', mtm: sequence[i], enforce: false });
-      await new Promise(r => setTimeout(r, 450));
-    }
-    loss3Btn.disabled = false;
-  });
-
-  const resetBtn = $id('sim_reset_btn');
-  if (resetBtn) resetBtn.addEventListener('click', async function(){
-    if (!confirm('Reset simulation state?')) return;
-    resetBtn.disabled = true;
-    try {
-      // Best-effort: call admin set-config reset options if available
-      await fetch('/api/admin/set-config', {
-        method: 'POST',
-        headers: Object.assign({ 'Content-Type':'application/json' }, authHeader()),
-        body: JSON.stringify({ reset_day:true, preserve_losses:false, clear_cooldown:true, clear_mtm:true })
-      }).catch(()=>null);
-      if (typeof loadAll === 'function') await loadAll();
-      logLine('Reset requested (best-effort)');
-      if (typeof toast === 'function') toast('Reset requested');
-    } catch(e) {
-      console.error('reset simulation error', e);
-    } finally {
-      resetBtn.disabled = false;
-    }
-  });
-
-  // Add a Simulation button to the pager for mobile access
-  (function addPagerSimulationButton(){
-    try {
-      const pager = document.querySelector('.pager');
-      if (!pager) return;
-      if (document.getElementById('pager_sim_btn')) return;
-
-      const btn = document.createElement('button');
-      btn.id = 'pager_sim_btn';
-      btn.className = 'btn ghost';
-      btn.textContent = 'Simulation';
-
-      btn.addEventListener('click', function(){
-        const pagesArr = Array.from(document.querySelectorAll('.page'));
-        const idx = pagesArr.findIndex(p => p.id === 'page_simulator');
-        if (idx >= 0 && typeof go === 'function') {
-          go(idx);
-        } else {
-          const pg = document.getElementById('page_simulator');
-          if (pg) {
-            document.querySelectorAll('.page').forEach(p => p.style.display = 'none');
-            pg.style.display = 'block';
-            pg.scrollIntoView({ behavior: 'smooth' });
-          }
-        }
-      });
-
-      pager.insertBefore(btn, pager.firstChild);
-    } catch(e){ console.warn('addPagerSimulationButton failed', e); }
-  })();
-
-})();
-
 /* initial loads */
 loadTradebook();
 
 </script>
 </body>
-</html>
+  </html>
