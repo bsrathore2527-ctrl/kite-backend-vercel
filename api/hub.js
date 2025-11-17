@@ -3,6 +3,7 @@
 
 import { instance as kiteInstance, loginUrl } from "./_lib/kite.js";
 import { kv, todayKey, getState as kvGetState, setState as kvSetState } from "./_lib/kv.js";
+import killNow from "./_lib/kill.js";
 
 /* small response helpers */
 function send(res, code, body = {}) {
