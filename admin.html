@@ -753,6 +753,165 @@ async function loadTradebook(){
 
     const rows = arr.slice(0,50).map(tbRowHtml).join('');
     const table = `<table class="tradebook"><thead><tr><th>Instrument</th><th>Side</th><th>Qty</th><th>Price</th><th>Time</th></tr></thead><tbody>${rows}</tbody></table>`;
+    <!-- SELLBOOK panel (added) - hidden by default; toggled with Show Sellbook button -->
+<div id="sellbookPanel" style="display:none; margin-top:12px;">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+    <h4 style="margin:0; font-size:1rem;">Sell Book (Today)</h4>
+    <button id="refresh_sellbook" class="btn ghost">Refresh</button>
+  </div>
+  <div style="max-height:320px; overflow:auto; border:1px solid rgba(255,255,255,0.03); padding:6px; border-radius:6px;">
+    <table id="sellbookTable" style="width:100%; border-collapse:collapse; font-size:0.95rem;">
+      <thead style="color:#bbb;">
+        <tr>
+          <th style="text-align:left; padding:6px 8px;">Instrument</th>
+          <th style="text-align:left; padding:6px 8px;">Side</th>
+          <th style="text-align:left; padding:6px 8px;">Qty</th>
+          <th style="text-align:left; padding:6px 8px;">Price</th>
+          <th style="text-align:left; padding:6px 8px;">Time</th>
+          <th style="text-align:left; padding:6px 8px;">MTM</th>
+        </tr>
+      </thead>
+      <tbody id="sellbookBody">
+        <tr><td colspan="6" style="padding:8px;">Loading sellbook…</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div style="margin-top:8px; color:#ccc;"><strong>Consecutive (computed):</strong> <span id="sellbookConsec">—</span></div>
+</div>
+
+<!-- Toggle button insertion (place next to your Tradebook refresh button): -->
+<!-- Example: after your <button id="refresh_tradebook">...</button> add -->
+<button id="toggle_sellbook_btn" class="btn ghost" style="margin-left:8px;">Show Sellbook</button>
+
+
+<!-- SCRIPT: non-intrusive helper to render sellbook, toggle, refresh and post-save hooks -->
+<script>
+// SELLBOOK client logic: fetch, render, toggle, and hooks (non-intrusive)
+
+async function fetchSellbook() {
+  try {
+    const res = await fetch('/api/sellbook');
+    const data = await res.json();
+    const tbody = document.getElementById('sellbookBody');
+    const consecEl = document.getElementById('sellbookConsec');
+    if (!data || !data.ok) {
+      if (tbody) tbody.innerHTML = "<tr><td colspan='6' style='padding:8px;'>Failed to load</td></tr>";
+      if (consecEl) consecEl.innerText = "-";
+      return;
+    }
+    const rows = Array.isArray(data.list) ? data.list.slice().reverse() : [];
+    if (!rows.length) {
+      if (tbody) tbody.innerHTML = "<tr><td colspan='6' style='padding:8px;'>No sell records for today</td></tr>";
+    } else {
+      if (tbody) tbody.innerHTML = rows.map(r => {
+        const time = r.trade_time ? new Date(Number(r.trade_time)).toLocaleTimeString() : "-";
+        const price = (r.price !== null && typeof r.price !== 'undefined') ? Number(r.price).toFixed(2) : "—";
+        const mtm = (typeof r.mtm !== 'undefined') ? Number(r.mtm).toString() : "—";
+        return `<tr>
+          <td style="padding:6px 8px;">${escapeHtml(r.instrument)}</td>
+          <td style="padding:6px 8px;">SELL</td>
+          <td style="padding:6px 8px;">${Number(r.quantity || r.qty || 0)}</td>
+          <td style="padding:6px 8px;">${price}</td>
+          <td style="padding:6px 8px;">${time}</td>
+          <td style="padding:6px 8px;">${mtm}</td>
+        </tr>`;
+      }).join('');
+    }
+    if (consecEl) consecEl.innerText = data.consecutive ?? "-";
+  } catch (e) {
+    console.error('fetchSellbook error', e);
+  }
+}
+
+function escapeHtml(s) {
+  if (s == null) return "";
+  return String(s).replaceAll('&', '&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;');
+}
+
+// Toggle behavior: swap visibility between tradebook and sellbook (replace UI in same container)
+(function(){
+  const toggleBtn = document.getElementById('toggle_sellbook_btn');
+  const tradeSection = document.getElementById('page_tradebook');
+  const sellSection = document.getElementById('sellbookPanel');
+  const refreshTradeBtn = document.getElementById('refresh_tradebook');
+  const refreshSellBtn = document.getElementById('refresh_sellbook');
+
+  if (!toggleBtn || !tradeSection || !sellSection) return;
+
+  function updateLabel() {
+    const visible = getComputedStyle(sellSection).display !== 'none';
+    toggleBtn.textContent = visible ? 'Show Tradebook' : 'Show Sellbook';
+  }
+
+  // When showing sellbook, pause loadTradebook if it exists (wrap)
+  if (typeof window.loadTradebook === 'function' && !window._orig_loadTradebook) {
+    window._orig_loadTradebook = window.loadTradebook;
+    window.loadTradebook = async function() {
+      const sellVisible = document.getElementById('sellbookPanel') && getComputedStyle(document.getElementById('sellbookPanel')).display !== 'none';
+      if (sellVisible) return;
+      return window._orig_loadTradebook.apply(this, arguments);
+    };
+  }
+
+  toggleBtn.addEventListener('click', function(){
+    const sellVisible = getComputedStyle(sellSection).display !== 'none';
+    if (sellVisible) {
+      sellSection.style.display = 'none';
+      tradeSection.style.display = '';
+      if (typeof loadTradebook === 'function') loadTradebook();
+    } else {
+      sellSection.style.display = '';
+      tradeSection.style.display = 'none';
+      fetchSellbook();
+    }
+    updateLabel();
+  });
+
+  // Ensure refresh button refreshes both when appropriate
+  if (refreshTradeBtn) {
+    refreshTradeBtn.addEventListener('click', async function(){
+      try { if (typeof loadTradebook === 'function') await loadTradebook(); } catch(e){}
+      try { await fetchSellbook(); } catch(e){}
+    });
+  }
+  if (refreshSellBtn) {
+    refreshSellBtn.addEventListener('click', async function(){
+      try { await fetchSellbook(); } catch(e) {}
+    });
+  }
+
+  // Polling for sellbook to keep it fresh even when hidden
+  if (!window._sellbook_interval_installed) {
+    window._sellbook_interval_installed = true;
+    setInterval(function(){
+      try { fetchSellbook(); } catch(e) {}
+    }, 3000);
+  }
+
+  // initial label
+  updateLabel();
+})();
+
+// Post-save hooks: after saving config or capital, call trades and enforce endpoints to ensure processing runs
+(function(){
+  async function triggerRefreshAndEnforce(){
+    try {
+      await fetch('/api/kite/trades').catch(()=>null);
+      await fetch('/api/enforce', { method: 'POST' }).catch(()=>fetch('/api/enforce').catch(()=>null));
+    } catch(e){}
+  }
+  const cfgBtn = document.getElementById('save_cfg_btn');
+  if (cfgBtn && !cfgBtn._post_save_hook_installed) {
+    cfgBtn._post_save_hook_installed = true;
+    cfgBtn.addEventListener('click', function(){ setTimeout(triggerRefreshAndEnforce, 800); });
+  }
+  const capBtn = document.getElementById('set_capital_btn');
+  if (capBtn && !capBtn._post_save_hook_installed) {
+    capBtn._post_save_hook_installed = true;
+    capBtn.addEventListener('click', function(){ setTimeout(triggerRefreshAndEnforce, 800); });
+  }
+})();
+</script>
     out.innerHTML = table;
   }catch(e){
     out.innerHTML = `<div class="tb-empty">Failed to load tradebook</div>`;
