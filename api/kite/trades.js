@@ -8,6 +8,7 @@ import { kv } from "../_lib/kv.js";
 import { instance } from "../_lib/kite.js";
 import { getState, setState } from "../_lib/state.js";
 import { cancelPending, squareOffAll } from "../enforce.js";
+import killNow from "../_lib/kill.js"; // <-- patched: use shared kill function
 
 const TRADEBOOK_KEY = "guardian:tradebook";
 
@@ -184,6 +185,10 @@ async function fetchKitePositionsFallback() {
   }
 }
 
+/**
+ * Reworked to call shared killNow() so behavior is identical to admin kill.
+ * The previous code called cancelPending() and squareOffAll() here.
+ */
 async function markTrippedAndKillInternal(reason, meta = {}) {
   try {
     const state = await getState();
@@ -200,16 +205,32 @@ async function markTrippedAndKillInternal(reason, meta = {}) {
     await setState(next);
 
     try {
-      const cancelled = await cancelPending();
-      const squared = await squareOffAll();
+      // Use the centralized killNow() so admin UI and auto-kill are identical.
+      // killNow will attempt to cancel pending orders and square off positions.
+      const result = await killNow({ meta: { reason, ...meta } });
+
       const audited = {
         ...next,
-        admin_last_enforce_result: { cancelled, squared, at: Date.now() },
+        admin_last_enforce_result: result,
       };
       await setState(audited);
-      console.log("Auto-enforce executed:", reason, { cancelled, squared });
+
+      console.log("Auto-enforce executed (via killNow):", reason, result);
     } catch (e) {
-      console.error("markTrippedAndKillInternal enforcement error", e && e.message ? e.message : e);
+      console.error("markTrippedAndKillInternal enforcement error (killNow):", e && e.message ? e.message : e);
+      // attempt fallback: try older functions if killNow fails
+      try {
+        const cancelled = await cancelPending();
+        const squared = await squareOffAll();
+        const auditedFallback = {
+          ...next,
+          admin_last_enforce_result: { cancelled, squared, fallback: true, at: Date.now() },
+        };
+        await setState(auditedFallback);
+        console.log("Auto-enforce fallback executed:", reason, { cancelled, squared });
+      } catch (e2) {
+        console.error("markTrippedAndKillInternal fallback enforcement error", e2 && e2.message ? e2.message : e2);
+      }
     }
   } catch (e) {
     console.error("markTrippedAndKillInternal error", e && e.message ? e.message : e);
@@ -350,4 +371,4 @@ export default async function handler(req, res) {
     console.error("kite/trades error:", err && err.stack ? err.stack : err);
     return res.status(500).json({ ok: false, error: String(err) });
   }
-  }
+        }
