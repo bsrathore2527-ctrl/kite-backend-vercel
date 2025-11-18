@@ -371,4 +371,4 @@ export default async function handler(req, res) {
     console.error("kite/trades error:", err && err.stack ? err.stack : err);
     return res.status(500).json({ ok: false, error: String(err) });
   }
-      }
+}
