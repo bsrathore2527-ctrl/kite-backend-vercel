@@ -363,33 +363,23 @@ export default async function handler(req, res) {
           consecutive_losses: nextConsec
         };
 
-        // consecutive loss limit check + auto-kill
-const maxConsec = Number(s.max_consecutive_losses ?? 3);
-if (maxConsec > 0 && nextConsec >= maxConsec) {
+        // consecutive loss limit check
+        const maxConsec = Number(s.max_consecutive_losses ?? 3);
+        if (maxConsec > 0 && nextConsec >= maxConsec) {
+          patch.tripped_day = true;
+          patch.block_new_orders = true;
+          patch.trip_reason = "max_consecutive_losses";
 
-  patch.tripped_day = true;
-  patch.block_new_orders = true;
-  patch.trip_reason = "max_consecutive_losses";
-
-  // ---- AUTO-SQUARE-OFF FOR CONSECUTIVE LOSSES ----
-  try {
-    const cancelled = await cancelPending(kc);
-    const squared = await squareOffAll(kc);
-    await setState({
-      admin_last_enforce_result: {
-        cancelled,
-        squared,
-        at: Date.now()
-      }
-    });
-    console.log("Auto-enforce (consecutive loss) executed:", {
-      cancelled,
-      squared
-    });
-  } catch (e) {
-    console.error("Auto-enforce (consecutive loss) failed:", e?.stack || e);
-  }
-}
+          // attempt immediate enforcement for consecutive loss
+          try {
+            const cancelled = await cancelPending(kc);
+            const squared = await squareOffAll(kc);
+            const notePatch = { admin_last_enforce_result: { cancelled, squared, at: Date.now() } };
+            await setState(notePatch);
+            console.log("Auto-enforce (consecutive loss) executed:", notePatch.admin_last_enforce_result);
+          } catch (e) {
+            console.error("Auto-enforce (consecutive loss) failed:", e && e.stack ? e.stack : e);
+          }
         }
 
         await setState(patch);
