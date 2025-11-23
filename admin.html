@@ -784,18 +784,24 @@ function sellRowHtml(t){
 
   let time = '—';
   try{
-    const d = new Date(t.time);
+    const ts = t.time_ms || t.time;
+    const d = new Date(ts);
     if(!isNaN(d)) time = d.toLocaleTimeString('en-GB',{hour12:false,timeZone:'Asia/Kolkata'});
   }catch(e){}
 
   const mtm = fmtINR(t.mtm);
-  const chg = (t.change>=0? '+' : '') + fmtINR(t.change);
+
+  const rawChg = Number(t.mtm_change ?? 0);
+  let chg = '0';
+  if (rawChg !== 0) chg = (rawChg > 0 ? '+' : '') + String(Math.trunc(rawChg));
+
+  const color = rawChg >= 0 ? '#10b981' : '#ef4444';
 
   return `<tr>
     <td>${sym}</td>
     <td>${time}</td>
     <td>${mtm}</td>
-    <td style="color:${t.change>=0?'#10b981':'#ef4444'}">${chg}</td>
+    <td style="color:${color}">${chg}</td>
   </tr>`;
 }
 
