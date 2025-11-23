@@ -12,3 +12,4 @@
 fetch("https://<your-domain>/api/funds", { credentials: "include" })
   .then(r => r.json())
   .then(console.log)
+## Deploy now
