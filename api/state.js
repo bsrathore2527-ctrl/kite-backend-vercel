@@ -46,7 +46,6 @@ export default async function handler(req, res) {
         try {
           const funds = await (kc.getFunds?.() || kc.get_funds?.());
           if (funds) {
-            // handle common shapes: funds.equity.available.live_balance etc.
             const equity = funds.equity || funds;
             const available = equity.available || {};
             const utilised = equity.utilised || equity.utilization || {};
@@ -67,20 +66,17 @@ export default async function handler(req, res) {
             const m2m_realised = safeNum(utilised.m2m_realised ?? equity.m2m_realised ?? 0);
             const m2m_unrealised = safeNum(utilised.m2m_unrealised ?? equity.m2m_unrealised ?? 0);
 
-            // update only if kite returned meaningful numbers
             if (m2m_realised !== 0 || m2m_unrealised !== 0) {
               realised = m2m_realised;
               unrealised = m2m_unrealised;
               total_pnl = realised + unrealised;
             }
           } else {
-            // fallback to positions if funds not available
             const pos = await (kc.getPositions?.() || kc.get_positions?.());
             if (pos) {
               const net = pos.net || [];
               let computedUnreal = 0;
               for (const p of net) {
-                // handle varying field names
                 const v = safeNum(p.pnl?.unrealised ?? p.unrealised_pnl ?? p.m2m_unrealised ?? p.m2m ?? 0);
                 computedUnreal += v;
               }
@@ -89,41 +85,31 @@ export default async function handler(req, res) {
             }
           }
         } catch (e) {
-          // kite funds/positions failed => keep persisted values
-          console.warn("api/state: kite funds/positions fetch failed:", e && e.message ? e.message : e);
+          console.warn("api/state: kite funds/positions fetch failed:", e?.message || e);
         }
       }
     } catch (e) {
-      // instance() failed -> not logged in
       kite_status = "not_logged_in";
     }
 
-    // Ensure numbers
     realised = safeNum(realised, 0);
     unrealised = safeNum(unrealised, 0);
     total_pnl = Number(realised + unrealised);
 
-    
-    // Capital and base loss (derive base loss absolute from capital * pct)
+    // Capital and base loss
     const capital = safeNum(persisted.capital_day_915 ?? 0, 0);
     const maxLossPct = safeNum(persisted.max_loss_pct ?? 0, 0);
-    const base_loss_abs = Math.round(capital * (maxLossPct / 100)); // e.g. 10000
-    // maintain backward-compatible alias
+    const base_loss_abs = Math.round(capital * (maxLossPct / 100));
     const max_loss_abs = base_loss_abs;
 
-    // Active loss floor: moves with realised profit. active_loss_floor = realised - base_loss_abs
     const active_loss_floor = Math.round(realised - base_loss_abs);
-
-    // remaining_to_max_loss = total_pnl - active_loss_floor  (equivalently unrealised + base_loss_abs)
     const remaining_to_max_loss = Math.round(total_pnl - active_loss_floor);
-// p10 (max profit lock) compute:
-    // prefer explicit p10_amount (rupees) if present; otherwise use percentage field (p10_pct or p10)
+
     let p10_effective_amount = 0;
     const explicitAmount = safeNum(persisted.p10_amount ?? persisted.p10_amount_rupee ?? 0, 0);
     if (explicitAmount > 0) {
       p10_effective_amount = Math.round(explicitAmount);
     } else {
-      // prefer p10_pct (or p10) as percent of capital
       const p10pct = safeNum(persisted.p10_pct ?? persisted.p10 ?? 0, 0);
       if (p10pct > 0) {
         p10_effective_amount = Math.round(capital * (p10pct / 100));
@@ -132,7 +118,7 @@ export default async function handler(req, res) {
       }
     }
 
-    // prepare merged state to return
+    // ⭐ FINAL MERGED STATE
     const mergedState = {
       ...persisted,
       kite_status,
@@ -147,6 +133,10 @@ export default async function handler(req, res) {
       active_loss_floor,
       remaining_to_max_loss,
       p10_effective_amount,
+
+      // ⭐ ADDED FIX — now shows in UI & system
+      consecutive_losses: persisted.consecutive_losses ?? 0,
+
       time_ms: nowMs(),
       time: new Date(nowMs()).toISOString()
     };
@@ -158,8 +148,9 @@ export default async function handler(req, res) {
       kite_status,
       state: mergedState
     });
+
   } catch (err) {
-    console.error("api/state error:", err && err.stack ? err.stack : err);
+    console.error("api/state error:", err);
     res.status(500).json({ ok: false, error: String(err) });
   }
 }
