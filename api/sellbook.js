@@ -8,11 +8,15 @@ export default async function handler(req, res) {
     const key = "guardian:sell_orders";
     const raw = await kv.get(key);
 
-    // ⭐ FIX: Upstash KV returns a native array, NOT a JSON string
+    // Upstash KV returns native JS objects/arrays in this project
     const sellOrders = Array.isArray(raw) ? raw : [];
 
-    // Latest first
-    const sorted = [...sellOrders].sort((a, b) => b.time_ms - a.time_ms);
+    // Latest first by time_ms if present, else keep insertion order reversed
+    const sorted = [...sellOrders].sort((a, b) => {
+      const ta = typeof a.time_ms === 'number' ? a.time_ms : 0;
+      const tb = typeof b.time_ms === 'number' ? b.time_ms : 0;
+      return tb - ta;
+    });
 
     return res.status(200).json({
       ok: true,
