@@ -380,12 +380,23 @@ export default async function handler(req, res) {
     }
 
     // --- LOSS-FLOOR CHECK ---
-    // load fresh state and compute totals
+// load live MTM from broker and compute totals
     try {
+      // fetch fresh positions and derive live MTM from broker's own P&L
+      let liveMTM = 0;
+      try {
+        const pos = await kc.getPositions();
+        const net = pos && Array.isArray(pos.net) ? pos.net : [];
+        liveMTM = net.reduce((sum, p) => {
+          const v = Number(p.pnl ?? p.unrealised ?? 0);
+          return sum + (Number.isFinite(v) ? v : 0);
+        }, 0);
+      } catch (e) {
+        console.warn("enforce-trades: failed to fetch live MTM from broker:", e && e.message ? e.message : e);
+      }
+
       const state = await getState();
-      const realised = Number(state.realised ?? 0);
-      const unreal = Number(state.unrealised ?? 0);
-      const total = realised + unreal;
+      const total = Number(liveMTM) || 0;
 
       // derive max_loss_abs: prefer stored value else compute from capital_day_915 * max_loss_pct
       let maxLossAbs = Number(state.max_loss_abs ?? 0);
@@ -397,17 +408,17 @@ export default async function handler(req, res) {
         }
       }
 
-      // compute remaining-to-floor (for double-check). If state has remaining_to_max_loss, prefer that.
-      const remaining = (typeof state.remaining_to_max_loss === "number") ? Number(state.remaining_to_max_loss) : Math.round(maxLossAbs + total);
+      // compute remaining-to-floor: how much room left before we hit the floor
+      const remaining = maxLossAbs > 0 ? Math.round(maxLossAbs - Math.abs(total)) : 0;
 
       // Decide whether to trip:
-      // Trip if: maxLossAbs > 0 AND (total <= -maxLossAbs OR remaining <= 0)
-      if (maxLossAbs > 0 && (total <= -maxLossAbs || remaining <= 0)) {
+      // Trip if: maxLossAbs > 0 AND remaining <= 0
+      if (maxLossAbs > 0 && remaining <= 0) {
         // mark tripped and block new orders
         const tripPatch = {
           tripped_day: true,
           block_new_orders: true,
-          trip_reason: "max_loss_floor",
+          trip_reason: "max_loss_floor_live_mtm",
           last_enforced_at: Date.now()
         };
         await setState(tripPatch);
