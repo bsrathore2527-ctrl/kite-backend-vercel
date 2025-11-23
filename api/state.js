@@ -111,11 +111,16 @@ export default async function handler(req, res) {
     // maintain backward-compatible alias
     const max_loss_abs = base_loss_abs;
 
-    // Active loss floor: moves with realised profit. active_loss_floor = realised - base_loss_abs
-    const active_loss_floor = Math.round(realised - base_loss_abs);
+    // Active loss floor: now driven by enforce-trades trailing logic.
+    // Fall back to -base_loss_abs if no persisted value is present.
+    const active_loss_floor = Number.isFinite(persisted.active_loss_floor)
+      ? Number(persisted.active_loss_floor)
+      : -base_loss_abs;
 
-    // remaining_to_max_loss = total_pnl - active_loss_floor  (equivalently unrealised + base_loss_abs)
-    const remaining_to_max_loss = Math.round(total_pnl - active_loss_floor);
+    // remaining_to_max_loss is persisted from enforce-trades. Fallback to max_loss_abs.
+    const remaining_to_max_loss = Number.isFinite(persisted.remaining_to_max_loss)
+      ? Number(persisted.remaining_to_max_loss)
+      : max_loss_abs;
 // p10 (max profit lock) compute:
     // prefer explicit p10_amount (rupees) if present; otherwise use percentage field (p10_pct or p10)
     let p10_effective_amount = 0;
