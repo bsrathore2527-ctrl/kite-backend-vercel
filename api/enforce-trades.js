@@ -395,6 +395,17 @@ export default async function handler(req, res) {
         console.warn("enforce-trades: failed to fetch live MTM from broker:", e && e.message ? e.message : e);
       }
 
+      // --- TEST OVERRIDE (for testing module) ---
+      if (req.query && typeof req.query.test_mtm !== "undefined") {
+        const testVal = Number(req.query.test_mtm);
+        if (!Number.isNaN(testVal)) {
+          console.log("TEST-MTM OVERRIDE APPLIED:", testVal);
+          liveMTM = testVal;
+        }
+      }
+      // ------------------------------------------
+
+
       const state = await getState();
       const total = Number(liveMTM) || 0;
 
