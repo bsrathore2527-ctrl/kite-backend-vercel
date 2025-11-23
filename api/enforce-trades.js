@@ -369,17 +369,6 @@ export default async function handler(req, res) {
           patch.tripped_day = true;
           patch.block_new_orders = true;
           patch.trip_reason = "max_consecutive_losses";
-
-          // attempt immediate enforcement for consecutive loss
-          try {
-            const cancelled = await cancelPending(kc);
-            const squared = await squareOffAll(kc);
-            const notePatch = { admin_last_enforce_result: { cancelled, squared, at: Date.now() } };
-            await setState(notePatch);
-            console.log("Auto-enforce (consecutive loss) executed:", notePatch.admin_last_enforce_result);
-          } catch (e) {
-            console.error("Auto-enforce (consecutive loss) failed:", e && e.stack ? e.stack : e);
-          }
         }
 
         await setState(patch);
@@ -420,9 +409,10 @@ export default async function handler(req, res) {
       const state = await getState();
       const total = Number(liveMTM) || 0;
 
-      // derive max_loss_abs: prefer stored value else compute from capital_day_915 * max_loss_pct
+      // ---- Trailing max-loss floor logic ----
+      // 1) Derive max_loss_abs: prefer stored value else compute from capital_day_915 * max_loss_pct
       let maxLossAbs = Number(state.max_loss_abs ?? 0);
-      if (!maxLossAbs || maxLossAbs === 0) {
+      if (!maxLossAbs || !Number.isFinite(maxLossAbs) || maxLossAbs === 0) {
         const capital = Number(state.capital_day_915 ?? 0);
         const pct = Number(state.max_loss_pct ?? 0);
         if (capital > 0 && pct > 0) {
@@ -430,12 +420,50 @@ export default async function handler(req, res) {
         }
       }
 
-      // compute remaining-to-floor: how much room left before we hit the floor
-      const remaining = maxLossAbs > 0 ? Math.round(maxLossAbs - Math.abs(total)) : 0;
+      const trailStep = Number(state.trail_step_profit ?? 0);
 
-      // Decide whether to trip:
-      // Trip if: maxLossAbs > 0 AND remaining <= 0
-      if (maxLossAbs > 0 && remaining <= 0) {
+      // 2) Current floor and peak profit from state
+      const currentFloorRaw = (state.active_loss_floor ?? (maxLossAbs ? -maxLossAbs : 0));
+      const currentFloor = Number.isFinite(Number(currentFloorRaw)) ? Number(currentFloorRaw) : (maxLossAbs ? -maxLossAbs : 0);
+
+      const currentPeakRaw = (state.peak_profit ?? 0);
+      const currentPeak = Number.isFinite(Number(currentPeakRaw)) ? Number(currentPeakRaw) : 0;
+
+      // 3) Update peak profit based on live total PnL
+      const totalPnl = Number.isFinite(total) ? total : 0;
+      let nextPeak = currentPeak;
+      if (totalPnl > currentPeak) nextPeak = totalPnl;
+
+      // 4) Compute trail level in multiples of trailStep
+      let trailLevel = 0;
+      if (trailStep > 0 && nextPeak > 0) {
+        trailLevel = Math.floor(nextPeak / trailStep) * trailStep;
+      }
+
+      // 5) Candidate new floor: start from -maxLossAbs, then move up as trailLevel increases
+      let newFloorCandidate = maxLossAbs > 0 ? -maxLossAbs : currentFloor;
+      if (trailLevel > 0 && maxLossAbs > 0) {
+        newFloorCandidate = trailLevel - maxLossAbs;
+      }
+
+      // 6) Final floor: never move floor down during the day
+      let nextFloor = currentFloor;
+      if (!Number.isFinite(nextFloor)) nextFloor = newFloorCandidate;
+      if (newFloorCandidate > nextFloor) nextFloor = newFloorCandidate;
+
+      // 7) remaining_to_max_loss is always maxLossAbs by your design
+      const remaining = maxLossAbs > 0 ? Math.round(maxLossAbs) : 0;
+
+      const floorPatch = {
+        peak_profit: nextPeak,
+        max_loss_abs: maxLossAbs,
+        active_loss_floor: nextFloor,
+        remaining_to_max_loss: remaining
+      };
+      await setState(floorPatch);
+
+      // 8) Decide whether to trip based on trailing loss floor:
+      if (maxLossAbs > 0 && totalPnl <= nextFloor) {
         // mark tripped and block new orders
         const tripPatch = {
           tripped_day: true,
@@ -451,12 +479,12 @@ export default async function handler(req, res) {
           const squared = await squareOffAll(kc);
           const notePatch = { admin_last_enforce_result: { cancelled, squared, at: Date.now() } };
           await setState(notePatch);
-          console.log("Auto-enforce executed:", notePatch.admin_last_enforce_result);
+          console.log("Auto-enforce executed (max loss floor):", notePatch.admin_last_enforce_result);
         } catch (e) {
-          console.error("Auto-enforce failed:", e && e.stack ? e.stack : e);
+          console.error("Auto-enforce failed (max loss floor):", e && e.stack ? e.stack : e);
         }
       }
-    } catch (e) {
+} catch (e) {
       console.warn("loss-floor check failed:", e && e.message ? e.message : e);
     }
 
