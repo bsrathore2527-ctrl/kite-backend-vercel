@@ -1,7 +1,9 @@
-import { kv } from "../_lib/kv.js";
+// /api/admin/test-sell.js
+// Testing endpoint to simulate SELL entries and consecutive loss logic.
+
+import { kv, getState, setState } from "../_lib/kv.js";
 
 const SELLBOOK_KEY = "guardian:sell_orders";
-const STATE_KEY = "guardian:state";
 
 export default async function handler(req, res) {
   try {
@@ -12,7 +14,7 @@ export default async function handler(req, res) {
     }
 
     // 1️⃣ Load sell orders EXACTLY as returned by Upstash
-    const raw = await kv.get(SELLBOOK_KEY);
+    const raw = kv ? await kv.get(SELLBOOK_KEY) : null;
     let sellOrders = Array.isArray(raw) ? raw : [];
 
     // 2️⃣ Compute MTM change
@@ -31,27 +33,29 @@ export default async function handler(req, res) {
     sellOrders.push(entry);
 
     // 4️⃣ Save updated array (no stringify needed)
-    await kv.set(SELLBOOK_KEY, sellOrders);
+    if (kv) {
+      await kv.set(SELLBOOK_KEY, sellOrders);
+    }
 
-    // 5️⃣ Load state
-    const rawState = await kv.get(STATE_KEY);
-    let state = typeof rawState === "object" && rawState !== null ? rawState : {};
+    // 5️⃣ Load risk state using the SAME mechanism as /api/state
+    const state = await getState(); // reads from risk:YYYY-MM-DD
+    let consec = Number(state.consecutive_losses ?? 0);
 
     // 6️⃣ Update consecutive losses
-    let consec = Number(state.consecutive_losses ?? 0);
     consec = mtmChange < 0 ? consec + 1 : 0;
 
-    state.consecutive_losses = consec;
-    state.last_test_sell_at = Date.now();
-
-    // 7️⃣ Save state back
-    await kv.set(STATE_KEY, state);
+    // 7️⃣ Persist back via setState, so /api/state sees it
+    const updatedState = await setState({
+      consecutive_losses: consec,
+      last_test_sell_at: Date.now()
+    });
 
     return res.status(200).json({
       ok: true,
       simulated_sell: entry,
       consecutive_losses: consec,
-      total_sell_orders: sellOrders.length
+      total_sell_orders: sellOrders.length,
+      state_snapshot: updatedState
     });
 
   } catch (err) {
