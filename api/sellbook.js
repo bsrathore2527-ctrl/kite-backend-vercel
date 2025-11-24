@@ -1,31 +1,41 @@
 // api/sellbook.js
-// Returns stored sell-order entries saved during live tradebook fetch.
+// Simple API to return clean SELLBOOK from KV
+// SELLBOOK is now generated ONLY by /api/sync-sellbook.js
 
 import { kv } from "./_lib/kv.js";
 
+const SELLBOOK_KEY = "guardian:sell_orders";
+
 export default async function handler(req, res) {
+  if (req.method !== "GET") {
+    return res.status(405).json({
+      ok: false,
+      error: "Method not allowed"
+    });
+  }
+
   try {
-    const key = "guardian:sell_orders";
-    const raw = await kv.get(key);
+    // Read sellbook from KV
+    const raw = await kv.get(SELLBOOK_KEY);
+    const list = Array.isArray(raw) ? raw : [];
 
-    // Upstash KV returns native JS objects/arrays in this project
-    const sellOrders = Array.isArray(raw) ? raw : [];
+    // Sort by time descending (latest first)
+    list.sort((a, b) => Number(b.time_ms || 0) - Number(a.time_ms || 0));
 
-    // Latest first by time_ms if present, else keep insertion order reversed
-    const sorted = [...sellOrders].sort((a, b) => {
-      const ta = typeof a.time_ms === 'number' ? a.time_ms : 0;
-      const tb = typeof b.time_ms === 'number' ? b.time_ms : 0;
-      return tb - ta;
-    });
-
-    return res.status(200).json({
-      ok: true,
-      count: sorted.length,
-      sell_orders: sorted,
-    });
+    return res
+      .setHeader("Cache-Control", "no-store")
+      .status(200)
+      .json({
+        ok: true,
+        count: list.length,
+        sellbook: list
+      });
 
   } catch (err) {
-    console.error("sellbook error:", err);
-    return res.status(500).json({ ok: false, error: String(err) });
+    console.error("sellbook.js error:", err);
+    return res.status(500).json({
+      ok: false,
+      error: String(err)
+    });
   }
 }
