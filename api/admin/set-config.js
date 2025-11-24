@@ -177,8 +177,6 @@ export default async function handler(req, res) {
     }
   }
 
-  }
-
   if (Object.keys(patch).length === 0) {
     res.status(400).json({ ok: false, error: "missing fields" });
     return;
