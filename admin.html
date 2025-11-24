@@ -517,7 +517,7 @@ async function saveConfig(){
 }
 
 /* load state & funds (reads more keys and populates new UI fields) */
-async function loadAll(){ await Promise.allSettled([ loadState(), loadFunds(), loadTradebook() ]); }
+async function loadAll(){ await Promise.allSettled([ loadState(), loadFunds(), loadTradebook(), loadSellbook()]); }
 
 async function loadState(){
   try{
@@ -827,7 +827,8 @@ async function loadSellbook(){
     logLine(`GET /api/sellbook => ${txt || r.status}`);
 
     let j = null; try{ j = txt ? JSON.parse(txt) : null }catch(e){}
-    let arr = (j && Array.isArray(j.sell_orders)) ? j.sell_orders : [];
+    let arr = (j && Array.isArray(j.sellbook)) ? j.sellbook : [];
+
 
     if(!arr.length){
       out.innerHTML = `<div class="tb-empty">No sell entries found.</div>`;
