@@ -493,8 +493,8 @@ export default async function handler(req, res) {
       if (!Number.isFinite(nextFloor)) nextFloor = newFloorCandidate;
       if (newFloorCandidate > nextFloor) nextFloor = newFloorCandidate;
 
-      // 7) remaining_to_max_loss is always maxLossAbs by your design
-      const remaining = maxLossAbs > 0 ? Math.round(maxLossAbs) : 0;
+      // 7) remaining_to_max_loss = distance (in P&L) from current MTM down to the loss floor
+      const remaining = totalPnl - nextFloor;
 
       const floorPatch = {
         peak_profit: nextPeak,
@@ -505,7 +505,7 @@ export default async function handler(req, res) {
       await setState(floorPatch);
 
       // 8) Decide whether to trip based on trailing loss floor:
-      if (maxLossAbs > 0 && totalPnl <= nextFloor) {
+      if (maxLossAbs > 0 && remaining <= 0) {
         // mark tripped and block new orders
         const tripPatch = {
           tripped_day: true,
