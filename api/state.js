@@ -28,8 +28,14 @@ export default async function handler(req, res) {
   try {
     const persisted = await getState() || {};
 
+    const persisted_status = persisted.kite_status || "not_logged_in";
+    const has_admin_token = Boolean(
+      persisted.kite_enctoken ||
+      persisted.kite_access_token ||
+      persisted.admin_enctoken
+    );
+
     // Basic defaults
-    let kite_status = "not_logged_in";
     let current_balance = safeNum(persisted.current_balance ?? persisted.live_balance ?? 0);
     let live_balance = safeNum(persisted.live_balance ?? persisted.current_balance ?? 0);
     let realised = safeNum(persisted.realised ?? 0);
@@ -40,8 +46,7 @@ export default async function handler(req, res) {
     try {
       const kc = await instance();
       if (kc) {
-        kite_status = "ok";
-
+        
         // Try funds first (preferred)
         try {
           const funds = await (kc.getFunds?.() || kc.get_funds?.());
@@ -94,8 +99,7 @@ export default async function handler(req, res) {
         }
       }
     } catch (e) {
-      // instance() failed -> not logged in
-      kite_status = "not_logged_in";
+      // instance() failed -> keep persisted kite_status
     }
 
     // Ensure numbers
@@ -135,6 +139,16 @@ export default async function handler(req, res) {
       } else {
         p10_effective_amount = 0;
       }
+    }
+
+    // derive kite_status for UI: trader vs admin
+    let kite_status;
+    if (!has_admin_token) {
+      // trader mode: always show connected
+      kite_status = "ok";
+    } else {
+      // admin mode: trust last status set by enforce-trades / other backends
+      kite_status = persisted_status;
     }
 
     // prepare merged state to return
