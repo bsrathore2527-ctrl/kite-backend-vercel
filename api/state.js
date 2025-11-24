@@ -139,7 +139,7 @@ export default async function handler(req, res) {
 
     // derive kite_status for UI directly from persisted state
     const persisted_status = persisted.kite_status || "not_logged_in";
-    const kite_status = persisted_status;
+          kite_status = persisted_status;
 
     // prepare merged state to return
     const mergedState = {
