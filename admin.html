@@ -529,7 +529,20 @@ async function loadState(){
     // time and statuses
     $('now').textContent = j.time || (new Date().toLocaleTimeString('en-GB',{ hour12:false, timeZone:'Asia/Kolkata' }));
     $('guardian_status').textContent = j.admin ? 'admin' : 'online';
-    $('kite_status').textContent = j.kite_status === 'ok' ? 'Kite: Connected' : (j.kite_status || 'not_logged_in');
+
+    // Decide kite status display based on presence of admin token in this browser.
+    const hasAdminToken = !!localStorage.getItem('ADMIN_TOKEN');
+    if (!hasAdminToken) {
+      // Trader mode: trader should not see real connectivity, always show connected.
+      $('kite_status').textContent = 'Kite: Connected';
+    } else {
+      // Admin mode: show actual backend kite_status.
+      if (j.kite_status === 'ok') {
+        $('kite_status').textContent = 'Kite: Connected';
+      } else {
+        $('kite_status').textContent = 'Kite: Disconnected';
+      }
+    }
 
     const s = j.state || {};
 
