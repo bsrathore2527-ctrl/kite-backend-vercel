@@ -2,6 +2,29 @@
 // Scheduled job — process new trades, compute realized closes, start cooldown and track consecutive losses.
 // Also: when total (realised + unrealised) loss breaches max_loss_abs derived from capital & max_loss_pct,
 // mark tripped_day and immediately attempt to enforce (cancel + square off).
+// 1) Fetch MTM from Kite & store in KV
+try {
+    const kc = await instance();
+    const pos = await kc.getPositions();
+
+    let unrealised = 0, realised = 0;
+    const net = pos?.net || [];
+
+    for (const p of net) {
+        unrealised += Number(p.unrealised || 0);
+        realised += Number(p.realised || 0);
+    }
+
+    await kv.set("live:mtm", {
+        unrealised,
+        realised,
+        total: unrealised + realised,
+        polled_at: Date.now(),
+        source: "enforce-trades"
+    });
+} catch (err) {
+    console.log("MTM poller inside enforce error:", err);
+}
 
 import { kv, getState, setState } from "./_lib/kv.js";
 import { instance } from "./_lib/kite.js";
