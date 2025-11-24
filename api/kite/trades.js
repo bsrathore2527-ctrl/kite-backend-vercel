@@ -138,10 +138,11 @@ export default async function handler(req,res){
         const norm=trades.slice(-200).map(normalizeTrade);
         const grouped=groupTradesByOrderId(norm);
 
-        for(const t of trades){
-          if(t.transaction_type==="SELL"){
-            await storeSellOrder(t);
+        for (const g of grouped) {
+          if (g.transaction_type === "SELL") {
+            await storeSellOrder({ order_id: g.order_id, quantity: g.quantity, tradingsymbol: g.tradingsymbol, _ts: g._ts });
           }
+        }
         }
 
         return res.status(200).json({ok:true, source:"kite", trades:grouped});
