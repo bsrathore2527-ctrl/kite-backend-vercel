@@ -1,6 +1,6 @@
 // api/sync-sellbook.js
-// Rebuilds SELLBOOK directly from TRADEBOOK + KV MTM
-// Best architecture: deterministic, consistent, no missed entries.
+// Rebuild SELLBOOK from TRADEBOOK (only today's trades in IST).
+// Timestamps normalized to IST for correct display.
 
 import { kv } from "./_lib/kv.js";
 
@@ -25,21 +25,32 @@ export default async function handler(req, res) {
     const mtmObj = await kv.get("live:mtm");
     const currentMTM = Number(mtmObj?.total ?? 0);
 
-    // Sellbook entries list
+    // IST date of today
+    const todayIST = new Date().toLocaleDateString("en-IN", {
+      timeZone: "Asia/Kolkata"
+    });
+
     const sellArr = [];
 
     // -----------------------------------------
-    // 3) FILTER ALL SELL TRADES FROM TRADEBOOK
+    // 3) FILTER SELL TRADES FOR TODAY ONLY (IST)
     // -----------------------------------------
     for (const t of trades) {
       const side = (t.side || "").toUpperCase();
-
       if (side !== "SELL") continue;
 
-      // t.ts and iso_date are already normalized by enforce-trades
       const time_ms = Number(t.ts || t.time_ms || Date.now());
 
-      // Calculate mtm_change relative to previous SELL entry
+      // Convert timestamp → IST date for filtering
+      const tradeDateIST = new Date(time_ms).toLocaleDateString("en-IN", {
+        timeZone: "Asia/Kolkata"
+      });
+
+      if (tradeDateIST !== todayIST) continue; // Skip older trades
+
+      // -------------------------------------
+      // 4) Compute MTM change
+      // -------------------------------------
       const last = sellArr.length > 0 ? sellArr[sellArr.length - 1] : null;
       const lastMtm = last ? Number(last.mtm || 0) : 0;
 
@@ -51,21 +62,32 @@ export default async function handler(req, res) {
         trade_id: t.trade_id,
         mtm: currentMTM,
         mtm_change: currentMTM - lastMtm,
+
+        // Keep raw timestamp
         time_ms,
-        iso: new Date(time_ms).toISOString()
+
+        // Display as Indian time consistently
+        iso: new Date(time_ms).toLocaleString("en-IN", {
+          timeZone: "Asia/Kolkata"
+        })
       });
     }
 
     // -----------------------------------------
-    // 4) SAVE CLEAN REBUILT SELLBOOK
+    // 5) Sort latest first
+    // -----------------------------------------
+    sellArr.sort((a, b) => Number(b.time_ms) - Number(a.time_ms));
+
+    // -----------------------------------------
+    // 6) SAVE SELLBOOK (KV)
     // -----------------------------------------
     await kv.set(SELLBOOK_KEY, sellArr);
 
     return res.status(200).json({
       ok: true,
-      message: "Sellbook rebuilt successfully",
-      sell_count: sellArr.length,
-      sample: sellArr.slice(0, 5)
+      message: "Sellbook rebuilt successfully (today only, IST)",
+      count: sellArr.length,
+      sellbook: sellArr.slice(0, 5) // preview
     });
 
   } catch (err) {
