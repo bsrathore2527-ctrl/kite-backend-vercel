@@ -125,6 +125,24 @@ export default async function handler(req, res) {
   if (body && body.reset_day === true) {
     try {
       const preserve = !!body.preserve_losses;
+      const current = (await getState()) || {};
+
+      // Resolve max_loss_abs exactly like enforce-trades
+      let maxLossAbs = Number(current.max_loss_abs ?? 0);
+      if (!Number.isFinite(maxLossAbs) || maxLossAbs <= 0) {
+        const capital = Number(current.capital_day_915 ?? 0);
+        const pct = Number(current.max_loss_pct ?? 0);
+        if (capital > 0 && pct > 0) {
+          maxLossAbs = Math.round(capital * (pct / 100));
+        } else {
+          maxLossAbs = 0;
+        }
+      }
+
+      // P&L-based loss floor
+      const newFloor = maxLossAbs > 0 ? -maxLossAbs : 0;
+      const remaining = maxLossAbs > 0 ? maxLossAbs : 0;
+
       const resetPatch = {
         tripped_day: false,
         tripped_week: false,
@@ -135,6 +153,16 @@ export default async function handler(req, res) {
         trip_reason: null,
         last_reset_by: "admin",
         last_reset_at: Date.now(),
+
+        // trailing loss floor fields
+        peak_profit: 0,
+        max_loss_abs: maxLossAbs,
+        active_loss_floor: newFloor,
+        remaining_to_max_loss: remaining,
+
+        // last trade meta
+        last_trade_pnl: 0,
+        last_trade_time: 0,
       };
       if (!preserve) resetPatch.consecutive_losses = 0;
 
@@ -147,6 +175,8 @@ export default async function handler(req, res) {
       console.error("reset_day (inline) error:", err && err.stack ? err.stack : err);
       return res.status(500).json({ ok: false, error: err.message || String(err) });
     }
+  }
+
   }
 
   if (Object.keys(patch).length === 0) {
