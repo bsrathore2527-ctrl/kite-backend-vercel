@@ -1,94 +1,87 @@
 // api/sync-sellbook.js
-// Rebuild SELLBOOK from TRADEBOOK (only today's trades in IST).
-// Timestamps normalized to IST for correct display.
-
 import { kv } from "./_lib/kv.js";
 
 const TRADEBOOK_KEY = "guardian:tradebook";
 const SELLBOOK_KEY = "guardian:sell_orders";
 
-export default async function handler(req, res) {
-  if (req.method !== "GET") {
-    return res.status(405).json({ ok: false, error: "GET only" });
+// ---- UNIVERSAL TIMESTAMP NORMALIZER ----
+function getTimestampMs(t) {
+  // 1) enforce-trades normalized field
+  if (t._ts && Number(t._ts)) return Number(t._ts);
+
+  // 2) tradebook.ts (already ms or sec)
+  if (t.ts) {
+    const n = Number(t.ts);
+    return String(n).length === 10 ? n * 1000 : n;
   }
 
+  // 3) iso fields
+  if (t.iso_date) {
+    const parsed = Date.parse(t.iso_date);
+    if (!isNaN(parsed)) return parsed;
+  }
+  if (t._iso) {
+    const parsed = Date.parse(t._iso);
+    if (!isNaN(parsed)) return parsed;
+  }
+
+  // 4) raw fallback
+  const parsed = Date.parse(t.timestamp || t.date || t.time);
+  if (!isNaN(parsed)) return parsed;
+
+  return Date.now(); // last fallback, never crash job
+}
+
+export default async function handler(req, res) {
   try {
-    // -----------------------------------------
-    // 1) LOAD TRADEBOOK
-    // -----------------------------------------
     const tradebook = await kv.get(TRADEBOOK_KEY);
     const trades = Array.isArray(tradebook) ? tradebook : [];
 
-    // -----------------------------------------
-    // 2) LOAD LATEST LIVE MTM FROM KV
-    // -----------------------------------------
+    // get MTM
     const mtmObj = await kv.get("live:mtm");
     const currentMTM = Number(mtmObj?.total ?? 0);
 
-    // IST date of today
     const todayIST = new Date().toLocaleDateString("en-IN", {
       timeZone: "Asia/Kolkata"
     });
 
     const sellArr = [];
 
-    // -----------------------------------------
-    // 3) FILTER SELL TRADES FOR TODAY ONLY (IST)
-    // -----------------------------------------
     for (const t of trades) {
       const side = (t.side || "").toUpperCase();
       if (side !== "SELL") continue;
 
-      const time_ms = Number(t.ts || t.time_ms || Date.now());
+      const time_ms = getTimestampMs(t);
 
-      // Convert timestamp → IST date for filtering
       const tradeDateIST = new Date(time_ms).toLocaleDateString("en-IN", {
         timeZone: "Asia/Kolkata"
       });
 
-      if (tradeDateIST !== todayIST) continue; // Skip older trades
+      // keep only today's trades
+      if (tradeDateIST !== todayIST) continue;
 
-      // -------------------------------------
-      // 4) Compute MTM change
-      // -------------------------------------
       const last = sellArr.length > 0 ? sellArr[sellArr.length - 1] : null;
-      const lastMtm = last ? Number(last.mtm || 0) : 0;
+      const lastMtm = last ? Number(last.mtm) : 0;
 
       sellArr.push({
         instrument: t.tradingsymbol,
-        price: Number(t.price || 0),
-        qty: Number(t.qty || 0),
-        side: "SELL",
-        trade_id: t.trade_id,
+        qty: t.qty,
+        price: t.price,
         mtm: currentMTM,
         mtm_change: currentMTM - lastMtm,
-
-        // Keep raw timestamp
+        trade_id: t.trade_id,
         time_ms,
-
-        // Display as Indian time consistently
-        iso: new Date(time_ms).toLocaleString("en-IN", {
-          timeZone: "Asia/Kolkata"
-        })
+        iso: new Date(time_ms).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })
       });
     }
 
-    // -----------------------------------------
-    // 5) Sort latest first
-    // -----------------------------------------
-    sellArr.sort((a, b) => Number(b.time_ms) - Number(a.time_ms));
+    // latest first
+    sellArr.sort((a, b) => b.time_ms - a.time_ms);
 
-    // -----------------------------------------
-    // 6) SAVE SELLBOOK (KV)
-    // -----------------------------------------
+    // save
     await kv.set(SELLBOOK_KEY, sellArr);
 
-    return res.status(200).json({
-      ok: true,
-      message: "Sellbook rebuilt successfully (today only, IST)",
-      count: sellArr.length,
-      sellbook: sellArr.slice(0, 5) // preview
-    });
+    return res.status(200).json({ ok: true, count: sellArr.length });
 
   } catch (err) {
     console.error("sync-sellbook error:", err);
