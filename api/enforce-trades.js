@@ -286,6 +286,12 @@ export default async function handler(req, res) {
 
     // fetch trades from kite (fall back to empty)
     const trades = (await kc.getTrades()) || [];
+ // mark kite as healthy on successful fetch
+    await setState({
+      kite_status: "ok",
+      kite_last_ok_at: Date.now(),
+      kite_error_message: null
+    });
 
     // last processed timestamp (to avoid reprocessing)
     const lastTs = await getLastProcessedTs();
