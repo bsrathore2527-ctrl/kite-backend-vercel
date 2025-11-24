@@ -370,42 +370,7 @@ export default async function handler(req, res) {
       for (const ev of result.realizedEvents) {
         const saved = await storeRealizedEvent(ev);
         if (!saved) continue;
-// append to Sell Book using current total_pnl from state
-        try {
-          const stateForSell = await getState();
-          const mtm = Number(stateForSell.total_pnl ?? 0);
 
-          const rawSell = await kv.get("guardian:sell_orders");
-          let sellArr;
-          if (Array.isArray(rawSell)) {
-            sellArr = rawSell;
-          } else if (typeof rawSell === "string") {
-            try {
-              const parsed = JSON.parse(rawSell);
-              sellArr = Array.isArray(parsed) ? parsed : [];
-            } catch {
-              sellArr = [];
-            }
-          } else {
-            sellArr = [];
-          }
-
-          const last = sellArr.length > 0 ? sellArr[sellArr.length - 1] : null;
-          const lastMtm = last && Number.isFinite(Number(last.mtm)) ? Number(last.mtm) : 0;
-          const mtm_change = mtm - lastMtm;
-
-          sellArr.push({
-            instrument: ev.instrument,
-            qty: ev.qty,
-            mtm,
-            mtm_change,
-            time_ms: ev.close_ts || Date.now()
-          });
-
-          await kv.set("guardian:sell_orders", sellArr);
-        } catch (e) {
-          console.error("sellbook append failed:", e && e.message ? e.message : e);
-        }
 
         // update global state: cooldown, consecutive_losses, last trade PnL/time
         const s = await getState();
