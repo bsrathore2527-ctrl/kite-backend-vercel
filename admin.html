@@ -566,7 +566,7 @@ async function loadState(){
     $('active_floor').textContent = fmtINR(s.active_loss_floor ?? 0);
 
     // remaining to max loss: base on max_loss_abs, subtract absolute total (realised+unrealised)
-    const remaining = Math.round((max_loss_abs) - Math.abs(total));
+    const remaining = Number(s.remaining_to_max_loss ?? 0);
     $('remaining_loss').textContent = fmtINR(remaining);
 
     // profit lock (p10) — server may expose p10 (pct) or p10_amount (rupee) or p10_is_pct flag
