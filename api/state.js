@@ -29,7 +29,7 @@ export default async function handler(req, res) {
     const persisted = await getState() || {};
 
     // Basic defaults
-    let kite_status = "not_logged_in";
+    let kite_status = (persisted.kite_status ?? "not_logged_in");
     let current_balance = safeNum(persisted.current_balance ?? persisted.live_balance ?? 0);
     let live_balance = safeNum(persisted.live_balance ?? persisted.current_balance ?? 0);
     let realised = safeNum(persisted.realised ?? 0);
@@ -95,7 +95,7 @@ export default async function handler(req, res) {
       }
     } catch (e) {
       // instance() failed -> not logged in
-      kite_status = "not_logged_in";
+     
     }
 
     // Ensure numbers
