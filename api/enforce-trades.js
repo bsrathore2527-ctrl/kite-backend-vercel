@@ -448,17 +448,10 @@ export default async function handler(req, res) {
 // load live MTM from broker and compute totals
     try {
       // fetch fresh positions and derive live MTM from broker's own P&L
-      let liveMTM = 0;
-      try {
-        const pos = await kc.getPositions();
-        const net = pos && Array.isArray(pos.net) ? pos.net : [];
-        liveMTM = net.reduce((sum, p) => {
-          const v = Number(p.pnl ?? p.unrealised ?? 0);
-          return sum + (Number.isFinite(v) ? v : 0);
-        }, 0);
-      } catch (e) {
-        console.warn("enforce-trades: failed to fetch live MTM from broker:", e && e.message ? e.message : e);
-      }
+      // Use MTM from KV (already computed earlier by poller block)
+    let mtmObj = await kv.get("live:mtm");
+    let liveMTM = Number(mtmObj?.total ?? 0);
+
 
       // --- TEST OVERRIDE (for testing module) ---
       if (req.query && typeof req.query.test_mtm !== "undefined") {
