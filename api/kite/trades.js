@@ -132,21 +132,26 @@ export default async function handler(req,res){
     }catch(e){}
 
     try{
-      const kc=await instance();
-      const trades=await kc.getTrades()||[];
-      if(trades.length){
-        const norm=trades.slice(-200).map(normalizeTrade);
-        const grouped=groupTradesByOrderId(norm);
+      const kc = await instance();
+      const trades = await kc.getTrades() || [];
+      if (trades.length) {
+        const norm = trades.slice(-200).map(normalizeTrade);
+        const grouped = groupTradesByOrderId(norm);
 
         for (const g of grouped) {
           if (g.transaction_type === "SELL") {
-            await storeSellOrder({ order_id: g.order_id, quantity: g.quantity, tradingsymbol: g.tradingsymbol, _ts: g._ts });
+            await storeSellOrder({
+              order_id: g.order_id,
+              quantity: g.quantity,
+              tradingsymbol: g.tradingsymbol,
+              _ts: g._ts
+            });
           }
         }
-        }
 
-        return res.status(200).json({ok:true, source:"kite", trades:grouped});
+        return res.status(200).json({ ok: true, source: "kite", trades: grouped });
       }
+    } catch(e) {}
     }catch(e){}
 
     return res.status(200).json({ok:true, source:"empty", trades:[]});
