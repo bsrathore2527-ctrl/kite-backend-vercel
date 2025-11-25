@@ -93,26 +93,7 @@ function groupTradesByOrderId(trades){
   });
 }
 
-async function storeSellOrder(trade){
-  try{
-    const raw=await kv.get(SELLBOOK_KEY);
-    let arr=[];
-    try{ arr=JSON.parse(raw||"[]"); }catch{}
-    if(arr.some(e=> e.order_id===trade.order_id)) return;
 
-    const mtm=await getLiveM2M();
-    const last=arr[arr.length-1];
-    const change= last? mtm-last.mtm:0;
-
-    arr.push({
-      order_id:trade.order_id,
-      instrument:trade.tradingsymbol,
-      time:trade.exchange_timestamp||new Date().toISOString(),
-      mtm, change
-    });
-    await kv.set(SELLBOOK_KEY, JSON.stringify(arr));
-  }catch(e){ console.error("storeSellOrder",e); }
-}
 
 export default async function handler(req,res){
   try{
@@ -139,11 +120,7 @@ export default async function handler(req,res){
         const norm=trades.slice(-200).map(normalizeTrade);
         const grouped=groupTradesByOrderId(norm);
 
-        for(const t of trades){
-          if(t.transaction_type==="SELL"){
-            await storeSellOrder(t);
-          }
-        }
+        
 
         return res.status(200).json({ok:true, source:"kite", trades:grouped});
       }
