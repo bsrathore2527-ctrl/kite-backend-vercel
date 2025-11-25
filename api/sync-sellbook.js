@@ -1,36 +1,17 @@
 // api/sync-sellbook.js
-// This version groups SELL trades by order_id (same logic as tradebook)
-// Fixes timestamp (IST), fixes partial fills, keeps MTM + change intact.
+// Build SELLBOOK from KV tradebook:
+// - group partial fills by trade_id
+// - only today's sells (IST)
+// - use same ts basis as tradebook
+// - attach current MTM and MTM-change
 
-import { kv } from "../_lib/kv.js";
-import { instance } from "../_lib/kite.js";
+import { kv } from "./_lib/kv.js";
 
-const SELLBOOK_KEY = "guardian:sell_orders";
 const TRADEBOOK_KEY = "guardian:tradebook";
+const SELLBOOK_KEY = "guardian:sell_orders";
 
-// Convert timestamp to ms
-function getTimestampMs(t) {
-  const ts =
-    t._ts ||
-    t.trade_time ||
-    t.timestamp ||
-    t.exchange_timestamp ||
-    t.order_timestamp ||
-    t.created_at;
-
-  if (!ts) return Date.now();
-
-  if (typeof ts === "number") {
-    if (String(ts).length === 10) return ts * 1000; // seconds → ms
-    return ts;
-  }
-
-  const parsed = Date.parse(ts);
-  return Number.isNaN(parsed) ? Date.now() : parsed;
-}
-
-// IST date string YYYY-MM-DD
-function getISTDate(ms) {
+// Get IST calendar date string for a given ms
+function istDate(ms) {
   return new Date(ms).toLocaleDateString("en-IN", {
     timeZone: "Asia/Kolkata"
   });
@@ -38,108 +19,138 @@ function getISTDate(ms) {
 
 export default async function handler(req, res) {
   try {
-    // 1. Load KV tradebook
-    const raw = await kv.get(TRADEBOOK_KEY);
+    // 1) Load tradebook from KV
     let trades = [];
     try {
-      trades = JSON.parse(raw || "[]");
+      const raw = await kv.get(TRADEBOOK_KEY);
+      if (Array.isArray(raw)) {
+        trades = raw;
+      } else if (typeof raw === "string") {
+        trades = JSON.parse(raw || "[]");
+      } else {
+        trades = [];
+      }
     } catch {
       trades = [];
     }
 
     if (!Array.isArray(trades)) trades = [];
 
-    // 2. Get today's IST date
-    const now = Date.now();
-    const todayIST = getISTDate(now);
+    // 2) Get today's IST date
+    const todayIST = istDate(Date.now());
 
-    // 3. Load current MTM (used for mtm + mtm_change)
-    let liveState = null;
+    // 3) Load current MTM from state (total_pnl)
+    let currentMTM = 0;
     try {
       const s = await kv.get("guardian:state");
-      liveState = JSON.parse(s || "{}");
-    } catch {}
-    const currentMTM = Number(liveState?.total_pnl || 0);
+      if (s) {
+        const state = typeof s === "string" ? JSON.parse(s) : s;
+        currentMTM = Number(state.total_pnl ?? 0) || 0;
+      }
+    } catch {
+      currentMTM = 0;
+    }
 
-    // 4. GROUP SELL TRADES BY ORDER ID (same as tradebook)
+    // 4) Group SELL trades by trade_id using tradebook structure
     const groupedMap = new Map();
 
     for (const t of trades) {
-      const side = (t.side || t.transaction_type || "").toUpperCase();
+      const side = (t.side || "").toUpperCase();
       if (side !== "SELL") continue;
 
-      const orderId =
-        t.order_id || t.orderid || t.trade_id || t.order || "UNKNOWN";
+      // trade_id is the grouping key (same as tradebook)
+      const tradeId = t.trade_id || t.tradeId || null;
+      const key =
+        tradeId ||
+        `${t.tradingsymbol || ""}_${t.ts || ""}`; // fallback if trade_id missing
 
       const qty = Number(t.qty || t.quantity || 0);
-      const price = Number(t.price || t.average_price || 0);
+      const price = Number(t.price || 0);
+      const ts = Number(t.ts || Date.now());
+      const iso = t.iso_date || new Date(ts).toISOString();
+      const instrument = t.tradingsymbol || t.symbol || t.instrument || "";
 
-      const ts = getTimestampMs(t);
-
-      if (!groupedMap.has(orderId)) {
-        groupedMap.set(orderId, {
-          order_id: orderId,
-          instrument: t.tradingsymbol || t.symbol,
+      if (!groupedMap.has(key)) {
+        groupedMap.set(key, {
+          trade_id: tradeId,
+          instrument,
           qty,
           weighted_sum: qty * price,
-          last_ts: ts
+          last_ts: ts,
+          last_iso: iso
         });
       } else {
-        const g = groupedMap.get(orderId);
+        const g = groupedMap.get(key);
         g.qty += qty;
         g.weighted_sum += qty * price;
-        if (ts > g.last_ts) g.last_ts = ts; // keep latest fill timestamp
+        if (ts > g.last_ts) {
+          g.last_ts = ts;
+          g.last_iso = iso;
+        }
       }
     }
 
-    // 5. Convert grouped map → final grouped sell entries
-    const groupedSells = Array.from(groupedMap.values()).map((g) => ({
-      order_id: g.order_id,
-      instrument: g.instrument,
-      qty: g.qty,
-      price: g.qty ? g.weighted_sum / g.qty : 0,
-      time_ms: g.last_ts,
-      iso: new Date(g.last_ts).toLocaleString("en-IN", {
-        timeZone: "Asia/Kolkata"
-      })
-    }));
+    // 5) Convert grouped map -> grouped sells
+    const groupedSells = Array.from(groupedMap.values()).map((g) => {
+      const avgPrice =
+        g.qty && Number.isFinite(g.weighted_sum / g.qty)
+          ? g.weighted_sum / g.qty
+          : 0;
+      return {
+        trade_id: g.trade_id,
+        instrument: g.instrument,
+        qty: g.qty,
+        price: avgPrice,
+        time_ms: g.last_ts,
+        iso: g.last_iso
+      };
+    });
 
-    // 6. Load existing sellbook from KV
+    // 6) Filter to today's trades only (IST)
+    const todaysSells = groupedSells.filter(
+      (g) => istDate(g.time_ms) === todayIST
+    );
+
+    // 7) Load existing sellbook from KV
     let sellArr = [];
     try {
-      const s = await kv.get(SELLBOOK_KEY);
-      sellArr = JSON.parse(s || "[]");
+      const rawSell = await kv.get(SELLBOOK_KEY);
+      if (Array.isArray(rawSell)) {
+        sellArr = rawSell;
+      } else if (typeof rawSell === "string") {
+        sellArr = JSON.parse(rawSell || "[]");
+      } else {
+        sellArr = [];
+      }
     } catch {
       sellArr = [];
     }
     if (!Array.isArray(sellArr)) sellArr = [];
 
-    // 7. Append only today's grouped SELL entries
-    for (const g of groupedSells) {
-      const tradeDateIST = getISTDate(g.time_ms);
-      if (tradeDateIST !== todayIST) continue;
-
-      // Avoid duplicates
-      const exists = sellArr.some((x) => x.trade_id === g.order_id);
+    // 8) Append today's grouped sells, avoid duplicates
+    for (const g of todaysSells) {
+      const exists = sellArr.some(
+        (x) => x.trade_id && g.trade_id && x.trade_id === g.trade_id
+      );
       if (exists) continue;
 
       const last = sellArr.length > 0 ? sellArr[sellArr.length - 1] : null;
-      const lastMtm = last ? Number(last.mtm) : 0;
+      const lastMtm = last ? Number(last.mtm || 0) : 0;
 
       sellArr.push({
         instrument: g.instrument,
         qty: g.qty,
-        price: Number(g.price),
+        price: Number(g.price || 0),
         mtm: currentMTM,
         mtm_change: currentMTM - lastMtm,
-        trade_id: g.order_id,
-        time_ms: g.time_ms,
+        trade_id: g.trade_id,
+        time_ms: g.time_ms, // same base as tradebook ts
         iso: g.iso
       });
     }
 
-    // 8. Save updated sellbook
-    await kv.set(SELLBOOK_KEY, JSON.stringify(sellArr));
+    // 9) Save back to KV
+    await kv.set(SELLBOOK_KEY, sellArr);
 
     return res.status(200).json({
       ok: true,
@@ -147,6 +158,7 @@ export default async function handler(req, res) {
       sellbook: sellArr
     });
   } catch (err) {
+    console.error("sync-sellbook error:", err);
     return res.status(500).json({
       ok: false,
       error: String(err)
