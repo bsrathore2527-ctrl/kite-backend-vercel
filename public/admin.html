@@ -5,10 +5,8 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Guardian Admin</title>
 
-<!-- ===========================
-     THEME VARIABLES
-=========================== -->
 <style>
+/* ---- THEME VARIABLES ---- */
 :root {
   --bg:#0c0f17;
   --bg2:#111826;
@@ -20,7 +18,6 @@
   --accent:#3a6cff;
   --accent-hover:#5c83ff;
 }
-
 body.theme-light {
   --bg:#f3f5fa;
   --bg2:#ffffff;
@@ -33,9 +30,7 @@ body.theme-light {
   --accent-hover:#3b82f6;
 }
 
-/* ===========================
-   RESET + BASE
-=========================== */
+/* ---- BASE ---- */
 *{margin:0;padding:0;box-sizing:border-box;font-family:Inter,Roboto,Arial;}
 body{
   background:var(--bg);
@@ -44,9 +39,7 @@ body{
   overflow:hidden;
 }
 
-/* ===========================
-   HEADER
-=========================== */
+/* ---- HEADER ---- */
 .header{
   display:flex;
   align-items:center;
@@ -55,34 +48,15 @@ body{
   background:var(--bg2);
   border-bottom:1px solid var(--border);
 }
-
-.header-left{
-  display:flex;
-  align-items:center;
-  gap:14px;
-}
-
+.header-left{display:flex;align-items:center;gap:14px;}
 .avatar{
-  width:44px;
-  height:44px;
-  border-radius:50%;
+  width:44px;height:44px;border-radius:50%;
   background:var(--card);
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  font-size:20px;
-  font-weight:700;
-  color:var(--text);
+  display:flex;align-items:center;justify-content:center;
+  font-size:20px;font-weight:700;
 }
-
-.header-titles h1{
-  font-size:20px;
-  font-weight:700;
-}
-.header-titles small{
-  color:var(--muted);
-  font-size:13px;
-}
+.header-titles h1{font-size:20px;font-weight:700;}
+.header-titles small{color:var(--muted);font-size:13px;}
 
 .theme-toggle{
   padding:8px 12px;
@@ -90,53 +64,40 @@ body{
   background:var(--card);
   cursor:pointer;
   border:1px solid var(--border);
-  font-size:16px;
 }
 
-/* ===========================
-   TABS (TOP LEVEL NAV)
-=========================== */
+/* ---- TABS ---- */
 .top-tabs{
   display:flex;
   background:var(--bg2);
   border-bottom:1px solid var(--border);
 }
-
 .top-tabs button{
   flex:1;
-  padding:14px 10px;
-  font-size:15px;
+  padding:14px;
   background:none;
   border:none;
   color:var(--muted);
+  font-size:15px;
   font-weight:600;
   cursor:pointer;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  gap:6px;
 }
-
 .top-tabs button.active{
   color:var(--text);
   background:var(--card);
   border-bottom:3px solid var(--accent);
 }
 
-/* ===========================
-   MAIN CONTENT AREA
-=========================== */
+/* ---- PAGE ---- */
 .page{
-  height:calc(100vh - 110px); 
+  height:calc(100vh - 110px);
   overflow-y:auto;
   padding:18px;
   display:none;
 }
 .page.active{display:block;}
 
-/* ===========================
-   GRID CARDS (OVERVIEW)
-=========================== */
+/* ---- GRID CARDS ---- */
 .grid{
   display:grid;
   grid-template-columns:repeat(auto-fill, minmax(220px,1fr));
@@ -148,23 +109,11 @@ body{
   padding:14px;
   border:1px solid var(--border);
 }
-.card h3{
-  color:var(--muted);
-  font-size:14px;
-  margin-bottom:5px;
-}
-.card p{
-  font-size:22px;
-  font-weight:700;
-}
-.card small{
-  color:var(--muted);
-  font-size:12px;
-}
+.card h3{color:var(--muted);font-size:14px;margin-bottom:5px;}
+.card p{font-size:22px;font-weight:700;}
+.card small{color:var(--muted);font-size:12px;}
 
-/* ===========================
-   TRADEBOOK / SELLBOOK TOGGLE
-=========================== */
+/* ---- SUBTAB ---- */
 .subtoggle{
   display:flex;
   background:var(--bg2);
@@ -175,21 +124,16 @@ body{
 .subtoggle button{
   flex:1;
   padding:10px;
-  border:none;
   background:none;
-  font-size:14px;
+  border:none;
   color:var(--muted);
-  border-radius:10px;
-  cursor:pointer;
 }
 .subtoggle button.active{
   background:var(--accent);
   color:#fff;
 }
 
-/* ===========================
-   TABLES
-=========================== */
+/* ---- TABLE ---- */
 .table-wrap{
   height:450px;
   overflow-y:auto;
@@ -198,25 +142,20 @@ body{
 }
 table{width:100%;border-collapse:collapse;}
 th{
-  position:sticky;
-  top:0;
+  position:sticky;top:0;
   background:var(--card2);
-  color:var(--muted);
   padding:10px;
+  color:var(--muted);
   border-bottom:1px solid var(--border);
-  font-size:13px;
 }
 td{
   padding:10px;
   border-bottom:1px solid var(--border);
-  font-size:14px;
 }
 .red{color:#ff6b6b;}
-.green{color:#5cd65c;}
+.green{color:#66e066;}
 
-/* ===========================
-   ADMIN CARDS
-=========================== */
+/* ---- ADMIN CARDS ---- */
 .admin-card{
   background:var(--card);
   border-radius:12px;
@@ -224,11 +163,7 @@ td{
   margin-bottom:16px;
   border:1px solid var(--border);
 }
-.admin-card h2{
-  font-size:18px;
-  font-weight:600;
-  margin-bottom:10px;
-}
+.admin-card h2{font-size:18px;font-weight:600;margin-bottom:10px;}
 .admin-card button{
   background:var(--accent);
   padding:10px 16px;
@@ -237,27 +172,19 @@ td{
   border:none;
   cursor:pointer;
 }
-.admin-card button:hover{
-  background:var(--accent-hover);
-}
-
-input, select{
+input,select{
   width:100%;
   padding:10px;
   margin-top:6px;
   border-radius:8px;
   border:1px solid var(--border);
   background:var(--card2);
-  color:var(--text);
 }
 </style>
-
 </head>
+
 <body>
 
-<!-- ===========================
-     HEADER
-=========================== -->
 <div class="header">
   <div class="header-left">
     <div class="avatar">G</div>
@@ -266,683 +193,89 @@ input, select{
       <small>Risk Automation & Control Panel</small>
     </div>
   </div>
-
   <div class="theme-toggle" onclick="toggleTheme()">🌓</div>
 </div>
 
-<!-- ===========================
-     TOP NAV TABS
-=========================== -->
 <div class="top-tabs">
   <button id="tab-overview" onclick="switchTab('overview')" class="active">🏠 Overview</button>
   <button id="tab-trades" onclick="switchTab('trades')">📈 Trades</button>
   <button id="tab-admin" onclick="switchTab('admin')">⚙️ Admin</button>
 </div>
 
-<!-- ===========================
-     PAGES
-=========================== -->
+<!-- OVERVIEW -->
 <div id="page-overview" class="page active">
-  <!-- ===========================
-       OVERVIEW TAB CONTENT
-  =========================== -->
   <div class="grid">
+    <div class="card"><h3>Capital @ 09:15</h3><p id="capital_val">--</p></div>
+    <div class="card"><h3>Balance</h3><p id="balance_val">--</p></div>
+    <div class="card"><h3>Live MTM</h3><p id="live_mtm">--</p></div>
+    <div class="card"><h3>Total PnL</h3><p id="total_pnl">--</p></div>
+    <div class="card"><h3>Max Loss</h3><p id="max_loss_val">--</p><small id="max_loss_pct">--%</small></div>
+    <div class="card"><h3>Max Profit</h3><p id="max_profit_val">--</p><small id="max_profit_pct">--%</small></div>
+    <div class="card"><h3>Consecutive Loss</h3><p id="consec_loss">--</p></div>
+    <div class="card"><h3>Kill Switch</h3><p id="kill_status">--</p></div>
+    <div class="card"><h3>System Status</h3><p id="system_status">--</p></div>
+    <div class="card"><h3>Last Update</h3><p id="last_update">--</p></div>
+  </div>
+</div>
 
-    <!-- Capital -->
-    <div class="card">
-      <h3>Capital @ 09:15</h3>
-      <p id="capital_val">--</p>
-      <small>Daily base capital</small>
-    </div>
-
-    <!-- Current Balance -->
-    <div class="card">
-      <h3>Current Balance</h3>
-      <p id="balance_val">--</p>
-      <small>Fetched from Kite API</small>
-    </div>
-
-    <!-- Live Unrealized MTM -->
-    <div class="card">
-      <h3>Live MTM (Unrealised)</h3>
-      <p id="live_mtm">--</p>
-      <small>Updated every minute</small>
-    </div>
-
-    <!-- Realised + Unrealised Total -->
-    <div class="card">
-      <h3>Total PnL (R/UR)</h3>
-      <p id="total_pnl">--</p>
-      <small>Combined realised + unrealised</small>
-    </div>
-
-    <!-- Max Loss -->
-    <div class="card">
-      <h3>Max Loss</h3>
-      <p id="max_loss_val">--</p>
-      <small id="max_loss_pct">--%</small>
-    </div>
-
-    <!-- Max Profit -->
-    <div class="card">
-      <h3>Max Profit</h3>
-      <p id="max_profit_val">--</p>
-      <small id="max_profit_pct">--%</small>
-    </div>
-
-    <!-- Consecutive Loss -->
-    <div class="card">
-      <h3>Consecutive Loss Trades</h3>
-      <p id="consec_loss">--</p>
-      <small>Auto calculated from Sell Book</small>
-    </div>
-
-    <!-- Kill Switch Status -->
-    <div class="card">
-      <h3>Kill Switch</h3>
-      <p id="kill_status" style="color:#ff6b6b;font-weight:700">--</p>
-      <small>Position auto-closing protection</small>
-    </div>
-
-    <!-- System Online Status -->
-    <div class="card">
-      <h3>System Status</h3>
-      <p id="system_status">--</p>
-      <small>Kite + backend connectivity</small>
-    </div>
-
-    <!-- Last Updated -->
-    <div class="card">
-      <h3>Last Update</h3>
-      <p id="last_update">--:--:--</p>
-      <small>State refresh timestamp</small>
-    </div>
-
-  </div> <!-- end grid -->
-
-</div> <!-- end page-overview -->
-
-
-<!-- ===========================
-     PAGE: TRADES
-=========================== -->
+<!-- TRADES -->
 <div id="page-trades" class="page">
-
-  <!-- Trade/Sell Toggle -->
   <div class="subtoggle">
     <button id="tradeBtn" onclick="switchSubTab('trade')" class="active">Trade Book</button>
     <button id="sellBtn" onclick="switchSubTab('sell')">Sell Book</button>
   </div>
-
-  <!-- Table Container -->
-  <div class="table-wrap" id="tradesTable">
-    <!-- JS will inject table here -->
-  </div>
-
+  <div class="table-wrap" id="tradesTable"></div>
 </div>
-<!-- ===========================
-     PAGE: ADMIN
-=========================== -->
-<div id="page-admin" class="page">
 
-  <!-- ADMIN TOKEN -->
+<!-- ADMIN -->
+<div id="page-admin" class="page">
   <div class="admin-card">
     <h2>Admin Token</h2>
-    <input id="admin_token" placeholder="Enter admin token…" />
+    <input id="admin_token" />
     <button onclick="saveAdminToken()">Save Token</button>
-    <small id="token_status" style="color:var(--muted);display:block;margin-top:6px;">Token required to unlock admin actions.</small>
   </div>
 
-  <!-- SET CONFIG -->
   <div class="admin-card">
     <h2>Set Config</h2>
-    <label>Max Loss</label>
-    <input id="cfg_max_loss" type="number" placeholder="Enter max loss…" />
-
-    <label>Max Profit</label>
-    <input id="cfg_max_profit" type="number" placeholder="Enter max profit…" />
-
-    <label>Max Consecutive Loss Trades</label>
-    <input id="cfg_max_loss_trades" type="number" placeholder="Enter limit…" />
-
+    <input id="cfg_max_loss" type="number" placeholder="Max Loss">
+    <input id="cfg_max_profit" type="number" placeholder="Max Profit">
+    <input id="cfg_max_loss_trades" type="number" placeholder="Max Consecutive Loss">
     <button onclick="saveConfig()">Save Config</button>
-    <small id="config_status" style="color:var(--muted);display:block;margin-top:6px;">Updates take effect instantly.</small>
   </div>
 
-  <!-- SET CAPITAL -->
   <div class="admin-card">
     <h2>Set Capital</h2>
-    <input id="capital_input" type="number" placeholder="Enter new capital…" />
+    <input id="capital_input" type="number">
     <button onclick="saveCapital()">Save Capital</button>
-    <small id="capital_status" style="color:var(--muted);display:block;margin-top:6px;">Capital resets daily at 09:15.</small>
   </div>
 
-  <!-- KILL SWITCH -->
   <div class="admin-card">
     <h2>Kill Switch</h2>
-    <p style="margin-bottom:10px;">Immediately closes all running positions & blocks new ones.</p>
-    <button style="background:#d9534f" onclick="killSwitch()">Kill Now</button>
-    <small id="kill_msg" style="display:block;margin-top:6px;color:var(--muted);"></small>
+    <button onclick="killSwitch()" style="background:#d9534f">Kill Now</button>
   </div>
 
-  <!-- RESET DAY -->
   <div class="admin-card">
     <h2>Reset Day</h2>
-    <p style="margin-bottom:10px;">Reset capital, config, state & trade counters.</p>
-    <button style="background:#cc9900" onclick="resetDay()">Reset Now</button>
-    <small id="reset_msg" style="display:block;margin-top:6px;color:var(--muted);"></small>
+    <button onclick="resetDay()" style="background:#cc9900">Reset Now</button>
   </div>
 
-  <!-- ENFORCEMENT CONTROLS -->
   <div class="admin-card">
-    <h2>Enforcement Controls</h2>
-
-    <label>Enforcement Mode</label>
+    <h2>Enforce</h2>
     <select id="enforce_mode">
       <option value="auto">Auto</option>
       <option value="manual">Manual</option>
     </select>
-
-    <label>Live MTM Source</label>
     <select id="enforce_mtm_source">
-      <option value="funds">Kite /funds</option>
+      <option value="funds">Kite Funds</option>
       <option value="state">State Poller</option>
     </select>
-
     <button onclick="saveEnforce()">Save Enforcement Settings</button>
-    <small id="enforce_status" style="display:block;margin-top:6px;color:var(--muted);"></small>
-  </div>
-
-  <!-- QSTASH INFO -->
-  <div class="admin-card">
-    <h2>QStash Scheduler</h2>
-    <p>Backend tasks are running every 1 minute.</p>
-    <p style="margin-top:4px;">Check enforce-trades.js, sync-sellbook.js, state poller.</p>
-  </div>
-
-  <!-- HUB ACTIONS -->
-  <div class="admin-card">
-    <h2>Hub Controls</h2>
-
-    <button onclick="refreshState()">Refresh State</button>
-    <button onclick="refreshTrades()" style="margin-left:6px;">Refresh Trades</button>
-    <button onclick="refreshSellbook()" style="margin-left:6px;">Refresh Sellbook</button>
-
-    <small style="display:block;margin-top:6px;color:var(--muted);">Use only when needed.</small>
-  </div>
-
-  <!-- CONNECTION TEST -->
-  <div class="admin-card">
-    <h2>Connection Test</h2>
-    <button onclick="pingServer()">Ping Backend</button>
-    <small id="ping_msg" style="display:block;margin-top:6px;color:var(--muted);"></small>
   </div>
 
 </div>
-// admin.js (Part 1 - Theme, Tabs, Subtabs)
 
-(function(){
+<!-- LOAD CLEAN JS -->
+<script src="/admin.js"></script>
 
-/* ============================
-   1. THEME TOGGLE
-============================ */
-function toggleTheme(){
-  document.body.classList.toggle("theme-light");
-  localStorage.setItem("theme", document.body.classList.contains("theme-light") ? "light" : "dark");
-}
-window.toggleTheme = toggleTheme;
-
-// Load saved theme
-if(localStorage.getItem("theme") === "light"){
-  document.body.classList.add("theme-light");
-}
-
-/* ============================
-   2. TOP TAB SWITCHING
-============================ */
-function switchTab(tab){
-  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
-  const target = document.querySelector('#page-' + tab);
-  if(target) target.classList.add('active');
-
-  document.querySelectorAll('.top-tabs button').forEach(b=>b.classList.remove('active'));
-  const btn = document.querySelector('#tab-' + tab);
-  if(btn) btn.classList.add('active');
-
-  window.activeTab = tab;
-}
-window.switchTab = switchTab;
-
-/* ============================
-   3. SUBTAB SWITCHING (Trade/Sell)
-============================ */
-function switchSubTab(which){
-  document.querySelectorAll('.subtoggle button').forEach(b=>b.classList.remove('active'));
-
-  if(which === "trade"){
-    document.querySelector("#tradeBtn").classList.add("active");
-    window.activeSubTab = "trade";
-  } else {
-    document.querySelector("#sellBtn").classList.add("active");
-    window.activeSubTab = "sell";
-  }
-}
-window.switchSubTab = switchSubTab;
-
-/* Initialize default tabs */
-window.activeTab = "overview";
-window.activeSubTab = "trade";
-
-})();
-// admin.js (Part 1 - Theme, Tabs, Subtabs)
-
-(function(){
-
-/* ============================
-   1. THEME TOGGLE
-============================ */
-function toggleTheme(){
-  document.body.classList.toggle("theme-light");
-  localStorage.setItem("theme", document.body.classList.contains("theme-light") ? "light" : "dark");
-}
-window.toggleTheme = toggleTheme;
-
-// Load saved theme
-if(localStorage.getItem("theme") === "light"){
-  document.body.classList.add("theme-light");
-}
-
-/* ============================
-   2. TOP TAB SWITCHING
-============================ */
-function switchTab(tab){
-  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
-  const target = document.querySelector('#page-' + tab);
-  if(target) target.classList.add('active');
-
-  document.querySelectorAll('.top-tabs button').forEach(b=>b.classList.remove('active'));
-  const btn = document.querySelector('#tab-' + tab);
-  if(btn) btn.classList.add('active');
-
-  window.activeTab = tab;
-}
-window.switchTab = switchTab;
-
-/* ============================
-   3. SUBTAB SWITCHING (Trade/Sell)
-============================ */
-function switchSubTab(which){
-  document.querySelectorAll('.subtoggle button').forEach(b=>b.classList.remove('active'));
-
-  if(which === "trade"){
-    document.querySelector("#tradeBtn").classList.add("active");
-    window.activeSubTab = "trade";
-  } else {
-    document.querySelector("#sellBtn").classList.add("active");
-    window.activeSubTab = "sell";
-  }
-}
-window.switchSubTab = switchSubTab;
-
-/* Initialize default tabs */
-window.activeTab = "overview";
-window.activeSubTab = "trade";
-
-})();
-
-/* ============================
-   4. STATE FETCH + OVERVIEW UPDATE
-============================ */
-
-async function fetchState(){
-  try{
-    const r = await fetch('/api/state');
-    const data = await r.json();
-    if(!data || !data.ok) return;
-
-    updateOverviewUI(data);
-  }catch(e){
-    console.error('State fetch error:', e);
-  }
-}
-window.fetchState = fetchState;
-
-/* Update Overview Cards */
-function updateOverviewUI(s){
-  // Capital
-  const cap = document.getElementById('capital_val');
-  if(cap) cap.textContent = formatINR(s.capital || 0);
-
-  // Balance
-  const bal = document.getElementById('balance_val');
-  if(bal) bal.textContent = formatINR(s.balance || 0);
-
-  // Live MTM
-  const mtm = document.getElementById('live_mtm');
-  if(mtm) mtm.textContent = formatINR(s.unrealised || 0);
-
-  // Total PnL (realised + unrealised)
-  const total = document.getElementById('total_pnl');
-  if(total) total.textContent = formatINR((s.realised||0) + (s.unrealised||0));
-
-  // Max Loss
-  const ml = document.getElementById('max_loss_val');
-  const mlp = document.getElementById('max_loss_pct');
-  if(ml) ml.textContent = formatINR(s.max_loss || 0);
-  if(mlp) mlp.textContent = pctOf(s.max_loss, s.capital);
-
-  // Max Profit
-  const mp = document.getElementById('max_profit_val');
-  const mpp = document.getElementById('max_profit_pct');
-  if(mp) mp.textContent = formatINR(s.max_profit || 0);
-  if(mpp) mpp.textContent = pctOf(s.max_profit, s.capital);
-
-  // Consecutive Loss
-  const cl = document.getElementById('consec_loss');
-  if(cl) cl.textContent = s.consecutive_loss || 0;
-
-  // Kill switch
-  const ks = document.getElementById('kill_status');
-  if(ks) ks.textContent = s.killed ? "ACTIVE" : "OFF";
-
-  // System status
-  const ss = document.getElementById('system_status');
-  if(ss) ss.textContent = s.status || "OK";
-
-  // Last update
-  const lu = document.getElementById('last_update');
-  if(lu) lu.textContent = toIST(Date.now());
-}
-window.updateOverviewUI = updateOverviewUI;
-
-/* ============================
-   HELPERS: INR + PERCENT + IST
-============================ */
-function formatINR(n){
-  try{
-    return Number(n).toLocaleString('en-IN', {maximumFractionDigits: 0});
-  }catch(e){
-    return n;
-  }
-}
-window.formatINR = formatINR;
-
-function pctOf(part, total){
-  if(!total) return "0%";
-  const p = (Number(part)/Number(total))*100;
-  return p.toFixed(1) + "%";
-}
-
-function toIST(ts){
-  try{
-    return new Date(ts).toLocaleString('en-IN', {timeZone:'Asia/Kolkata'});
-  }catch(e){
-    return ts;
-  }
-}
-window.toIST = toIST;
-// admin.js (Part 1 - Theme, Tabs, Subtabs)
-
-(function(){
-
-/* ============================
-   1. THEME TOGGLE
-============================ */
-function toggleTheme(){
-  document.body.classList.toggle("theme-light");
-  localStorage.setItem("theme", document.body.classList.contains("theme-light") ? "light" : "dark");
-}
-window.toggleTheme = toggleTheme;
-
-// Load saved theme
-if(localStorage.getItem("theme") === "light"){
-  document.body.classList.add("theme-light");
-}
-
-/* ============================
-   2. TOP TAB SWITCHING
-============================ */
-function switchTab(tab){
-  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
-  const target = document.querySelector('#page-' + tab);
-  if(target) target.classList.add('active');
-
-  document.querySelectorAll('.top-tabs button').forEach(b=>b.classList.remove('active'));
-  const btn = document.querySelector('#tab-' + tab);
-  if(btn) btn.classList.add('active');
-
-  window.activeTab = tab;
-}
-window.switchTab = switchTab;
-
-/* ============================
-   3. SUBTAB SWITCHING (Trade/Sell)
-============================ */
-function switchSubTab(which){
-  document.querySelectorAll('.subtoggle button').forEach(b=>b.classList.remove('active'));
-
-  if(which === "trade"){
-    document.querySelector("#tradeBtn").classList.add("active");
-    window.activeSubTab = "trade";
-  } else {
-    document.querySelector("#sellBtn").classList.add("active");
-    window.activeSubTab = "sell";
-  }
-}
-window.switchSubTab = switchSubTab;
-
-/* Initialize default tabs */
-window.activeTab = "overview";
-window.activeSubTab = "trade";
-
-})();
-
-/* ============================
-   4. STATE FETCH + OVERVIEW UPDATE
-============================ */
-
-async function fetchState(){
-  try{
-    const r = await fetch('/api/state');
-    const data = await r.json();
-    if(!data || !data.ok) return;
-
-    updateOverviewUI(data);
-  }catch(e){
-    console.error('State fetch error:', e);
-  }
-}
-window.fetchState = fetchState;
-
-/* Update Overview Cards */
-function updateOverviewUI(s){
-  // Capital
-  const cap = document.getElementById('capital_val');
-  if(cap) cap.textContent = formatINR(s.capital || 0);
-
-  // Balance
-  const bal = document.getElementById('balance_val');
-  if(bal) bal.textContent = formatINR(s.balance || 0);
-
-  // Live MTM
-  const mtm = document.getElementById('live_mtm');
-  if(mtm) mtm.textContent = formatINR(s.unrealised || 0);
-
-  // Total PnL (realised + unrealised)
-  const total = document.getElementById('total_pnl');
-  if(total) total.textContent = formatINR((s.realised||0) + (s.unrealised||0));
-
-  // Max Loss
-  const ml = document.getElementById('max_loss_val');
-  const mlp = document.getElementById('max_loss_pct');
-  if(ml) ml.textContent = formatINR(s.max_loss || 0);
-  if(mlp) mlp.textContent = pctOf(s.max_loss, s.capital);
-
-  // Max Profit
-  const mp = document.getElementById('max_profit_val');
-  const mpp = document.getElementById('max_profit_pct');
-  if(mp) mp.textContent = formatINR(s.max_profit || 0);
-  if(mpp) mpp.textContent = pctOf(s.max_profit, s.capital);
-
-  // Consecutive Loss
-  const cl = document.getElementById('consec_loss');
-  if(cl) cl.textContent = s.consecutive_loss || 0;
-
-  // Kill switch
-  const ks = document.getElementById('kill_status');
-  if(ks) ks.textContent = s.killed ? "ACTIVE" : "OFF";
-
-  // System status
-  const ss = document.getElementById('system_status');
-  if(ss) ss.textContent = s.status || "OK";
-
-  // Last update
-  const lu = document.getElementById('last_update');
-  if(lu) lu.textContent = toIST(Date.now());
-}
-window.updateOverviewUI = updateOverviewUI;
-
-/* ============================
-   HELPERS: INR + PERCENT + IST
-============================ */
-function formatINR(n){
-  try{
-    return Number(n).toLocaleString('en-IN', {maximumFractionDigits: 0});
-  }catch(e){
-    return n;
-  }
-}
-window.formatINR = formatINR;
-
-function pctOf(part, total){
-  if(!total) return "0%";
-  const p = (Number(part)/Number(total))*100;
-  return p.toFixed(1) + "%";
-}
-
-function toIST(ts){
-  try{
-    return new Date(ts).toLocaleString('en-IN', {timeZone:'Asia/Kolkata'});
-  }catch(e){
-    return ts;
-  }
-}
-window.toIST = toIST;
-
-/* ============================
-   5. TRADEBOOK + SELLBOOK LOGIC
-============================ */
-
-/* ---------- Fetch Tradebook ---------- */
-async function loadTradebook(){
-  try{
-    const r = await fetch('/api/trades');
-    const data = await r.json();
-    if(!data || !data.ok || !Array.isArray(data.trades)) return;
-
-    renderTradeTable(data.trades);
-  }catch(e){
-    console.error("Tradebook error:", e);
-  }
-}
-window.loadTradebook = loadTradebook;
-
-/* ---------- Fetch Sellbook ---------- */
-async function loadSellbook(){
-  try{
-    const r = await fetch('/api/sellbook');
-    const data = await r.json();
-    if(!data || !data.ok || !Array.isArray(data.sellbook)) return;
-
-    renderSellTable(data.sellbook);
-  }catch(e){
-    console.error("Sellbook error:", e);
-  }
-}
-window.loadSellbook = loadSellbook;
-
-/* ---------- Render Tradebook ---------- */
-function renderTradeTable(list){
-  const div = document.getElementById("tradesTable");
-  if(!div) return;
-
-  let html = `
-    <table>
-      <thead>
-        <tr>
-          <th>Time</th>
-          <th>Order ID</th>
-          <th>Instrument</th>
-          <th>Qty</th>
-          <th>Price</th>
-          <th>Type</th>
-        </tr>
-      </thead>
-      <tbody>
-  `;
-
-  for(const t of list){
-    html += `
-      <tr>
-        <td>${toIST(t.time)}</td>
-        <td>${t.order_id}</td>
-        <td>${t.instrument}</td>
-        <td>${t.qty}</td>
-        <td>${formatINR(t.price)}</td>
-        <td>${t.type}</td>
-      </tr>
-    `;
-  }
-
-  html += `</tbody></table>`;
-  div.innerHTML = html;
-}
-window.renderTradeTable = renderTradeTable;
-
-/* ---------- Render Sellbook ---------- */
-function renderSellTable(list){
-  const div = document.getElementById("tradesTable");
-  if(!div) return;
-
-  let html = `
-    <table>
-      <thead>
-        <tr>
-          <th>Time</th>
-          <th>Order ID</th>
-          <th>Instrument</th>
-          <th>MTM</th>
-          <th>Change</th>
-        </tr>
-      </thead>
-      <tbody>
-  `;
-
-  for(const s of list){
-    const cls = Number(s.change) < 0 ? "red" : "green";
-
-    html += `
-      <tr>
-        <td>${toIST(s.time)}</td>
-        <td>${s.order_id}</td>
-        <td>${s.instrument}</td>
-        <td>${formatINR(s.mtm)}</td>
-        <td class="${cls}">${formatINR(s.change)}</td>
-      </tr>
-    `;
-  }
-
-  html += `</tbody></table>`;
-  div.innerHTML = html;
-}
-window.renderSellTable = renderSellTable;
-
-/* ---------- Subtab Auto Loader ---------- */
-function loadActiveTradeSection(){
-  if(window.activeSubTab === "trade"){
-    loadTradebook();
-  } else {
-    loadSellbook();
-  }
-}
-window.loadActiveTradeSection = loadActiveTradeSection;
+</body>
+</html>
