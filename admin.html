@@ -285,11 +285,7 @@ table.tradebook td{
           <div class="small">Sum of position P&L</div>
         </div>
 
-        <div class="card" style="background:transparent;border:0;padding:8px">
-          <div class="muted">PnL (R / UR / Total)</div>
-          <div id="pnl_box" class="value">—</div>
-          <div id="pnl_hint" class="small"></div>
-        </div>
+        
 
         <div class="card" style="background:transparent;border:0;padding:8px">
           <div class="muted">Consecutive Losses</div>
@@ -304,10 +300,10 @@ table.tradebook td{
         </div>
 
         <div class="card" style="background:transparent;border:0;padding:8px">
-          <div class="muted">Max Profit %</div>
-          <div id="p10" class="value">—</div>
-          <div id="p10_hint" class="small">Profit lock status</div>
-        </div>
+  <div class="muted">Max Profit (₹)</div>
+  <div id="p10" class="value">—</div>
+  <div id="p10_hint" class="small"></div>
+</div>
 
         <div class="card" style="background:transparent;border:0;padding:8px">
           <div class="muted">Active Loss Floor (₹)</div>
@@ -321,11 +317,7 @@ table.tradebook td{
           <div class="small">Room before floor trip</div>
         </div>
 
-        <div class="card" style="background:transparent;border:0;padding:8px">
-          <div class="muted">Last trade @</div>
-          <div id="last_trade_time" class="value">—</div>
-          <div class="small">Blank if no trade yet</div>
-        </div>
+        
 
       </div>
     </section>
@@ -685,15 +677,22 @@ async function loadState(){
     const remaining = Number(s.remaining_to_max_loss ?? 0);
     $('remaining_loss').textContent = fmtINR(remaining);
 
-    // profit lock (p10) — server may expose p10 (pct) or p10_amount (rupee) or p10_is_pct flag
+    // profit lock (p10) rewritten for amount above & percent below
     let p10_display = 0;
-    let p10_hint = '—';
     if (typeof s.p10 !== 'undefined' && s.p10 !== null) {
-      // p10 stored as percentage (preferred)
       p10_display = Number(s.p10);
-      // show percent in UI, but compute effective rupee amount as well for hint
-      const effAmt = Math.round(capital * (p10_display/100));
-      p10_hint = `(≈ ${fmtINR(effAmt)})`;
+      const p10_rupee = Math.round(capital * (p10_display/100));
+      $('p10').textContent = fmtINR(p10_rupee);
+      $('p10_hint').textContent = p10_display + '%';
+    } else if (typeof s.p10_amount !== 'undefined') {
+      p10_display = Number(s.p10_amount);
+      $('p10').textContent = fmtINR(p10_display);
+      $('p10_hint').textContent = '—';
+    } else {
+      $('p10').textContent = '—';
+      $('p10_hint').textContent = '—';
+    }
+)`;
       $('p10').textContent = `${p10_display}%`;
       $('p10_hint').textContent = p10_hint;
     } else if (typeof s.p10_amount !== 'undefined') {
