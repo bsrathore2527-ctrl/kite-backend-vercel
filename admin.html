@@ -2,194 +2,6 @@
 <!doctype html>
 <html lang="en">
 <head>
-<style>
-
-/* ========= GLOBAL PREMIUM FINTECH THEME ========= */
-:root {
-  --bg-main: #0b111f;
-  --glass-bg: rgba(18, 30, 58, 0.55);
-  --glass-bg-hover: rgba(24, 40, 75, 0.65);
-  --glass-border: rgba(80, 120, 255, 0.22);
-  --glass-blur: blur(22px);
-  --text: #dbe8ff;
-  --text-dim: #8ba2c9;
-  --accent: #3a8bff;
-  --accent-soft: rgba(58,139,255,0.35);
-  --card-shadow: 0 10px 35px rgba(0,0,0,0.45);
-  --transition: 0.35s ease;
-  --radius: 18px;
-}
-
-body {
-  background: var(--bg-main);
-  font-family: Inter, sans-serif;
-  color: var(--text);
-  overflow: hidden;
-}
-
-/* ========= HEADER ========= */
-header {
-  background: rgba(10,15,30,0.6);
-  backdrop-filter: blur(18px);
-  border-bottom: 1px solid var(--glass-border);
-  padding: 16px 22px;
-  font-size: 20px;
-  letter-spacing: 0.5px;
-  font-weight: 600;
-  color: var(--text);
-  text-shadow: 0 0 12px rgba(58,139,255,0.35);
-}
-
-/* ========= NAV BUTTONS ========= */
-.nav-buttons button {
-  background: var(--glass-bg) !important;
-  backdrop-filter: var(--glass-blur);
-  border: 1px solid var(--glass-border) !important;
-  color: var(--text) !important;
-  border-radius: var(--radius);
-  padding: 14px 18px;
-  font-size: 15px;
-  box-shadow: var(--card-shadow);
-  transition: var(--transition);
-}
-
-.nav-buttons button:hover {
-  background: var(--glass-bg-hover) !important;
-  transform: scale(1.06);
-}
-
-/* ========= PAGES CONTAINER ========= */
-.pages {
-  background: transparent;
-}
-
-/* ========= GLASS PANELS ========= */
-.page.card, .glass-panel {
-  background: var(--glass-bg) !important;
-  backdrop-filter: var(--glass-blur);
-  border: 1px solid var(--glass-border) !important;
-  border-radius: var(--radius) !important;
-  padding: 18px;
-  margin: 12px;
-  box-shadow: var(--card-shadow);
-  transition: var(--transition);
-}
-
-.page.card:hover {
-  background: var(--glass-bg-hover) !important;
-}
-
-/* ========= OVERVIEW CARDS ========= */
-.overview-grid .card-box,
-.card-box,
-.stat-card,
-.info-card {
-  background: var(--glass-bg) !important;
-  backdrop-filter: var(--glass-blur);
-  border: 1px solid var(--glass-border) !important;
-  box-shadow: var(--card-shadow);
-  border-radius: var(--radius);
-  padding: 14px;
-  transition: var(--transition);
-}
-
-.card-box:hover {
-  transform: translateY(-4px) scale(1.02);
-  background: var(--glass-bg-hover) !important;
-}
-
-.card-box h3 {
-  font-size: 14px;
-  margin: 0;
-  color: var(--text-dim);
-}
-
-.card-box p {
-  margin: 8px 0 0;
-  font-size: 24px;
-  font-weight: 600;
-  color: var(--text);
-  text-shadow: 0 0 8px rgba(58,139,255,0.25);
-}
-
-/* ========= TRADEBOOK + SELLBOOK TABLE ========= */
-.table-wrap {
-  background: var(--glass-bg) !important;
-  backdrop-filter: var(--glass-blur);
-  border: 1px solid var(--glass-border);
-  border-radius: var(--radius);
-  padding: 12px;
-  max-height: 70vh;
-  overflow-y: auto;
-  box-shadow: var(--card-shadow);
-}
-
-table {
-  width: 100%;
-  color: var(--text);
-}
-
-th {
-  background: rgba(12,20,35,0.8);
-  backdrop-filter: blur(10px);
-  color: var(--accent);
-  padding: 10px;
-  border-bottom: 1px solid var(--glass-border);
-}
-
-td {
-  padding: 10px;
-  border-bottom: 1px solid rgba(255,255,255,0.08);
-}
-
-td.red { color:#ff6b6b; }
-td.green { color:#4dff9a; }
-
-/* ========= SUBTABS ========= */
-.subtabs button {
-  background: rgba(20,32,60,0.55);
-  backdrop-filter: blur(14px);
-  border: 1px solid var(--glass-border);
-  border-radius: 12px;
-  padding: 10px 16px;
-  color: var(--text-dim);
-  transition: var(--transition);
-}
-
-.subtabs button.active {
-  background: var(--accent-soft);
-  color: white;
-  transform: scale(1.05);
-  box-shadow: 0 0 12px rgba(58,139,255,0.4);
-}
-
-/* ========= INPUTS ========= */
-input, select {
-  background: rgba(20,32,60,0.55);
-  border: 1px solid var(--glass-border);
-  backdrop-filter: blur(10px);
-  padding: 12px;
-  color: var(--text);
-  border-radius: 12px;
-}
-
-button.action {
-  background: var(--accent);
-  border-radius: 12px;
-  box-shadow: var(--card-shadow);
-  border: none;
-  padding: 12px;
-  color:white;
-  transition: var(--transition);
-}
-
-button.action:hover {
-  transform: scale(1.05);
-  box-shadow: 0 0 14px rgba(58,139,255,0.45);
-}
-
-</style>
-
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>Guardian — Admin</title>
@@ -464,19 +276,11 @@ table.tradebook td{
         <div class="card" style="background:transparent;border:0;padding:8px">
           <div class="muted">Current Balance (live/fallback)</div>
           <div id="live_balance" class="value">—</div>
-          <div class="small">Prefers live_balance from Kite</div>
         </div>
 
         <div class="card" style="background:transparent;border:0;padding:8px">
           <div class="muted">Live MTM</div>
           <div id="live_mtm" class="value">—</div>
-          <div class="small">Sum of position P&L</div>
-        </div>
-
-        <div class="card" style="background:transparent;border:0;padding:8px">
-          <div class="muted">PnL (R / UR / Total)</div>
-          <div id="pnl_box" class="value">—</div>
-          <div id="pnl_hint" class="small"></div>
         </div>
 
         <div class="card" style="background:transparent;border:0;padding:8px">
@@ -502,19 +306,11 @@ table.tradebook td{
           <div id="active_floor" class="value">—</div>
           <div class="small" id="floor_hint"></div>
         </div>
-
         <div class="card" style="background:transparent;border:0;padding:8px">
           <div class="muted">Remaining to Max Loss (₹)</div>
           <div id="remaining_loss" class="value">—</div>
           <div class="small">Room before floor trip</div>
         </div>
-
-        <div class="card" style="background:transparent;border:0;padding:8px">
-          <div class="muted">Last trade @</div>
-          <div id="last_trade_time" class="value">—</div>
-          <div class="small">Blank if no trade yet</div>
-        </div>
-
       </div>
     </section>
 
