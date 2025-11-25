@@ -276,11 +276,19 @@ table.tradebook td{
         <div class="card" style="background:transparent;border:0;padding:8px">
           <div class="muted">Current Balance (live/fallback)</div>
           <div id="live_balance" class="value">—</div>
+          <div class="small">Prefers live_balance from Kite</div>
         </div>
 
         <div class="card" style="background:transparent;border:0;padding:8px">
           <div class="muted">Live MTM</div>
           <div id="live_mtm" class="value">—</div>
+          <div class="small">Sum of position P&L</div>
+        </div>
+
+        <div class="card" style="background:transparent;border:0;padding:8px">
+          <div class="muted">PnL (R / UR / Total)</div>
+          <div id="pnl_box" class="value">—</div>
+          <div id="pnl_hint" class="small"></div>
         </div>
 
         <div class="card" style="background:transparent;border:0;padding:8px">
@@ -306,11 +314,19 @@ table.tradebook td{
           <div id="active_floor" class="value">—</div>
           <div class="small" id="floor_hint"></div>
         </div>
+
         <div class="card" style="background:transparent;border:0;padding:8px">
           <div class="muted">Remaining to Max Loss (₹)</div>
           <div id="remaining_loss" class="value">—</div>
           <div class="small">Room before floor trip</div>
         </div>
+
+        <div class="card" style="background:transparent;border:0;padding:8px">
+          <div class="muted">Last trade @</div>
+          <div id="last_trade_time" class="value">—</div>
+          <div class="small">Blank if no trade yet</div>
+        </div>
+
       </div>
     </section>
 
