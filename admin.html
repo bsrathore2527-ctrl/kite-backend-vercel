@@ -8,29 +8,9 @@
 <link rel="icon" href="data:;base64,iVBORw0KGgo=">
 <style>
   :root{
-  --bg:#050816;
-  --bg2:#071024;
-  --card:#0f1724;
-  --muted:#9aa7b3;
-  --accent:#3b82f6;
-  --accent2:#10b981;
-  --danger:#ef4444;
-  --radius:12px;
-  --border-subtle:rgba(255,255,255,0.06);
-  --text-main:#e9f2ff;
-}
-body.theme-light{
-  --bg:#f5f7fb;
-  --bg2:#ffffff;
-  --card:#ffffff;
-  --muted:#6b7280;
-  --accent:#2563eb;
-  --accent2:#059669;
-  --danger:#dc2626;
-  --border-subtle:rgba(15,23,42,0.08);
-  --text-main:#0f172a;
-}
-
+    --bg1:#071024; --card:#0f1724; --muted:#9aa7b3; --accent:#3b82f6;
+    --accent2:#10b981; --danger:#ef4444; --radius:12px;
+  }
   html,body{height:100%;margin:0;font-family:Inter,Arial,Helvetica,sans-serif;background:linear-gradient(180deg,#051025 0%, #02111b 100%);color:#e9f2ff}
   .wrap{max-width:980px;margin:16px auto;padding:14px}
   header{display:flex;align-items:center;gap:12px;margin-bottom:12px}
@@ -65,102 +45,6 @@ body.theme-light{
   table.tradebook th, table.tradebook td{padding:10px;border-bottom:1px solid rgba(255,255,255,0.03);font-size:13px;text-align:left}
   table.tradebook th{color:var(--muted);font-weight:700}
   .tb-empty{padding:28px;text-align:center;color:var(--muted)}
-
-/* theme-aware base */
-html,body{
-  background:radial-gradient(circle at top, var(--bg2) 0%, var(--bg) 45%, #020617 100%);
-  color:var(--text-main);
-}
-
-/* compact dashboard tweaks */
-.wrap{
-  max-width:960px;
-  margin:10px auto;
-  padding:10px;
-}
-.card{
-  background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(15,23,42,0.9));
-  border-radius: var(--radius);
-  border:1px solid var(--border-subtle);
-  box-shadow:0 8px 24px rgba(0,0,0,0.35);
-  padding:12px 12px;
-  margin-bottom:10px;
-}
-header{
-  padding-bottom:4px;
-  margin-bottom:10px;
-  border-bottom:1px solid rgba(148,163,184,0.16);
-}
-.grid-2{
-  display:grid;
-  grid-template-columns:1.25fr 1fr;
-  gap:10px;
-}
-.badge{
-  background:rgba(15,23,42,0.85);
-  border-color:rgba(148,163,184,0.2);
-}
-
-/* tables compact */
-table.tradebook{
-  width:100%;
-  border-collapse:collapse;
-  margin-top:6px;
-}
-table.tradebook th,
-table.tradebook td{
-  padding:6px 4px;
-  font-size:12px;
-  border-bottom:1px solid rgba(148,163,184,0.15);
-}
-.tb-empty{padding:14px;font-size:12px;color:var(--muted);}
-
-/* theme toggle button */
-.theme-toggle-btn{
-  margin-left:8px;
-  padding:5px 9px;
-  border-radius:999px;
-  border:1px solid rgba(148,163,184,0.4);
-  background:rgba(15,23,42,0.7);
-  color:var(--text-main);
-  font-size:11px;
-  display:flex;
-  align-items:center;
-  gap:4px;
-  cursor:pointer;
-}
-.theme-toggle-btn span{
-  font-size:13px;
-}
-
-/* mobile compact */
-@media(max-width:720px){
-  .wrap{
-    max-width:100%;
-    margin:6px auto;
-    padding:8px;
-  }
-  header{
-    flex-wrap:wrap;
-    row-gap:6px;
-  }
-  .status{
-    margin-left:0;
-    font-size:11px;
-    gap:6px;
-  }
-  .card{
-    padding:9px 9px;
-  }
-  .grid-2{
-    grid-template-columns:1fr;
-  }
-  table.tradebook th,
-  table.tradebook td{
-    padding:5px 3px;
-    font-size:11px;
-  }
-}
 </style>
 </head>
 <body>
@@ -970,40 +854,5 @@ async function loadSellbook(){
 loadTradebook();
 
 </script>
-
-<script>
-// Light/Dark theme toggle (purely visual)
-(function(){
-  try{
-    const root = document.documentElement;
-    const body = document.body;
-    const saved = localStorage.getItem('guardian_theme');
-    if(saved === 'light') body.classList.add('theme-light');
-
-    const header = document.querySelector('header .status') || document.querySelector('header');
-    if(!header) return;
-
-    const btn = document.createElement('button');
-    btn.className = 'theme-toggle-btn';
-    const icon = document.createElement('span');
-    icon.textContent = body.classList.contains('theme-light') ? '☀' : '☾';
-    const label = document.createElement('span');
-    label.textContent = body.classList.contains('theme-light') ? 'Light' : 'Dark';
-    btn.appendChild(icon);
-    btn.appendChild(label);
-
-    btn.addEventListener('click', function(){
-      const isLight = body.classList.toggle('theme-light');
-      localStorage.setItem('guardian_theme', isLight ? 'light' : 'dark');
-      icon.textContent = isLight ? '☀' : '☾';
-      label.textContent = isLight ? 'Light' : 'Dark';
-    });
-
-    header.appendChild(btn);
-  }catch(e){
-    console && console.warn && console.warn('theme toggle init failed', e);
-  }
-})();
-</script>
 </body>
-</html>
+  </html>
