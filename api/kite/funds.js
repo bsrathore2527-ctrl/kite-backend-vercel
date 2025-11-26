@@ -84,11 +84,26 @@ export default async function handler(req, res) {
       return send(res, 200, { ok: false, error: "Kite method failed", message: String(err) });
     }
 
-    if (!result?.funds) {
-      return send(res, 200, { ok: false, error: "Funds not available", result: null });
-    }
+   // Auto-detect Zerodha shape
+let f = null;
 
-    const f = result.funds;
+// Shape 1: result.funds exists
+if (result?.funds) {
+  f = result.funds;
+}
+// Shape 2: result IS the funds object
+else if (result?.equity || result?.commodity) {
+  f = result;
+}
+// Shape 3: result.data.funds (rare)
+else if (result?.data?.funds) {
+  f = result.data.funds;
+}
+
+if (!f) {
+  return send(res, 200, { ok:false, error:"Funds not available", result:result });
+}
+
 
     // Extract values
     const m2m = extractM2M(f);
