@@ -1,133 +1,120 @@
-
-// api/kite/trades.js
-// Returns today's trades — grouped by order_id, stores sell MTM.
-
-import { kv } from "../_lib/kv.js";
-import { instance } from "../_lib/kite.js";
+// api/tradebook.js
+import { instance } from "./_lib/kite.js";
+import { kv } from "./_lib/kv.js";
 
 const TRADEBOOK_KEY = "guardian:tradebook";
-const SELLBOOK_KEY = "guardian:sell_orders";
+const LAST_SYNC_KEY = "guardian:tradebook:last_sync";
+const IST = "Asia/Kolkata";
 
-// local live mtm getter
-async function getLiveM2M() {
+// Parse timestamp from Zerodha or stored trade
+function normalizeTimestamp(ts) {
+  if (!ts) return Date.now();
+  const n = Number(ts);
+  if (!isNaN(n)) {
+    return String(n).length === 10 ? n * 1000 : n;
+  }
+  const parsed = Date.parse(ts);
+  return isNaN(parsed) ? Date.now() : parsed;
+}
+
+export default async function handler(req, res) {
   try {
-    const raw = await kv.get("guardian:state");
-    if (!raw) return 0;
-    const obj = JSON.parse(raw);
-    const s = obj.state || obj;
-    const v = Number(s.unrealised ?? 0);
-    return isNaN(v) ? 0 : v;
-  } catch {
-    return 0;
-  }
-}
+    const now = Date.now();
+    const lastSync = await kv.get(LAST_SYNC_KEY);
 
-function isAdmin(req) {
-  const a = req.headers.authorization || "";
-  const token = a.startsWith("Bearer ") ? a.slice(7) : "";
-  return !!process.env.ADMIN_TOKEN && token === process.env.ADMIN_TOKEN;
-}
+    // 1️⃣ LOAD EXISTING TRADEBOOK FIRST
+    let existing = (await kv.get(TRADEBOOK_KEY)) || [];
+    if (!Array.isArray(existing)) existing = [];
 
-function toNumberOrNull(v) {
-  const n=Number(v); return Number.isFinite(n)?n:null;
-}
+    // 2️⃣ CHECK STALE DATA (sync only every 20 seconds)
+    const shouldSync = !lastSync || now - lastSync > 20_000;
 
-function normalizeTsToMs(ts){
-  if(ts==null) return null;
-  if(typeof ts==="number"){
-    if(String(Math.trunc(ts)).length===10) return ts*1000;
-    return ts;
-  }
-  const s=String(ts).trim();
-  if(/^\d+$/.test(s)){
-    const n=Number(s);
-    if(String(Math.trunc(n)).length===10) return n*1000;
-    return n;
-  }
-  const p=Date.parse(s);
-  return isNaN(p)?null:p;
-}
+    if (shouldSync) {
+      let kc = null;
 
-function normalizeTrade(t){
-  if(!t) return t;
-  const out={...t};
-  const cands=[out.avg_price,out.average_price,out.trade_price,out.price,out.last_price];
-  let price=null;
-  for(const c of cands){ const n=toNumberOrNull(c); if(n){ price=n; break; } }
-  out.price_normalized=price;
+      try {
+        kc = await instance();
+      } catch (e) {
+        // If session expired → return existing KV to UI
+        return res.status(200).json({
+          ok: true,
+          synced: false,
+          reason: "Kite session expired",
+          trades: existing
+        });
+      }
 
-  const ts= out._ts||out.trade_time||out.timestamp||out.exchange_timestamp||out.order_timestamp||out.created_at;
-  const ms=normalizeTsToMs(ts);
-  out._ts=ms||null;
-  out._iso= out._ts? new Date(out._ts).toISOString():null;
-  return out;
-}
+      // 3️⃣ FETCH EXECUTED TRADES FROM ZERODHA
+      let trades = [];
+      try {
+        const resp = await kc.getTrades();
+        trades = resp?.data || resp || [];
+      } catch (err) {
+        // Return existing KV (UI will still work)
+        return res.status(200).json({
+          ok: false,
+          synced: false,
+          reason: "Zerodha trades fetch failed",
+          error: String(err),
+          trades: existing
+        });
+      }
 
-function groupTradesByOrderId(trades){
-  const map=new Map();
-  for(const t of trades){
-    const oid=t.order_id||t.orderid||t.order||"UNKNOWN";
-    const qty=Number(t.quantity)||0;
-    const px=Number(t.price_normalized)||0;
-    if(!map.has(oid)){
-      map.set(oid,{
-        order_id:oid,
-        tradingsymbol:t.tradingsymbol,
-        transaction_type:t.transaction_type,
-        quantity:qty,
-        weighted_price_sum:qty*px,
-        _ts:t._ts,
-        _iso:t._iso
+      // 4️⃣ MERGE TRADES (DEDUPE)
+      const map = new Map(existing.map(t => [t.trade_id, t]));
+
+      for (const t of trades) {
+        if (!t.trade_id) continue;
+
+        map.set(t.trade_id, {
+          trade_id: t.trade_id,
+          order_id: t.order_id,
+          tradingsymbol: t.tradingsymbol,
+          exchange: t.exchange,
+          side: t.transaction_type, 
+          product: t.product,
+          qty: t.quantity,
+          price: t.average_price,
+          ts: normalizeTimestamp(t.timestamp),
+          iso: new Date(normalizeTimestamp(t.timestamp)).toISOString()
+        });
+      }
+
+      // 5️⃣ CONVERT MAP → ARRAY
+      let merged = Array.from(map.values());
+
+      // 6️⃣ KEEP ONLY TODAY'S TRADES
+      const todayIST = new Date().toLocaleDateString("en-IN", { timeZone: IST });
+      merged = merged.filter(t => {
+        const d = new Date(t.ts).toLocaleDateString("en-IN", { timeZone: IST });
+        return d === todayIST;
       });
-    } else {
-      const e=map.get(oid);
-      e.quantity+=qty;
-      e.weighted_price_sum+=qty*px;
-      if(t._ts>e._ts){ e._ts=t._ts; e._iso=t._iso; }
-    }
-  }
-  return Array.from(map.values()).map(e=>{
-    e.avg_price = e.quantity? e.weighted_price_sum/e.quantity : null;
-    delete e.weighted_price_sum;
-    return e;
-  });
-}
 
+      // 7️⃣ SORT LATEST FIRST
+      merged.sort((a, b) => b.ts - a.ts);
 
+      // 8️⃣ SAVE TO KV
+      await kv.set(TRADEBOOK_KEY, merged);
+      await kv.set(LAST_SYNC_KEY, now);
 
-export default async function handler(req,res){
-  try{
-    if(isAdmin(req)&&req.query?.raw==="1"){
-      const raw=await kv.get(TRADEBOOK_KEY)||"[]";
-      let arr=[]; try{arr=JSON.parse(raw);}catch{}
-      return res.status(200).json({ok:true, source:"kv", raw:true, trades:arr});
+      return res.status(200).json({
+        ok: true,
+        synced: true,
+        trades: merged
+      });
     }
 
-    try{
-      const raw=await kv.get(TRADEBOOK_KEY)||"[]";
-      let arr=[]; try{arr=JSON.parse(raw);}catch{}
-      if(arr.length){
-        const norm=arr.slice(-200).map(normalizeTrade);
-        const grouped=groupTradesByOrderId(norm);
-        return res.status(200).json({ok:true, source:"kv", trades:grouped});
-      }
-    }catch(e){}
+    // 9️⃣ IF RECENT KV → RETURN WITHOUT SYNC
+    return res.status(200).json({
+      ok: true,
+      synced: false,
+      trades: existing
+    });
 
-    try{
-      const kc=await instance();
-      const trades=await kc.getTrades()||[];
-      if(trades.length){
-        const norm=trades.slice(-200).map(normalizeTrade);
-        const grouped=groupTradesByOrderId(norm);
-
-        
-
-        return res.status(200).json({ok:true, source:"kite", trades:grouped});
-      }
-    }catch(e){}
-
-    return res.status(200).json({ok:true, source:"empty", trades:[]});
-  }catch(err){
-    return res.status(500).json({ok:false, error:String(err)});
+  } catch (err) {
+    return res.status(500).json({
+      ok: false,
+      error: String(err)
+    });
   }
 }
