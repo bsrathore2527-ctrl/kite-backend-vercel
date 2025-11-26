@@ -33,6 +33,14 @@ export default async function handler(req, res) {
       mtm_total: totalPnl,
       mtm_updated_at: Date.now()
     });
+// ALSO write live MTM for api/state.js
+await kv.set("live:mtm", {
+  realised: totalReal,
+  unrealised: totalUnreal,
+  total: totalPnl,
+  mtm: totalPnl,      // for compatibility
+  updated_at: Date.now()
+});
 
     res
       .status(200)
