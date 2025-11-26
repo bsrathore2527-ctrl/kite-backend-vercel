@@ -1,167 +1,91 @@
-// api/sync-sellbook.js
-// Build SELLBOOK from KV tradebook:
-// - group partial fills by trade_id
-// - only today's sells (IST)
-// - use same ts basis as tradebook
-// - attach current MTM and MTM-change
 
+// api/sync-sellbook.js
 import { kv } from "./_lib/kv.js";
 
 const TRADEBOOK_KEY = "guardian:tradebook";
 const SELLBOOK_KEY = "guardian:sell_orders";
 
-// Get IST calendar date string for a given ms
-function istDate(ms) {
-  return new Date(ms).toLocaleDateString("en-IN", {
-    timeZone: "Asia/Kolkata"
-  });
+// ---- UNIVERSAL TIMESTAMP NORMALIZER ----
+function getTimestampMs(t) {
+  // 1) enforce-trades normalized field
+  if (t._ts && Number(t._ts)) return Number(t._ts);
+
+  // 2) tradebook.ts (already ms or sec)
+  if (t.ts) {
+    const n = Number(t.ts);
+    return String(n).length === 10 ? n * 1000 : n;
+  }
+
+  // 3) iso fields
+  if (t.iso_date) {
+    const parsed = Date.parse(t.iso_date);
+    if (!isNaN(parsed)) return parsed;
+  }
+  if (t._iso) {
+    const parsed = Date.parse(t._iso);
+    if (!isNaN(parsed)) return parsed;
+  }
+
+  // 4) raw fallback
+  const parsed = Date.parse(t.timestamp || t.date || t.time);
+  if (!isNaN(parsed)) return parsed;
+
+  return Date.now(); // last fallback, never crash job
 }
 
 export default async function handler(req, res) {
   try {
-    // 1) Load tradebook from KV
-    let trades = [];
-    try {
-      const raw = await kv.get(TRADEBOOK_KEY);
-      if (Array.isArray(raw)) {
-        trades = raw;
-      } else if (typeof raw === "string") {
-        trades = JSON.parse(raw || "[]");
-      } else {
-        trades = [];
-      }
-    } catch {
-      trades = [];
-    }
+    const tradebook = await kv.get(TRADEBOOK_KEY);
+    const trades = Array.isArray(tradebook) ? tradebook : [];
 
-    if (!Array.isArray(trades)) trades = [];
+    // get MTM
+    const mtmObj = await kv.get("live:mtm");
+    const currentMTM = Number(mtmObj?.total ?? 0);
 
-    // 2) Get today's IST date
-    const todayIST = istDate(Date.now());
+    const todayIST = new Date().toLocaleDateString("en-IN", {
+      timeZone: "Asia/Kolkata"
+    });
 
-    // 3) Load current MTM from state (total_pnl)
-    let currentMTM = 0;
-    try {
-      const s = await kv.get("guardian:state");
-      if (s) {
-        const state = typeof s === "string" ? JSON.parse(s) : s;
-        currentMTM = Number(state.total_pnl ?? 0) || 0;
-      }
-    } catch {
-      currentMTM = 0;
-    }
-
-    // 4) Group SELL trades by trade_id using tradebook structure
-    const groupedMap = new Map();
+    const sellArr = [];
 
     for (const t of trades) {
       const side = (t.side || "").toUpperCase();
       if (side !== "SELL") continue;
 
-      // trade_id is the grouping key (same as tradebook)
-      const tradeId = t.trade_id || t.tradeId || null;
-      const key =
-        tradeId ||
-        `${t.tradingsymbol || ""}_${t.ts || ""}`; // fallback if trade_id missing
+      const time_ms = getTimestampMs(t);
 
-      const qty = Number(t.qty || t.quantity || 0);
-      const price = Number(t.price || 0);
-      const ts = Number(t.ts || Date.now());
-      const iso = t.iso_date || new Date(ts).toISOString();
-      const instrument = t.tradingsymbol || t.symbol || t.instrument || "";
+      const tradeDateIST = new Date(time_ms).toLocaleDateString("en-IN", {
+        timeZone: "Asia/Kolkata"
+      });
 
-      if (!groupedMap.has(key)) {
-        groupedMap.set(key, {
-          trade_id: tradeId,
-          instrument,
-          qty,
-          weighted_sum: qty * price,
-          last_ts: ts,
-          last_iso: iso
-        });
-      } else {
-        const g = groupedMap.get(key);
-        g.qty += qty;
-        g.weighted_sum += qty * price;
-        if (ts > g.last_ts) {
-          g.last_ts = ts;
-          g.last_iso = iso;
-        }
-      }
-    }
-
-    // 5) Convert grouped map -> grouped sells
-    const groupedSells = Array.from(groupedMap.values()).map((g) => {
-      const avgPrice =
-        g.qty && Number.isFinite(g.weighted_sum / g.qty)
-          ? g.weighted_sum / g.qty
-          : 0;
-      return {
-        trade_id: g.trade_id,
-        instrument: g.instrument,
-        qty: g.qty,
-        price: avgPrice,
-        time_ms: g.last_ts,
-        iso: g.last_iso
-      };
-    });
-
-    // 6) Filter to today's trades only (IST)
-    const todaysSells = groupedSells.filter(
-      (g) => istDate(g.time_ms) === todayIST
-    );
-
-    // 7) Load existing sellbook from KV
-    let sellArr = [];
-    try {
-      const rawSell = await kv.get(SELLBOOK_KEY);
-      if (Array.isArray(rawSell)) {
-        sellArr = rawSell;
-      } else if (typeof rawSell === "string") {
-        sellArr = JSON.parse(rawSell || "[]");
-      } else {
-        sellArr = [];
-      }
-    } catch {
-      sellArr = [];
-    }
-    if (!Array.isArray(sellArr)) sellArr = [];
-
-    // 8) Append today's grouped sells, avoid duplicates
-    for (const g of todaysSells) {
-      const exists = sellArr.some(
-        (x) => x.trade_id && g.trade_id && x.trade_id === g.trade_id
-      );
-      if (exists) continue;
+      // keep only today's trades
+      if (tradeDateIST !== todayIST) continue;
 
       const last = sellArr.length > 0 ? sellArr[sellArr.length - 1] : null;
-      const lastMtm = last ? Number(last.mtm || 0) : 0;
+      const lastMtm = last ? Number(last.mtm) : 0;
 
       sellArr.push({
-        instrument: g.instrument,
-        qty: g.qty,
-        price: Number(g.price || 0),
+        instrument: t.tradingsymbol,
+        qty: t.qty,
+        price: t.price,
         mtm: currentMTM,
         mtm_change: currentMTM - lastMtm,
-        trade_id: g.trade_id,
-        time_ms: g.time_ms, // same base as tradebook ts
-        iso: g.iso
+        trade_id: t.trade_id,
+        time_ms,
+        iso: new Date(time_ms).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })
       });
     }
 
-    // 9) Save back to KV
+    // latest first
+    sellArr.sort((a, b) => b.time_ms - a.time_ms);
+
+    // save
     await kv.set(SELLBOOK_KEY, sellArr);
 
-    return res.status(200).json({
-      ok: true,
-      count: sellArr.length,
-      sellbook: sellArr
-    });
+    return res.status(200).json({ ok: true, count: sellArr.length });
+
   } catch (err) {
     console.error("sync-sellbook error:", err);
-    return res.status(500).json({
-      ok: false,
-      error: String(err)
-    });
+    return res.status(500).json({ ok: false, error: String(err) });
   }
 }
