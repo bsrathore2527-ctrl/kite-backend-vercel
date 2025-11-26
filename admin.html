@@ -793,27 +793,33 @@ async function loadTradebook(){
 /* ---------------------------
    SELLBOOK UI (NEW)
    --------------------------- */
+
 function sellRowHtml(t){
   const sym = t.instrument || t.tradingsymbol || '—';
 
   let time = '—';
 
-  // ✓ BEST: if backend sent ISO (already IST)
+  // If backend sent ISO string
   if (t.iso) {
-    let parts = t.iso.split(",");
-    time = (parts.length >= 2 ? parts[1].trim() : t.iso);
-  } else {
-    // fallback — use timestamp, convert to IST
     try {
-      const ts = t.time_ms || t.time || Date.now();
-      const d = new Date(ts);
-      if (!isNaN(d)) {
-        time = d.toLocaleTimeString("en-IN", {
-          hour12: false,
-          timeZone: "Asia/Kolkata"
-        });
-      }
-    } catch(e) {}
+      // Convert ISO-like string "26/11/2025, 8:43:23 pm" to 24h
+      const d = new Date(t.time_ms);
+      time = d.toLocaleTimeString("en-IN", {
+        hour12: false,
+        timeZone: "Asia/Kolkata"
+      });
+    } catch(e){
+      time = t.iso;
+    }
+  } 
+  else {
+    // fallback timestamp
+    const ts = t.time_ms || t.time || Date.now();
+    const d = new Date(ts);
+    time = d.toLocaleTimeString("en-IN", {
+      hour12:false,
+      timeZone:"Asia/Kolkata"
+    });
   }
 
   const mtm = fmtINR(t.mtm);
