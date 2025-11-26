@@ -797,18 +797,28 @@ function sellRowHtml(t){
   const sym = t.instrument || t.tradingsymbol || '—';
 
   let time = '—';
-  try{
-    const ts = t.time_ms || t.time;
-    const d = new Date(ts);
-    if(!isNaN(d)) time = d.toLocaleTimeString('en-GB',{hour12:false,timeZone:'Asia/Kolkata'});
-  }catch(e){}
+
+  // ✓ BEST: if backend sent ISO (already IST)
+  if (t.iso) {
+    let parts = t.iso.split(",");
+    time = (parts.length >= 2 ? parts[1].trim() : t.iso);
+  } else {
+    // fallback — use timestamp, convert to IST
+    try {
+      const ts = t.time_ms || t.time || Date.now();
+      const d = new Date(ts);
+      if (!isNaN(d)) {
+        time = d.toLocaleTimeString("en-IN", {
+          hour12: false,
+          timeZone: "Asia/Kolkata"
+        });
+      }
+    } catch(e) {}
+  }
 
   const mtm = fmtINR(t.mtm);
-
   const rawChg = Number(t.mtm_change ?? 0);
-  let chg = '0';
-  if (rawChg !== 0) chg = (rawChg > 0 ? '+' : '') + String(Math.trunc(rawChg));
-
+  let chg = rawChg > 0 ? `+${rawChg}` : `${rawChg}`;
   const color = rawChg >= 0 ? '#10b981' : '#ef4444';
 
   return `<tr>
@@ -817,8 +827,8 @@ function sellRowHtml(t){
     <td>${mtm}</td>
     <td style="color:${color}">${chg}</td>
   </tr>`;
-}
-
+  }
+  
 async function loadSellbook(){
   const out = $('sellbook_output');
   out.innerHTML = `<div class="tb-empty">Loading sellbook...</div>`;
