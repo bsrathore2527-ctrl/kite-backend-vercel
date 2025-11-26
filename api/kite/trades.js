@@ -133,7 +133,6 @@ export default async function handler(req, res) {
           mtm_change: liveMTM - prevMTM,
           trade_id: t.trade_id,
           time_ms: t.ts,
-          iso: new Date(t.ts).toLocaleString("en-IN", { timeZone: IST })
         });
       }
 
