@@ -795,45 +795,31 @@ async function loadTradebook(){
    --------------------------- */
 
 function sellRowHtml(t){
-  const sym = t.instrument || t.tradingsymbol || '—';
+  const sym = t.instrument || t.tradingsymbol || "—";
 
-  let time = '—';
+  const ts = t.time_ms || t.ts || Date.now();
 
-  // If backend sent ISO string
-  if (t.iso) {
-    try {
-      // Convert ISO-like string "26/11/2025, 8:43:23 pm" to 24h
-      const d = new Date(t.time_ms);
-      time = d.toLocaleTimeString("en-IN", {
-        hour12: false,
-        timeZone: "Asia/Kolkata"
-      });
-    } catch(e){
-      time = t.iso;
-    }
-  } 
-  else {
-    // fallback timestamp
-    const ts = t.time_ms || t.time || Date.now();
-    const d = new Date(ts);
-    time = d.toLocaleTimeString("en-IN", {
-      hour12:false,
-      timeZone:"Asia/Kolkata"
-    });
-  }
+  const time = new Date(ts).toLocaleTimeString("en-IN", {
+    hour12:false,
+    timeZone:"Asia/Kolkata"
+  });
 
   const mtm = fmtINR(t.mtm);
-  const rawChg = Number(t.mtm_change ?? 0);
-  let chg = rawChg > 0 ? `+${rawChg}` : `${rawChg}`;
-  const color = rawChg >= 0 ? '#10b981' : '#ef4444';
+  const chg = Number(t.mtm_change || 0);
+  const color = chg >= 0 ? "#10b981" : "#ef4444";
 
-  return `<tr>
-    <td>${sym}</td>
-    <td>${time}</td>
-    <td>${mtm}</td>
-    <td style="color:${color}">${chg}</td>
-  </tr>`;
+  return `
+    <tr>
+      <td>${sym}</td>
+      <td>${time}</td>
+      <td>${mtm}</td>
+      <td style="color:${color}">
+        ${chg >= 0 ? "+"+chg : chg}
+      </td>
+    </tr>
+  `;
   }
+
   
 async function loadSellbook(){
   const out = $('sellbook_output');
