@@ -22,7 +22,7 @@ export default async function handler(req, res) {
       totalPnl += u + r;
     }
 
-    // Save to KV so /api/state can read it
+    // Save to KV so /api/state can read it (persisted)
     const key = `state:${todayKey()}`;
     const prev = (await kv.get(key)) || {};
 
@@ -33,14 +33,15 @@ export default async function handler(req, res) {
       mtm_total: totalPnl,
       mtm_updated_at: Date.now()
     });
-// ALSO write live MTM for api/state.js
-await kv.set("live:mtm", {
-  realised: totalReal,
-  unrealised: totalUnreal,
-  total: totalPnl,
-  mtm: totalPnl,      // for compatibility
-  updated_at: Date.now()
-});
+
+    // 🔥 CRITICAL PATCH: LIVE MTM FOR /api/state.js
+    await kv.set("live:mtm", {
+      realised: totalReal,
+      unrealised: totalUnreal,
+      total: totalPnl,
+      mtm: totalPnl,
+      updated_at: Date.now()
+    });
 
     res
       .status(200)
@@ -49,7 +50,8 @@ await kv.set("live:mtm", {
         ok: true,
         realised: totalReal,
         unrealised: totalUnreal,
-        total_pnl: totalPnl
+        total_pnl: totalPnl,
+        live_mtm_written: true   // helpful for debugging
       });
 
   } catch (e) {
