@@ -90,6 +90,21 @@ export default async function handler(req, res) {
       m2m_realised: m2m_realised,
       unrealised: unreal
     };
+// --- PATCH: Save latest MTM & balance to KV ---
+try {
+  const key = `state:${todayKey()}`;
+  const prev = (await kv.get(key)) || {};
+
+  await kv.set(key, {
+    ...prev,
+    realised: m2m_realised,
+    unrealised: unreal,
+    live_balance: normalized.balance,
+    updated_at: Date.now()
+  });
+} catch (e) {
+  console.error("KV write error in /kite/funds:", e);
+}
 
     return send(res, 200, normalized);
   } catch (err) {
