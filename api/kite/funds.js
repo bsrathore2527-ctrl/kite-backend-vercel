@@ -7,33 +7,38 @@ function send(res, code, body = {}) {
 }
 
 /* -----------------------------------------
-        MTM + FUNDS HELPERS
+      EXTRACTORS FOR ZERODHA STRUCTURES
 ----------------------------------------- */
 
-// Zerodha realised MTM
+// Realised / utilised
 function extractM2M(f) {
   try {
-    if (f?.equity?.utilised?.m2m_realised != null)
+    if (f?.equity?.utilised?.m2m_realised != null) {
       return Number(f.equity.utilised.m2m_realised);
-
-    if (f?.equity?.utilised?.m2m_unrealised != null)
+    }
+    if (f?.equity?.utilised?.m2m_unrealised != null) {
       return Number(f.equity.utilised.m2m_unrealised);
+    }
   } catch (e) {}
 
   return 0;
 }
 
-// Zerodha unrealised P&L based on net - opening balance
+// Unrealised MTM = live today's PnL
 function extractUnreal(f) {
   try {
     const net = Number(f?.equity?.net ?? 0);
     const opening = Number(f?.equity?.available?.opening_balance ?? 0);
-    if (net && opening) return net - opening;
+
+    if (net && opening) {
+      return net - opening; // Today’s MTM PnL
+    }
   } catch (e) {}
+
   return 0;
 }
 
-// Account balance extractor
+// Account value / balance
 function extractBalance(f) {
   try {
     if (f?.equity?.available?.live_balance != null)
@@ -45,11 +50,12 @@ function extractBalance(f) {
     if (f?.equity?.available?.cash != null)
       return Number(f.equity.available.cash);
   } catch (e) {}
+
   return 0;
 }
 
 /* -----------------------------------------
-   MAIN HANDLER (MERGED WITH POSITIONS-MTM)
+                MAIN HANDLER
 ----------------------------------------- */
 
 export default async function handler(req, res) {
@@ -58,7 +64,7 @@ export default async function handler(req, res) {
       return send(res, 405, { ok: false, error: "Method not allowed" });
     }
 
-    // Create kite instance
+    // Create kite client
     let kc;
     try {
       kc = await instance();
@@ -72,15 +78,18 @@ export default async function handler(req, res) {
       });
     }
 
-    /* -----------------------------------------
-           1) FETCH FUNDS / MARGINS
-    ----------------------------------------- */
+    // Fetch margins/funds
     let result = null;
     try {
-      if (typeof kc.getFunds === "function") result = await kc.getFunds();
-      else if (typeof kc.get_funds === "function") result = await kc.get_funds();
-      else if (typeof kc.getMargins === "function") result = await kc.getMargins();
-      else result = kc.funds || kc.balance || null;
+      if (typeof kc.getFunds === "function") {
+        result = await kc.getFunds();
+      } else if (typeof kc.get_funds === "function") {
+        result = await kc.get_funds();
+      } else if (typeof kc.getMargins === "function") {
+        result = await kc.getMargins();
+      } else {
+        result = kc.funds || kc.balance || null;
+      }
     } catch (err) {
       return send(res, 200, {
         ok: false,
@@ -89,85 +98,54 @@ export default async function handler(req, res) {
       });
     }
 
+    // Auto-detect structure
     let f = null;
     if (result?.funds) f = result.funds;
     else if (result?.equity || result?.commodity) f = result;
     else if (result?.data?.funds) f = result.data.funds;
 
     if (!f) {
-      return send(res, 200, { ok: false, error: "Funds not available", result });
+      return send(res, 200, {
+        ok: false,
+        error: "Funds not available",
+        result: result
+      });
     }
 
-    const m2m_funds = extractM2M(f);
-    const unreal_funds = extractUnreal(f);
-    const balance = extractBalance(f);
+    // Extract values
+    const m2m = extractM2M(f);
+    const unreal = extractUnreal(f);
+    const bal = extractBalance(f);
 
-    /* -----------------------------------------
-           2) FETCH POSITIONS FOR ACCURATE MTM
-    ----------------------------------------- */
-    let pos = null;
+    // --- PATCH: Write to KV state ---
     try {
-      pos = await kc.getPositions();
+      const key = `state:${todayKey()}`;
+      const prev = (await kv.get(key)) || {};
+
+      await kv.set(key, {
+        ...prev,
+        realised: m2m,
+        unrealised: unreal,
+        live_balance: bal,
+        updated_at: Date.now()
+      });
     } catch (e) {
-      pos = null;
+      console.error("KV write error in /kite/funds:", e);
     }
 
-    let totalUnreal = unreal_funds;
-    let totalReal = m2m_funds;
-
-    if (pos?.data?.net || pos?.net) {
-      const net = pos.data?.net || pos.net || [];
-      totalReal = 0;
-      totalUnreal = 0;
-
-      for (const p of net) {
-        const u = Number(p.unrealised || 0);
-        const r = Number(p.realised || 0);
-        totalUnreal += u;
-        totalReal += r;
-      }
-    }
-
-    const totalPnl = totalReal + totalUnreal;
-
-    /* -----------------------------------------
-          3) WRITE MTM TO KV (STATE + LIVE)
-    ----------------------------------------- */
-    const key = `state:${todayKey()}`;
-    const prev = (await kv.get(key)) || {};
-
-    await kv.set(key, {
-      ...prev,
-      realised: totalReal,
-      unrealised: totalUnreal,
-      total_pnl: totalPnl,
-      live_balance: balance,
-      updated_at: Date.now()
-    });
-
-    await kv.set("live:mtm", {
-      realised: totalReal,
-      unrealised: totalUnreal,
-      total: totalPnl,
-      mtm: totalPnl,
-      updated_at: Date.now()
-    });
-
-    /* -----------------------------------------
-                4) RETURN RESPONSE
-    ----------------------------------------- */
+    // Send normalized response
     return send(res, 200, {
       ok: true,
-      balance,
-      realised: totalReal,
-      unrealised: totalUnreal,
-      total_pnl: totalPnl,
       funds: f,
-      positions_used: !!pos,
-      merged_mtm: true
+      balance: bal,        // correct account value
+      m2m_realised: m2m,   // realised PnL
+      unrealised: unreal   // today's MTM PnL (net - opening_balance)
     });
 
   } catch (err) {
-    return send(res, 500, { ok: false, error: err.message || String(err) });
+    return send(res, 500, {
+      ok: false,
+      error: err.message || String(err)
+    });
   }
 }
