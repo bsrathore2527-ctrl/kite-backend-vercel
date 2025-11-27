@@ -424,33 +424,24 @@ export default async function handler(req, res) {
 
     // --- LOSS-FLOOR CHECK ---
 // load live MTM from broker and compute totals
-    try {
-      // fetch fresh positions and derive live MTM from broker's own P&L
-      let liveMTM = 0;
-      try {
-        const pos = await kc.getPositions();
-        const net = pos && Array.isArray(pos.net) ? pos.net : [];
-        liveMTM = net.reduce((sum, p) => {
-          const v = Number(p.pnl ?? p.unrealised ?? 0);
-          return sum + (Number.isFinite(v) ? v : 0);
-        }, 0);
-      } catch (e) {
-        console.warn("enforce-trades: failed to fetch live MTM from broker:", e && e.message ? e.message : e);
-      }
+    // --- LOSS-FLOOR CHECK ---
+// load live MTM from KV (written by positions-mtm.js)
+try {
 
-      // --- TEST OVERRIDE (for testing module) ---
-      if (req.query && typeof req.query.test_mtm !== "undefined") {
-        const testVal = Number(req.query.test_mtm);
-        if (!Number.isNaN(testVal)) {
-          console.log("TEST-MTM OVERRIDE APPLIED:", testVal);
-          liveMTM = testVal;
-        }
-      }
-      // ------------------------------------------
+  const mtmObj = await kv.get("live:mtm") || {};
+  let liveMTM = Number(mtmObj.total ?? 0);
 
+  // TEST OVERRIDE (for manual testing)
+  if (req.query && typeof req.query.test_mtm !== "undefined") {
+    const testVal = Number(req.query.test_mtm);
+    if (!Number.isNaN(testVal)) {
+      console.log("TEST-MTM OVERRIDE APPLIED:", testVal);
+      liveMTM = testVal;
+    }
+  }
 
-      const state = await getState();
-      const total = Number(liveMTM) || 0;
+  const state = await getState();
+  const totalPnl = liveMTM;   // <-- THIS is the source used in your peak profit logic
 
       // ---- Trailing max-loss floor logic ----
       // 1) Derive max_loss_abs: prefer stored value else compute from capital_day_915 * max_loss_pct
