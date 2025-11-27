@@ -294,6 +294,10 @@ export default async function handler(req, res) {
         });
       }
     }
+        // UPDATE LAST TRADE TIME (for admin.html)
+        await setState({
+       last_trade_time: t.ts
+  });
 
     if (newest > lastTs) await setLastProcessedTs(newest);
 
