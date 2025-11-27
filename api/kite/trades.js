@@ -35,9 +35,17 @@ export default async function handler(req, res) {
     let existing = (await kv.get(TRADEBOOK_KEY)) || [];
     if (!Array.isArray(existing)) existing = [];
 
-    // Load KV sellbook
-    let sellbook = (await kv.get(SELLBOOK_KEY)) || [];
-    if (!Array.isArray(sellbook)) sellbook = [];
+   // Load existing sellbook
+let sellbook = (await kv.get(SELLBOOK_KEY)) || [];
+if (!Array.isArray(sellbook)) sellbook = [];
+
+// --- NEW: Keep only today's sell entries ---
+const todayIST = new Date().toLocaleDateString("en-IN", { timeZone: IST });
+sellbook = sellbook.filter(s => {
+    const d = new Date(s.time_ms).toLocaleDateString("en-IN", { timeZone: IST });
+    return d === todayIST;
+});
+
 
     // Sync only every 20 sec
     const shouldSync = !lastSync || now - lastSync > 20000;
