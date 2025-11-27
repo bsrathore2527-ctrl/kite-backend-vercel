@@ -8,6 +8,9 @@ function send(res, code, body = {}) {
 const ok = (res, body = {}) => send(res, 200, { ok: true, ...body });
 const bad = (res, msg = "Bad request") => send(res, 400, { ok: false, error: msg });
 
+/* -------------------------------------------------------
+   Cancel all OPEN / TRIGGER orders (still broker action)
+------------------------------------------------------- */
 async function cancelPending(kc) {
   try {
     const orders = await kc.getOrders();
@@ -21,7 +24,7 @@ async function cancelPending(kc) {
         await kc.cancelOrder(o.variety || "regular", o.order_id);
         cancelled++;
       } catch (e) {
-        // ignore failures
+        /* ignore */
       }
     }
     return cancelled;
@@ -30,21 +33,27 @@ async function cancelPending(kc) {
   }
 }
 
+/* -------------------------------------------------------
+   KV-based square-off (NO getPositions)
+   Uses positions_live.net[]
+------------------------------------------------------- */
 async function squareOffAll(kc) {
   try {
-    const pos = await kc.getPositions();
-    const net = pos?.net || [];
+    const snap = await kv.get("positions_live");
+    const arr = snap?.net || [];
     let squared = 0;
-    for (const p of net) {
+
+    for (const p of arr) {
       const qty = Number(p.net_quantity ?? p.quantity ?? 0);
       if (!qty) continue;
+
       const side = qty > 0 ? "SELL" : "BUY";
       const absQty = Math.abs(qty);
 
       try {
         await kc.placeOrder("regular", {
           exchange: p.exchange || "NSE",
-          tradingsymbol: p.tradingsymbol || p.trading_symbol,
+          tradingsymbol: p.tradingsymbol,
           transaction_type: side,
           quantity: absQty,
           order_type: "MARKET",
@@ -53,32 +62,46 @@ async function squareOffAll(kc) {
         });
         squared++;
       } catch (e) {
-        // ignore per-symbol failure
+        /* ignore */
       }
     }
+
     return squared;
   } catch (e) {
     return 0;
   }
 }
 
+/* -------------------------------------------------------
+   Main handler
+------------------------------------------------------- */
 export default async function handler(req, res) {
   try {
-    // accept GET or POST from UI / scheduler
-    if (req.method !== "GET" && req.method !== "POST") return bad(res, "Method not allowed");
+    if (req.method !== "GET" && req.method !== "POST")
+      return bad(res, "Method not allowed");
 
     const key = `risk:${todayKey()}`;
     const state = (await kv.get(key)) || {};
 
+    // Skip if no trip-state yet
     if (!state.tripped_day && !state.block_new_orders) {
-      return ok(res, { tick: new Date().toISOString(), enforced: false, reason: "not_tripped" });
+      return ok(res, {
+        tick: new Date().toISOString(),
+        enforced: false,
+        reason: "not_tripped"
+      });
     }
 
+    // Need kite instance only for cancel + square-off actions
     let kc;
     try {
       kc = await instance();
     } catch (e) {
-      return ok(res, { enforced: false, note: "Kite not connected", error: e.message });
+      return ok(res, {
+        enforced: false,
+        note: "Kite not connected",
+        error: e.message
+      });
     }
 
     const cancelled = await cancelPending(kc);
@@ -88,7 +111,10 @@ export default async function handler(req, res) {
     await kv.set(key, next);
 
     return ok(res, {
-      tick: new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour12: false }),
+      tick: new Date().toLocaleTimeString("en-IN", {
+        timeZone: "Asia/Kolkata",
+        hour12: false
+      }),
       enforced: true,
       cancelled,
       squared
