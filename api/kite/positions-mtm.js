@@ -1,16 +1,16 @@
 //-------------------------------------------------------
 // /api/kite/positions-mtm.js
-// FINAL OPTIMIZED VERSION (Option B)
+// FINAL - Compatible with your project (instance(), kv)
 //-------------------------------------------------------
-
-import { kiteConnectClient } from "../_lib/kite.js";
-import { kv } from "../_lib/kv.js";
 
 export const config = {
   runtime: "nodejs",
 };
 
-// Helper: India time
+import { instance } from "../_lib/kite.js";
+import { kv } from "../_lib/kv.js";
+
+// Helper IST time
 function nowIST() {
   return new Date(Date.now() + 5.5 * 60 * 60 * 1000);
 }
@@ -18,23 +18,25 @@ function nowIST() {
 export default async function handler(req) {
   try {
     //---------------------------------------------------
-    // 1) Fetch fresh positions from Zerodha
+    // 1) Get authenticated Zerodha client
     //---------------------------------------------------
-    const kc = await kiteConnectClient();
-    const positionsResp = await kc.getPositions();
+    const kc = await instance();
 
+    //---------------------------------------------------
+    // 2) Get latest positions from Zerodha
+    //---------------------------------------------------
+    const positionsResp = await kc.getPositions();
     const net = Array.isArray(positionsResp.net)
       ? positionsResp.net
       : [];
 
     //---------------------------------------------------
-    // 2) Compute realised, unrealised, total PnL
+    // 3) Compute MTM using Zerodha fields
     //---------------------------------------------------
     let realised = 0;
     let unrealised = 0;
 
     for (const p of net) {
-      // Zerodha gives pnl = realised, unrealised
       if (typeof p.realised === "number") realised += p.realised;
       if (typeof p.unrealised === "number") unrealised += p.unrealised;
     }
@@ -42,7 +44,7 @@ export default async function handler(req) {
     const total_pnl = realised + unrealised;
     const ts = Date.now();
 
-    const mtmObj = {
+    const mtm = {
       realised,
       unrealised,
       total_pnl,
@@ -50,12 +52,12 @@ export default async function handler(req) {
     };
 
     //---------------------------------------------------
-    // 3) Write MTM → KV (single source of truth)
+    // 4) Write MTM → KV
     //---------------------------------------------------
-    await kv.set("live:mtm", mtmObj);
+    await kv.set("live:mtm", mtm);
 
     //---------------------------------------------------
-    // 4) Write POSITIONS → KV (single source of truth)
+    // 5) Write raw positions → KV
     //---------------------------------------------------
     await kv.set("live:positions", {
       positions: net,
@@ -63,7 +65,7 @@ export default async function handler(req) {
     });
 
     //---------------------------------------------------
-    // 5) Return same response format (backward compatible)
+    // 6) Return MTM (backwards-compatible format)
     //---------------------------------------------------
     return new Response(
       JSON.stringify({
@@ -79,7 +81,10 @@ export default async function handler(req) {
 
   } catch (err) {
     return new Response(
-      JSON.stringify({ ok: false, error: String(err) }),
+      JSON.stringify({
+        ok: false,
+        error: String(err),
+      }),
       { status: 500 }
     );
   }
