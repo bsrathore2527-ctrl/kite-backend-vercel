@@ -1,157 +1,134 @@
-// api/enforce-trades.js
-// Processes new trades, updates cooldown/tripping/peak profit/floor logic.
-// NO realised/unrealised writes to risk:today. MTM comes ONLY from positions-mtm.js.
+// enforce-trades.js (COMPLETE VERSION)
+// ONE-ORDER = ONE-TRADE (Mode B: process only when order fully filled)
+// MTM-only system (no realised stored in risk state)
+// FIFO used only for book integrity
+// sellbook MTM-only
+// consecutive-loss MTM only (only on SELL)
 
 import { kv, getState, setState } from "./_lib/kv.js";
 import { instance } from "./_lib/kite.js";
 
-/* ------------------------- TIMESTAMP NORMALIZATION ------------------------- */
+/* ----------------------------- Timestamp Normalization ----------------------------- */
 function normalizeTs(ts) {
   if (ts == null) return null;
   if (typeof ts === "number" && Number.isFinite(ts)) {
-    return (String(ts).length === 10 ? ts * 1000 : ts);
+    return String(ts).length === 10 ? ts * 1000 : ts;
   }
   const s = String(ts).trim();
   if (/^\d+$/.test(s)) {
     const n = Number(s);
-    return (String(n).length === 10 ? n * 1000 : n);
+    return String(n).length === 10 ? n * 1000 : n;
   }
-  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(s)) {
-    return Date.parse(s.replace(" ", "T") + "Z");
-  }
-  const p = Date.parse(s);
-  return Number.isNaN(p) ? null : p;
+  const parsed = Date.parse(s);
+  return Number.isNaN(parsed) ? null : parsed;
 }
 
-/* ------------------- BOOK (FIFO) STORAGE KEYS ------------------- */
+/* ----------------------------- KV Keys ----------------------------- */
 const LAST_TRADE_KEY = "guardian:last_trade_ts";
 const BOOK_PREFIX = "guardian:book:";
 const TRADEBOOK_KEY = "guardian:tradebook";
+const SELLBOOK_KEY = "guardian:sellbook";
 
-/* --------------------------- BASIC HELPERS --------------------------- */
+/* ------------------------------ Helpers ------------------------------ */
 async function getLastProcessedTs() {
   return Number(await kv.get(LAST_TRADE_KEY) || 0);
 }
+
 async function setLastProcessedTs(ts) {
   await kv.set(LAST_TRADE_KEY, Number(ts));
 }
-async function getBook(symbol) {
-  return (await kv.get(BOOK_PREFIX + symbol)) || { instrument: symbol, lots: [], net_qty: 0 };
-}
-async function setBook(symbol, book) {
-  await kv.set(BOOK_PREFIX + symbol, book);
+
+async function getBook(sym) {
+  return (await kv.get(BOOK_PREFIX + sym)) || { instrument: sym, lots: [], net_qty: 0 };
 }
 
-/* ------------------------------ TRADEBOOK ------------------------------ */
+async function setBook(sym, book) {
+  await kv.set(BOOK_PREFIX + sym, book);
+}
+
+/* ------------------------------ Tradebook ------------------------------ */
 async function appendToTradebook(t) {
   const raw = await kv.get(TRADEBOOK_KEY);
   const arr = Array.isArray(raw) ? raw : [];
 
-  const ms = normalizeTs(t._ts || t.timestamp || Date.now()) || Date.now();
+  const ms = normalizeTs(t.ts) || Date.now();
 
-  const rec = {
+  arr.unshift({
     ts: ms,
     iso_date: new Date(ms).toISOString(),
-    tradingsymbol: t.tradingsymbol || t.trading_symbol || t.instrument || t.symbol,
-    account_id: t.account_id || null,
-    trade_id: t.trade_id || t.order_id || null,
-    side: (t.transaction_type || t.order_side || t.side || "").toUpperCase(),
-    qty: Math.abs(Number(t.quantity || t.qty || 0)),
-    price: Number(t.price || t.trade_price || t.avg_price || 0),
-    raw: t,
-    _ts: ms
-  };
+    tradingsymbol: t.tradingsymbol,
+    qty: t.quantity,
+    price: t.price,
+    side: t.transaction_type,
+    raw: t
+  });
 
-  arr.unshift(rec);
   if (arr.length > 200) arr.length = 200;
   await kv.set(TRADEBOOK_KEY, arr);
-  return true;
 }
 
-/* ---------------------------- FIFO MATCHING ---------------------------- */
+/* ------------------------------ FIFO Logic ------------------------------ */
 function matchSell(book, qty, price, tradeId, ts) {
-  let qtyToMatch = qty;
-  const realizedEvents = [];
+  let q = qty;
   const newLots = [];
 
   for (let lot of book.lots) {
-    if (qtyToMatch <= 0) { newLots.push(lot); continue; }
+    if (q <= 0) { newLots.push(lot); continue; }
 
     if (lot.side === "BUY") {
       const avail = Math.abs(lot.qty);
-      const take = Math.min(avail, qtyToMatch);
-      const pnl = (price - lot.avg_price) * take;
-
-      realizedEvents.push({
-        instrument: book.instrument,
-        qty: take,
-        realized_pnl: pnl,
-        close_ts: ts,
-        trade_ids: [tradeId],
-        open_lot: { ...lot }
-      });
+      const take = Math.min(avail, q);
 
       lot.qty -= take;
-      qtyToMatch -= take;
-      if (Math.abs(lot.qty) > 0) newLots.push(lot);
+      q -= take;
 
+      if (Math.abs(lot.qty) > 0) newLots.push(lot);
     } else {
       newLots.push(lot);
     }
   }
 
-  if (qtyToMatch > 0) {
-    newLots.push({ qty: -qtyToMatch, avg_price: price, side: "SELL", open_ts: ts });
+  if (q > 0) {
+    newLots.push({ qty: -q, avg_price: price, side: "SELL", open_ts: ts });
   }
 
   const netQty = newLots.reduce((s, l) =>
     s + (l.side === "BUY" ? l.qty : -Math.abs(l.qty)), 0);
 
-  return { realizedEvents, updatedBook: { instrument: book.instrument, lots: newLots, net_qty: netQty } };
+  return { updatedBook: { instrument: book.instrument, lots: newLots, net_qty: netQty } };
 }
 
 function matchBuy(book, qty, price, tradeId, ts) {
-  let qtyToMatch = qty;
-  const realizedEvents = [];
+  let q = qty;
   const newLots = [];
 
   for (let lot of book.lots) {
-    if (qtyToMatch <= 0) { newLots.push(lot); continue; }
+    if (q <= 0) { newLots.push(lot); continue; }
 
     if (lot.side === "SELL") {
       const avail = Math.abs(lot.qty);
-      const take = Math.min(avail, qtyToMatch);
-      const pnl = (lot.avg_price - price) * take;
-
-      realizedEvents.push({
-        instrument: book.instrument,
-        qty: take,
-        realized_pnl: pnl,
-        close_ts: ts,
-        trade_ids: [tradeId],
-        open_lot: { ...lot }
-      });
+      const take = Math.min(avail, q);
 
       lot.qty += take;
-      qtyToMatch -= take;
-      if (Math.abs(lot.qty) > 0) newLots.push(lot);
+      q -= take;
 
+      if (Math.abs(lot.qty) > 0) newLots.push(lot);
     } else {
       newLots.push(lot);
     }
   }
 
-  if (qtyToMatch > 0) {
+  if (q > 0) {
     newLots.push({ qty, avg_price: price, side: "BUY", open_ts: ts });
   }
 
   const netQty = newLots.reduce((s, l) =>
     s + (l.side === "BUY" ? l.qty : -Math.abs(l.qty)), 0);
 
-  return { realizedEvents, updatedBook: { instrument: book.instrument, lots: newLots, net_qty: netQty } };
+  return { updatedBook: { instrument: book.instrument, lots: newLots, net_qty: netQty } };
 }
 
-/* ---------------------- CANCEL / SQUARE-OFF HELPERS ---------------------- */
+/* ------------------------------ Cancel Helpers ------------------------------ */
 async function cancelPending(kc) {
   try {
     const orders = await kc.getOrders();
@@ -165,7 +142,7 @@ async function cancelPending(kc) {
       try {
         await kc.cancelOrder(o.variety || "regular", o.order_id);
         cancelled++;
-      } catch { }
+      } catch {}
     }
     return cancelled;
   } catch {
@@ -180,7 +157,7 @@ async function squareOffAll(kc) {
     let sq = 0;
 
     for (const p of net) {
-      const qty = Number(p.net_quantity ?? p.quantity ?? 0);
+      const qty = Number(p.net_quantity ?? 0);
       if (!qty) continue;
 
       const side = qty > 0 ? "SELL" : "BUY";
@@ -204,15 +181,13 @@ async function squareOffAll(kc) {
 
 /* ------------------------------ MAIN HANDLER ------------------------------ */
 export default async function handler(req, res) {
-  if (req.method === "OPTIONS") return res.status(204).end();
-
   try {
     const kc = await instance();
 
-    // Fetch trades
-    const trades = (await kc.getTrades()) || [];
+    /* ------------------------------ Fetch orders ------------------------------ */
+    const trades = await kc.getTrades(); // Fills, not grouped
+    const orders = await kc.getOrders(); // Needed to detect COMPLETE
 
-    // Update kite health
     await setState({
       kite_status: "ok",
       kite_last_ok_at: Date.now(),
@@ -221,98 +196,144 @@ export default async function handler(req, res) {
 
     const lastTs = await getLastProcessedTs();
 
-    // Normalize + filter new trades
-    const normalized = trades.map(t => ({
-      ...t,
-      _ts: normalizeTs(t.timestamp || t.trade_time || t.exchange_timestamp) || Date.now()
-    })).sort((a, b) => a._ts - b._ts);
+    /* ------------------------------ GROUP FILLS BY ORDER-ID (MODE B) ------------------------------ */
+    const grouped = {};
 
-    const newTrades = normalized.filter(t => t._ts > lastTs);
+    for (const f of trades) {
+      const oid = f.order_id;
+      if (!oid) continue;
+
+      const status = (orders.find(o => o.order_id === oid)?.status || "").toUpperCase();
+      if (status !== "COMPLETE") continue; // Mode B → process only after full fill
+
+      if (!grouped[oid]) {
+        grouped[oid] = {
+          order_id: oid,
+          tradingsymbol: f.tradingsymbol,
+          transaction_type: (f.transaction_type || "").toUpperCase(),
+          total_qty: 0,
+          weighted_sum: 0,
+          ts: normalizeTs(f.timestamp) || Date.now()
+        };
+      }
+
+      const qty = Math.abs(Number(f.quantity || 0));
+      const price = Number(f.price || 0);
+
+      grouped[oid].total_qty += qty;
+      grouped[oid].weighted_sum += qty * price;
+      grouped[oid].ts = Math.max(grouped[oid].ts, normalizeTs(f.timestamp) || Date.now());
+    }
+
+    /* ------------------------------ Convert grouped to trade list ------------------------------ */
+    const finalTrades = [];
+    for (const oid in grouped) {
+      const g = grouped[oid];
+      const avgPrice = g.weighted_sum / g.total_qty;
+
+      finalTrades.push({
+        order_id: oid,
+        tradingsymbol: g.tradingsymbol,
+        transaction_type: g.transaction_type,
+        quantity: g.total_qty,
+        price: avgPrice,
+        ts: g.ts
+      });
+    }
+
+    /* ------------------------------ Filter new trades ------------------------------ */
+    const newTrades = finalTrades.filter(t => t.ts > lastTs).sort((a, b) => a.ts - b.ts);
+
     let newest = lastTs;
 
-    /* ------------------------- PROCESS NEW TRADES ------------------------- */
+    /* ------------------------------ PROCESS NEW TRADES ------------------------------ */
     for (const t of newTrades) {
-      newest = Math.max(newest, t._ts);
+      newest = Math.max(newest, t.ts);
 
       await appendToTradebook(t);
 
-      const sym = t.tradingsymbol || t.trading_symbol || t.symbol;
-      const tradeId = t.trade_id || t.order_id || `${sym}_${t._ts}`;
-      const qty = Math.abs(Number(t.quantity || 0));
-      const price = Number(t.price || t.avg_price || 0);
-      const side = (t.transaction_type || t.side || "").toUpperCase();
+      const sym = t.tradingsymbol;
+      const qty = Math.abs(t.quantity);
+      const price = Number(t.price);
+      const side = t.transaction_type;
 
       let book = await getBook(sym);
 
       const result = (
         side === "SELL"
-          ? matchSell(book, qty, price, tradeId, t._ts)
-          : matchBuy(book, qty, price, tradeId, t._ts)
+          ? matchSell(book, qty, price, t.order_id, t.ts)
+          : matchBuy(book, qty, price, t.order_id, t.ts)
       );
 
       await setBook(sym, result.updatedBook);
 
-      /* ------ STORE REALIZED EVENTS (BUT DO NOT MODIFY risk:today) ------ */
-      for (const ev of result.realizedEvents) {
-        // Do not aggregate realised into risk:today — by requirement.
-        await kv.set("guardian:realized:" + ev.trade_ids.join("_") + "_" + ev.close_ts, ev);
+      /* ------------------------------ SELLBOOK (MTM) ------------------------------ */
+      if (side === "SELL") {
+        const mtmObj = await kv.get("live:mtm") || {};
+        const sellMtm = Number(mtmObj.total ?? 0);
+
+        const sb = (await kv.get(SELLBOOK_KEY)) || {};
+        sb[sym] = {
+          qty,
+          price,
+          time: t.ts,
+          mtm: sellMtm
+        };
+        await kv.set(SELLBOOK_KEY, sb);
+
+        /* ------------------------------ CONSECUTIVE LOSS ------------------------------ */
+        const state = await getState();
+        const prevMTM = Number(state.last_sell_mtm ?? state.start_day_mtm ?? 0);
+
+        let nextCL = Number(state.consecutive_losses ?? 0);
+        nextCL = sellMtm < prevMTM ? nextCL + 1 : 0;
+
+        await setState({
+          consecutive_losses: nextCL,
+          last_sell_mtm: sellMtm
+        });
       }
     }
 
     if (newest > lastTs) await setLastProcessedTs(newest);
 
-    /* --------------------------- LOSS-FLOOR CHECK --------------------------- */
-
-    // Load MTM from KV (written by positions-mtm.js)
+    /* ------------------------------ LOSS-FLOOR USING MTM ------------------------------ */
     const mtmObj = await kv.get("live:mtm") || {};
-    let liveMTM = Number(mtmObj.total ?? 0);
-
-    // TEST override
-    if (req.query && typeof req.query.test_mtm !== "undefined") {
-      const v = Number(req.query.test_mtm);
-      if (!isNaN(v)) liveMTM = v;
-    }
+    const liveMTM = Number(mtmObj.total ?? 0);
 
     const state = await getState();
     const totalPnl = liveMTM;
 
-    // Load config
     let maxLossAbs = Number(state.max_loss_abs ?? 0);
     if (!maxLossAbs) {
       const cap = Number(state.capital_day_915 ?? 0);
       const pct = Number(state.max_loss_pct ?? 0);
-      if (cap > 0 && pct > 0) maxLossAbs = Math.round(cap * pct / 100);
+      if (cap && pct) maxLossAbs = Math.round(cap * pct / 100);
     }
 
     const trailStep = Number(state.trail_step_profit ?? 0);
-
     const currentFloor = Number(state.active_loss_floor ?? -maxLossAbs);
     const currentPeak = Number(state.peak_profit ?? 0);
 
-    // Update peak
     const nextPeak = totalPnl > currentPeak ? totalPnl : currentPeak;
 
-    // Compute trail level
     let trailLevel = 0;
     if (trailStep > 0 && nextPeak > 0) {
       trailLevel = Math.floor(nextPeak / trailStep) * trailStep;
     }
 
-    // Compute new floor candidate
     let newFloorCandidate = -maxLossAbs;
     if (trailLevel > 0) newFloorCandidate = trailLevel - maxLossAbs;
 
-    const nextFloor = newFloorCandidate > currentFloor ? newFloorCandidate : currentFloor;
+    const nextFloor = Math.max(newFloorCandidate, currentFloor);
     const remaining = totalPnl - nextFloor;
 
-    // Update floor & peak
     await setState({
       peak_profit: nextPeak,
       active_loss_floor: nextFloor,
       remaining_to_max_loss: remaining
     });
 
-    // Trip logic
     if (maxLossAbs > 0 && remaining <= 0) {
       await setState({
         tripped_day: true,
@@ -325,7 +346,7 @@ export default async function handler(req, res) {
         const cancelled = await cancelPending(kc);
         const squared = await squareOffAll(kc);
         await setState({ admin_last_enforce_result: { cancelled, squared, at: Date.now() } });
-      } catch (e) {
+ } catch (e) {
         console.error("Auto enforce failed:", e);
       }
     }
