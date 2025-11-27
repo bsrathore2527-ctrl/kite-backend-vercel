@@ -50,8 +50,9 @@ async function cancelPending(kc) {
 
 async function squareOffAll(kc) {
   try {
-    const pos = await kc.getPositions();
-    const net = pos?.net || [];
+    const snap = await kv.get("positions_live");
+    const net = snap?.net || [];
+
     let squared = 0;
     for (const p of net) {
       const qty = Number(p.net_quantity ?? p.quantity ?? 0);
