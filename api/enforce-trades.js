@@ -2,29 +2,6 @@
 // Scheduled job — process new trades, compute realized closes, start cooldown and track consecutive losses.
 // Also: when total (realised + unrealised) loss breaches max_loss_abs derived from capital & max_loss_pct,
 // mark tripped_day and immediately attempt to enforce (cancel + square off).
-// 1) Fetch MTM from Kite & store in KV
-try {
-    const kc = await instance();
-    const pos = await kc.getPositions();
-
-    let unrealised = 0, realised = 0;
-    const net = pos?.net || [];
-
-    for (const p of net) {
-        unrealised += Number(p.unrealised || 0);
-        realised += Number(p.realised || 0);
-    }
-
-    await kv.set("live:mtm", {
-        unrealised,
-        realised,
-        total: unrealised + realised,
-        polled_at: Date.now(),
-        source: "enforce-trades"
-    });
-} catch (err) {
-    console.log("MTM poller inside enforce error:", err);
-}
 
 import { kv, getState, setState } from "./_lib/kv.js";
 import { instance } from "./_lib/kite.js";
@@ -370,7 +347,42 @@ export default async function handler(req, res) {
       for (const ev of result.realizedEvents) {
         const saved = await storeRealizedEvent(ev);
         if (!saved) continue;
+// append to Sell Book using current total_pnl from state
+        try {
+          const stateForSell = await getState();
+          const mtm = Number(stateForSell.total_pnl ?? 0);
 
+          const rawSell = await kv.get("guardian:sell_orders");
+          let sellArr;
+          if (Array.isArray(rawSell)) {
+            sellArr = rawSell;
+          } else if (typeof rawSell === "string") {
+            try {
+              const parsed = JSON.parse(rawSell);
+              sellArr = Array.isArray(parsed) ? parsed : [];
+            } catch {
+              sellArr = [];
+            }
+          } else {
+            sellArr = [];
+          }
+
+          const last = sellArr.length > 0 ? sellArr[sellArr.length - 1] : null;
+          const lastMtm = last && Number.isFinite(Number(last.mtm)) ? Number(last.mtm) : 0;
+          const mtm_change = mtm - lastMtm;
+
+          sellArr.push({
+            instrument: ev.instrument,
+            qty: ev.qty,
+            mtm,
+            mtm_change,
+            time_ms: ev.close_ts || Date.now()
+          });
+
+          await kv.set("guardian:sell_orders", sellArr);
+        } catch (e) {
+          console.error("sellbook append failed:", e && e.message ? e.message : e);
+        }
 
         // update global state: cooldown, consecutive_losses, last trade PnL/time
         const s = await getState();
@@ -413,10 +425,17 @@ export default async function handler(req, res) {
 // load live MTM from broker and compute totals
     try {
       // fetch fresh positions and derive live MTM from broker's own P&L
-      // Use MTM from KV (already computed earlier by poller block)
-    let mtmObj = await kv.get("live:mtm");
-    let liveMTM = Number(mtmObj?.total ?? 0);
-
+      let liveMTM = 0;
+      try {
+        const pos = await kc.getPositions();
+        const net = pos && Array.isArray(pos.net) ? pos.net : [];
+        liveMTM = net.reduce((sum, p) => {
+          const v = Number(p.pnl ?? p.unrealised ?? 0);
+          return sum + (Number.isFinite(v) ? v : 0);
+        }, 0);
+      } catch (e) {
+        console.warn("enforce-trades: failed to fetch live MTM from broker:", e && e.message ? e.message : e);
+      }
 
       // --- TEST OVERRIDE (for testing module) ---
       if (req.query && typeof req.query.test_mtm !== "undefined") {
