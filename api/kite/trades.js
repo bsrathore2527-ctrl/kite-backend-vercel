@@ -130,7 +130,9 @@ sellbook = sellbook.filter(s => {
         // Skip if already inserted
         if (sellbook.some(s => s.trade_id === t.trade_id)) continue;
 
-        
+        const prev = sellbook.length > 0 ? sellbook[sellbook.length - 1] : null;
+        const prevMTM = prev ? Number(prev.mtm) : 0;
+
         sellbook.push({
           instrument: t.tradingsymbol,
           qty: t.qty,
@@ -143,7 +145,7 @@ sellbook = sellbook.filter(s => {
       }
 
       // Sort sellbook newest first
-      sellbook.sort((a, b) => b.time_ms - a.time_ms);
+      sellbook.sort((a, b) => a.time_ms - b.time_ms);
 
       // Save both books
       await kv.set(TRADEBOOK_KEY, merged);
