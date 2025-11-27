@@ -293,12 +293,12 @@ export default async function handler(req, res) {
           last_sell_mtm: sellMtm
         });
       }
-    }
+    
         // UPDATE LAST TRADE TIME (for admin.html)
         await setState({
        last_trade_time: t.ts
-  });
-
+     });
+    }
     if (newest > lastTs) await setLastProcessedTs(newest);
 
     /* ------------------------------ LOSS-FLOOR USING MTM ------------------------------ */
