@@ -379,6 +379,10 @@ function init(){
   loadAll();
   // reduced refresh to 10s to reduce API pressure
   setInterval(()=> $('now').textContent = now(), 10000);
+  setInterval(() => {
+    loadAll();     // calls /api/state, /api/sellbook, /api/tradebook
+                   // and /api/kite/funds (cached, no Zerodha load)
+}, 10000);
 }
 
 /* token functions */
