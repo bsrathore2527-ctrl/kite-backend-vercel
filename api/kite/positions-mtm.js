@@ -3,7 +3,7 @@
 // FINAL OPTIMIZED VERSION (Option B)
 //-------------------------------------------------------
 
-import { kiteConnectClient } from "../_lib/kite.js";
+import { kiteConnectClient } from "../../_lib/kite.js";
 import { kv } from "../../_lib/kv.js";
 
 export const config = {
