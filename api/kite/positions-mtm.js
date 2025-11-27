@@ -1,91 +1,98 @@
-//-------------------------------------------------------
-// /api/kite/positions-mtm.js
-// FINAL - Compatible with your project (instance(), kv)
-//-------------------------------------------------------
-
-export const config = {
-  runtime: "nodejs",
-};
-
+// api/kite/positions-mtm.js
 import { instance } from "../_lib/kite.js";
 import { kv } from "../_lib/kv.js";
 
-// Helper IST time
-function nowIST() {
-  return new Date(Date.now() + 5.5 * 60 * 60 * 1000);
-}
-
-export default async function handler(req) {
+export default async function handler(req, res) {
   try {
-    //---------------------------------------------------
-    // 1) Get authenticated Zerodha client
-    //---------------------------------------------------
+    // ----------------------------------
+    // 1) Fetch fresh Zerodha positions
+    // ----------------------------------
     const kc = await instance();
+    const pos = await kc.getPositions();
 
-    //---------------------------------------------------
-    // 2) Get latest positions from Zerodha
-    //---------------------------------------------------
-    const positionsResp = await kc.getPositions();
-    const net = Array.isArray(positionsResp.net)
-      ? positionsResp.net
-      : [];
+    // Zerodha sometimes returns pos.data.net or pos.net
+    const net = pos?.data?.net || pos?.net || [];
 
-    //---------------------------------------------------
-    // 3) Compute MTM using Zerodha fields
-    //---------------------------------------------------
-    let realised = 0;
-    let unrealised = 0;
+    let totalUnreal = 0;
+    let totalReal = 0;
 
-    for (const p of net) {
-      if (typeof p.realised === "number") realised += p.realised;
-      if (typeof p.unrealised === "number") unrealised += p.unrealised;
-    }
+    // ----------------------------------------------------
+    // 2) Enrich + normalize positions required by ALL APIs
+    // ----------------------------------------------------
+    const enriched = net.map(p => {
+      const unreal = Number(p.unrealised || p.unrealized || 0);
+      const real = Number(p.realised || p.realized || 0);
 
-    const total_pnl = realised + unrealised;
-    const ts = Date.now();
+      totalUnreal += unreal;
+      totalReal += real;
 
-    const mtm = {
-      realised,
-      unrealised,
-      total_pnl,
-      ts,
-    };
+      const qty = Number(p.net_quantity ?? p.quantity ?? 0);
+      const ltp = Number(p.last_price || p.ltp || 0);
+      const avg = Number(p.average_price || p.avg_price || 0);
 
-    //---------------------------------------------------
-    // 4) Write MTM → KV
-    //---------------------------------------------------
-    await kv.set("live:mtm", mtm);
+      return {
+        // Needed for square-off and risk enforcement
+        exchange: p.exchange || "NSE",
+        tradingsymbol: p.tradingsymbol || p.trading_symbol,
+        product: p.product || "MIS",
 
-    //---------------------------------------------------
-    // 5) Write raw positions → KV
-    //---------------------------------------------------
-    await kv.set("live:positions", {
-      positions: net,
-      ts,
+        // Position quantity
+        quantity: qty,
+        net_quantity: qty,
+
+        // Prices
+        average_price: avg,
+        last_price: ltp,
+
+        // PnL
+        realised: real,
+        unrealised: unreal,
+        pnl: real + unreal,
+
+        // Keep full raw Zerodha object for future requirements
+        raw: p
+      };
     });
 
-    //---------------------------------------------------
-    // 6) Return MTM (backwards-compatible format)
-    //---------------------------------------------------
-    return new Response(
-      JSON.stringify({
-        ok: true,
-        realised,
-        unrealised,
-        total_pnl,
-        ts,
-        live_mtm_written: true,
-      }),
-      { status: 200 }
-    );
+    const totalPnl = totalReal + totalUnreal;
 
-  } catch (err) {
-    return new Response(
-      JSON.stringify({
-        ok: false,
-        error: String(err),
-      }),
-      { status: 500 }
-    );
+    // --------------------------------------
+    // 3) Master KV snapshot for whole system
+    // --------------------------------------
+    await kv.set("positions_live", {
+      ts: Date.now(),
+      net: enriched,               // full enriched positions
+      total_unrealised: totalUnreal,
+      total_realised: totalReal,
+      total_pnl: totalPnl
+    });
+
+    // --------------------------------------------------
+    // 4) Also write legacy MTM key (used by enforce-trades)
+    // --------------------------------------------------
+    await kv.set("live:mtm", {
+      unrealised: totalUnreal,
+      realised: totalReal,
+      total: totalPnl,
+      polled_at: Date.now(),
+      source: "positions-mtm"
+    });
+
+    // -------------------------------------------
+    // 5) Send simple response for debug/monitoring
+    // -------------------------------------------
+    return res.status(200).json({
+      ok: true,
+      realised: totalReal,
+      unrealised: totalUnreal,
+      total_pnl: totalPnl,
+      saved: true
+    });
+
+  } catch (e) {
+    return res
+      .status(500)
+      .setHeader("Cache-Control", "no-store")
+      .json({ ok: false, error: String(e) });
   }
 }
