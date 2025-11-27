@@ -160,9 +160,9 @@ export default async function handler(req, res) {
       if (seg === "positions" || path === "/api/kite/positions") {
         if (method !== "GET") return nope(res);
         try {
-          const kc = await safeInstance();
-          const positions = await kc.getPositions();
-          return ok(res, { positions });
+          const snap = await kv.get("positions_live");
+          return ok(res, { positions: snap });
+
         } catch (e) {
           return send(res, 200, { ok: false, error: "Kite not connected", message: e.message || String(e) });
         }
