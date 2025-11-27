@@ -156,75 +156,16 @@ export default async function handler(req, res) {
       }
 
       // /api/kite/positions
-     // /api/kite/positions
-if (seg === "positions" || path === "/api/kite/positions") {
-  if (method !== "GET") return nope(res);
-  try {
-    const kc = await safeInstance();
-    const positions = await kc.getPositions();
-    const net = positions?.net || [];
-
-    // ------------------------------------------------
-    // 1) Compute Zerodha snapshot MTM totals
-    // ------------------------------------------------
-    let totalUnreal = 0;
-    let totalReal = 0;
-    for (const p of net) {
-      totalUnreal += Number(p.unrealised || 0);
-      totalReal += Number(p.realised || 0);
-    }
-    const totalPnl = totalUnreal + totalReal;
-
-    // ------------------------------------------------
-    // 2) Store MTM into KV (your request)
-    // ------------------------------------------------
-    const mtmObj = {
-      realised: totalReal,
-      unrealised: totalUnreal,
-      total_pnl: totalPnl,
-      ts: Date.now()
-    };
-    await kv.set("live:mtm", mtmObj);
-
-    // ------------------------------------------------
-    // 3) OPTIONAL: Auto-create SELLBOOK entries
-    // Only for positions that reduced in today's trades
-    // ------------------------------------------------
-    const sbKey = `sellbook:${todayKey()}`;
-    let sellbook = await kv.get(sbKey) || [];
-
-    for (const p of net) {
-      const qty = Number(p.sell_quantity || 0);
-      if (qty <= 0) continue;
-
-      // Avoid duplicate entries (one per trade)
-      if (!sellbook.find(x => x.instrument === p.tradingsymbol && x.qty === qty)) {
-        sellbook.push({
-          instrument: p.tradingsymbol,
-          qty,
-          mtm: totalPnl,
-          mtm_change: 0, // change can be computed in UI
-          time_ms: Date.now()
-        });
+      if (seg === "positions" || path === "/api/kite/positions") {
+        if (method !== "GET") return nope(res);
+        try {
+          const kc = await safeInstance();
+          const positions = await kc.getPositions();
+          return ok(res, { positions });
+        } catch (e) {
+          return send(res, 200, { ok: false, error: "Kite not connected", message: e.message || String(e) });
+        }
       }
-    }
-
-    await kv.set(sbKey, sellbook);
-
-    // ------------------------------------------------
-    // 4) Return positions as usual (unchanged)
-    // ------------------------------------------------
-    return ok(res, { positions, mtm: mtmObj, sellbook });
-
-  } catch (e) {
-    return send(res, 200, {
-      ok: false,
-      error: "Kite not connected",
-      message: e.message || String(e)
-    });
-  }
-}
-
 
       // admin-style kite actions that require a connected kite instance:
       // cancel-all, exit-all (POST)
