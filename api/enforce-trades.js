@@ -464,7 +464,7 @@ try {
       const currentPeak = Number.isFinite(Number(currentPeakRaw)) ? Number(currentPeakRaw) : 0;
 
       // 3) Update peak profit based on live total PnL
-      const totalPnl = Number.isFinite(total) ? total : 0;
+      
       let nextPeak = currentPeak;
       if (totalPnl > currentPeak) nextPeak = totalPnl;
 
