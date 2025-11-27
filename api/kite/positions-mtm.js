@@ -7,7 +7,7 @@ import { kiteConnectClient } from "../_lib/kite.js";
 import { kv } from "../../_lib/kv.js";
 
 export const config = {
-  runtime: "nodejs20.x",
+  runtime: "nodejs",
 };
 
 // Helper: India time
