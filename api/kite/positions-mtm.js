@@ -1,56 +1,86 @@
-// api/kite/positions-mtm.js
-import { instance } from "../_lib/kite.js";
-import { kv } from "../_lib/kv.js";
+//-------------------------------------------------------
+// /api/kite/positions-mtm.js
+// FINAL OPTIMIZED VERSION (Option B)
+//-------------------------------------------------------
 
-export default async function handler(req, res) {
+import { kiteConnectClient } from "../_lib/kite.js";
+import { kv } from "../../_lib/kv.js";
+
+export const config = {
+  runtime: "edge",
+};
+
+// Helper: India time
+function nowIST() {
+  return new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+}
+
+export default async function handler(req) {
   try {
-    const kc = await instance();
-    const pos = await kc.getPositions();   // /portfolio/positions
+    //---------------------------------------------------
+    // 1) Fetch fresh positions from Zerodha
+    //---------------------------------------------------
+    const kc = await kiteConnectClient();
+    const positionsResp = await kc.getPositions();
 
-    // Zerodha may return pos.net OR pos.data.net
-    const net = pos?.data?.net || pos?.net || [];
+    const net = Array.isArray(positionsResp.net)
+      ? positionsResp.net
+      : [];
 
-    // --------------------------------------------
-    // SAME LOGIC AS positions.js  (✔ EXACT MATCH)
-    // --------------------------------------------
-    let totalUnreal = 0;
-    let totalReal = 0;
+    //---------------------------------------------------
+    // 2) Compute realised, unrealised, total PnL
+    //---------------------------------------------------
+    let realised = 0;
+    let unrealised = 0;
 
     for (const p of net) {
-      totalUnreal += Number(p.unrealised || 0);
-      totalReal += Number(p.realised || 0);
+      // Zerodha gives pnl = realised, unrealised
+      if (typeof p.realised === "number") realised += p.realised;
+      if (typeof p.unrealised === "number") unrealised += p.unrealised;
     }
 
-    const totalPnl = totalUnreal + totalReal;
+    const total_pnl = realised + unrealised;
+    const ts = Date.now();
 
-    // --------------------------------------------
-    // SAVE EXACTLY LIKE positions.js
-    // --------------------------------------------
-    await kv.set("live:mtm", {
-      realised: totalReal,
-      unrealised: totalUnreal,
-      total_pnl: totalPnl,
-      ts: Date.now()
+    const mtmObj = {
+      realised,
+      unrealised,
+      total_pnl,
+      ts,
+    };
+
+    //---------------------------------------------------
+    // 3) Write MTM → KV (single source of truth)
+    //---------------------------------------------------
+    await kv.set("live:mtm", mtmObj);
+
+    //---------------------------------------------------
+    // 4) Write POSITIONS → KV (single source of truth)
+    //---------------------------------------------------
+    await kv.set("live:positions", {
+      positions: net,
+      ts,
     });
 
-    // --------------------------------------------
-    // RESPONSE — SAME SHAPE AS positions.js
-    // --------------------------------------------
-    res
-      .status(200)
-      .setHeader("Cache-Control", "no-store")
-      .json({
+    //---------------------------------------------------
+    // 5) Return same response format (backward compatible)
+    //---------------------------------------------------
+    return new Response(
+      JSON.stringify({
         ok: true,
-        realised: totalReal,
-        unrealised: totalUnreal,
-        total_pnl: totalPnl,
-        live_mtm_written: true
-      });
+        realised,
+        unrealised,
+        total_pnl,
+        ts,
+        live_mtm_written: true,
+      }),
+      { status: 200 }
+    );
 
-  } catch (e) {
-    res
-      .status(500)
-      .setHeader("Cache-Control", "no-store")
-      .json({ ok: false, error: String(e) });
+  } catch (err) {
+    return new Response(
+      JSON.stringify({ ok: false, error: String(err) }),
+      { status: 500 }
+    );
   }
 }
