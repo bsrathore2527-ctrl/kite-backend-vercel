@@ -284,7 +284,7 @@ export default async function handler(req, res) {
         /* ------------------------------ CONSECUTIVE LOSS ------------------------------ */
         const state = await getState();
         const prevMTM = Number(state.last_sell_mtm ?? state.start_day_mtm ?? 0);
-
+        const sellMtmNum = Number(sellMtm);
          let nextCL = Number(state.consecutive_losses ?? 0);
 
     // loss if new sell MTM < previous sell MTM
