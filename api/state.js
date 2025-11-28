@@ -35,16 +35,9 @@ export default async function handler(req, res) {
 
     /* ----------------------------------- CAPITAL & LOSS CONFIG ---------------------------------- */
     const capital = safeNum(persisted.capital_day_915 ?? 0, 0);
-    const maxLossPct = safeNum(persisted.max_loss_pct ?? 0, 0);
-    const max_loss_abs = Math.round(capital * (maxLossPct / 100));
-
-    const active_loss_floor = Number.isFinite(persisted.active_loss_floor)
-      ? Number(persisted.active_loss_floor)
-      : -max_loss_abs;
-
-    const remaining_to_max_loss = Number.isFinite(persisted.remaining_to_max_loss)
-      ? Number(persisted.remaining_to_max_loss)
-      : (total_pnl - active_loss_floor);
+    const max_loss_abs = safeNum(persisted.max_loss_abs ?? 0);
+    const active_loss_floor = safeNum(persisted.active_loss_floor);
+    const remaining_to_max_loss = safeNum(persisted.remaining_to_max_loss);
 
     /* -------------------------------------- PROFIT LOCK (P10) ----------------------------------- */
     let p10 = safeNum(persisted.p10 ?? 0);
