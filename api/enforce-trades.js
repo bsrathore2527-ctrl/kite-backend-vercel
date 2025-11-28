@@ -285,13 +285,20 @@ export default async function handler(req, res) {
         const state = await getState();
         const prevMTM = Number(state.last_sell_mtm ?? state.start_day_mtm ?? 0);
 
-        let nextCL = Number(state.consecutive_losses ?? 0);
-        nextCL = sellMtm < prevMTM ? nextCL + 1 : 0;
+         let nextCL = Number(state.consecutive_losses ?? 0);
 
-        await setState({
-          consecutive_losses: nextCL,
-          last_sell_mtm: sellMtm
-        });
+    // loss if new sell MTM < previous sell MTM
+    if (sellMtmNum < prevMTM) {
+        nextCL += 1;
+    } else {
+        nextCL = 0;
+    }
+
+    // save back to KV
+    await setState({
+        consecutive_losses: nextCL,
+        last_sell_mtm: sellMtmNum
+      });
       }
     
         // UPDATE LAST TRADE TIME (for admin.html)
