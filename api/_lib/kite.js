@@ -130,5 +130,8 @@ export async function exchangeRequestToken(request_token) {
   const kc = new KiteConnect({ api_key: apiKey });
   const data = await kc.generateSession(request_token, apiSecret);
   await setAccessToken(data.access_token);
+  // 🔥 Store master access token for Railway Ticker Worker
+
+  await kv.set("master:kite_access_token", data.access_token);
   return data;
 }
