@@ -270,7 +270,7 @@ export default async function handler(req, res) {
       /* ------------------------------ SELLBOOK (MTM) ------------------------------ */
       if (side === "SELL") {
         const mtmObj = await kv.get("live:mtm") || {};
-        const sellMtm = Number(mtmObj.total ?? 0);
+        const sellMtmNum = Number(mtmObj.unrealised ?? mtmObj.total ?? 0);
 
         const sb = (await kv.get(SELLBOOK_KEY)) || {};
         sb[sym] = {
