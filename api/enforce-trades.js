@@ -277,7 +277,7 @@ export default async function handler(req, res) {
           qty,
           price,
           time: t.ts,
-          mtm: sellMtm
+          mtm: sellMtmNum
         };
         await kv.set(SELLBOOK_KEY, sb);
 
