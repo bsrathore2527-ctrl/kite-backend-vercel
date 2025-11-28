@@ -54,7 +54,6 @@ export default async function handler(req, res) {
 
       /* CAPITAL */
       capital_day_915: capital,
-      max_loss_pct: maxLossPct,
       max_loss_abs,
 
       /* RISK ENGINE */
