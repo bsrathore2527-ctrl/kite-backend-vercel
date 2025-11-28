@@ -293,7 +293,11 @@ export default async function handler(req, res) {
     } else {
         nextCL = 0;
     }
-
+        console.log("ConsecutiveLossCheck", {
+          prevMTM,
+          sellMtmNum,
+          nextCL
+        });
     // save back to KV
     await setState({
         consecutive_losses: nextCL,
