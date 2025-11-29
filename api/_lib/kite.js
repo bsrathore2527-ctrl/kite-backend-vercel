@@ -57,7 +57,23 @@ export async function exchangeRequestToken(request_token) {
 
   const data = await kc.generateSession(request_token, apiSecret);
 
+  // Save access token (existing behavior)
   await setAccessToken(data.access_token);
 
-  return data;  // contains client_id etc.
+  // NEW: Save Zerodha client_id for use across enforce.js, hub.js, etc.
+  // This enables KV positions, KV tradebook, per-user MTM.
+  await kv.set("kite:client_id", data.user_id);
+
+  // NEW: Register this user in active users set (future multi-user support)
+  await kv.sadd("global:users", data.user_id);
+
+  return data;  // contains user_id, access_token, public_token, etc.
+}
+
+/* ---------------------------------------------------
+   GET CLIENT ID (NEW HELPER)
+--------------------------------------------------- */
+
+export async function getClientId() {
+  return await kv.get("kite:client_id");
 }
