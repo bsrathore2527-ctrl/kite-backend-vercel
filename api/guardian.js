@@ -5,7 +5,7 @@
 // - Combines all user KV data into a single clean response
 // ======================================================================
 
-import { kv } from "../_lib/kv.js";
+import { kv } from "./_lib/kv.js";
 import { getClientId } from "./_lib/kite.js";
 
 export default async function handler(req) {
