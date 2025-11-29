@@ -1,83 +1,80 @@
-// api/guardian.js
-import { getState, todayKey } from "./_lib/kv.js";
-import { getAccessToken } from "./_lib/kite.js";
+// ======================================================================
+// MULTI-USER GUARDIAN.JS (FINAL VERSION)
+// - Pure read-only data provider for admin UI
+// - No squareoff, no cancel, no risk execution
+// - Combines all user KV data into a single clean response
+// ======================================================================
 
-function isAdmin(req) {
-  const a = req.headers?.authorization || "";
-  const token = a.startsWith("Bearer ") ? a.slice(7) : "";
-  return !!process.env.ADMIN_TOKEN && token === process.env.ADMIN_TOKEN;
-}
+import { kv } from "./_lib/kv.js";
+import { getClientId } from "./kite.js";
 
-export default async function handler(req, res) {
+export default async function handler(req) {
   try {
-    if (req.method !== "GET") {
-      res.setHeader("Allow", "GET");
-      return res.status(405).json({ ok: false, error: "Method not allowed" });
+    const userId = await getClientId();
+    if (!userId) {
+      return json({ ok: false, error: "No userId found" });
     }
 
-    const admin = isAdmin(req);
+    // ----------------------------------------------------------
+    // KV KEYS
+    // ----------------------------------------------------------
+    const stateKey = `state:${userId}`;
+    const configKey = `config:${userId}`;
+    const posKey = `positions:${userId}`;
+    const tradebookKey = `tradebook:${userId}`;
+    const watchKey = `watchlist:${userId}`;
+    const mtmKey = `mtm:${userId}`;
 
-    // safe fetch of state
-    const s = await getState().catch(() => ({}));
+    // ----------------------------------------------------------
+    // FETCH ALL DATA
+    // ----------------------------------------------------------
+    const [
+      state,
+      config,
+      positions,
+      tradebook,
+      watchlist,
+      rawMTM
+    ] = await Promise.all([
+      kv.get(stateKey),
+      kv.get(configKey),
+      kv.get(posKey),
+      kv.get(tradebookKey),
+      kv.get(watchKey),
+      kv.get(mtmKey)
+    ]);
 
-    // safe access token check (kite library may throw)
-    let tok = null;
-    try { tok = await getAccessToken(); } catch (e) { tok = null; }
+    const currentMTM = Number(rawMTM || 0);
 
-    const liveBalance =
-      (s.live_balance !== undefined && s.live_balance !== null)
-        ? Number(s.live_balance)
-        : (s.current_balance !== undefined && s.current_balance !== null)
-          ? Number(s.current_balance)
-          : 0;
-
-    const nowTs = Date.now();
-    const cooldownUntil = Number(s.cooldown_until || 0);
-    const cooldownActive = cooldownUntil > nowTs;
-
-    const safe = {
-      capital_day_915: s.capital_day_915 || 0,
-      realised: s.realised || 0,
-      unrealised: s.unrealised || 0,
-      current_balance: s.current_balance || 0,
-      live_balance: liveBalance,
-      tripped_day: !!s.tripped_day,
-      tripped_week: !!s.tripped_week,
-      tripped_month: !!s.tripped_month,
-      block_new_orders: !!s.block_new_orders,
-      consecutive_losses: s.consecutive_losses || 0,
-      cooldown_until: cooldownUntil,
-      cooldown_active: !!cooldownActive,
-      last_trade_time: s.last_trade_time || 0,
-      last_trade_pnl: (typeof s.last_trade_pnl === "number"
-        ? s.last_trade_pnl
-        : (s.last_trade_pnl ? Number(s.last_trade_pnl) : 0)),
-      profit_lock_10: !!s.profit_lock_10,
-      profit_lock_20: !!s.profit_lock_20,
-      expiry_flag: !!s.expiry_flag,
-      // rules
-      max_loss_pct: s.max_loss_pct ?? 10,
-      trail_step_profit: s.trail_step_profit ?? 5000,
-      cooldown_min: s.cooldown_min ?? 15,
-      max_consecutive_losses: s.max_consecutive_losses ?? 3,
-      allow_new_after_lock10: s.allow_new_after_lock10 ?? false,
-      week_max_loss_pct: s.week_max_loss_pct ?? null,
-      month_max_loss_pct: s.month_max_loss_pct ?? null
+    // ----------------------------------------------------------
+    // ENSURE SAFE OBJECT STRUCTURES
+    // ----------------------------------------------------------
+    const finalData = {
+      ok: true,
+      userId,
+      mtm: currentMTM,
+      state: state || {},
+      config: config || {},
+      positions: positions || [],
+      tradebook: tradebook || {},
+      watchlist: watchlist || []
     };
 
-    const now = new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour12: false });
+    return json(finalData);
 
-    res.setHeader("Cache-Control", "no-store");
-    return res.json({
-      ok: true,
-      time: now,
-      admin,
-      kite_status: tok ? "ok" : "not_logged_in",
-      state: safe,
-      key: todayKey()
-    });
-  } catch (e) {
-    console.error("guardian handler error:", e);
-    res.status(500).json({ ok: false, error: e.message || String(e) });
+  } catch (err) {
+    return json({ ok: false, error: err.message || String(err) });
   }
+}
+
+// --------------------------------------------------------------
+// JSON helper
+// --------------------------------------------------------------
+function json(obj, status = 200) {
+  return new Response(JSON.stringify(obj), {
+    status,
+    headers: {
+      "Content-Type": "application/json"
+    }
+  });
 }
