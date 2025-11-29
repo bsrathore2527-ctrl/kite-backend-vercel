@@ -1,170 +1,80 @@
-// api/enforce.js
-import { instance, getClientId } from "./_lib/kite.js";
-import { kv, todayKey } from "./_lib/kv.js";
-import { USER_KEYS } from "../lib/keys.js";
+// ======================================================================
+// MULTI-USER ENFORCE.JS (FINAL VERSION)
+// - Fallback risk checker ONLY
+// - No square-off logic here (OPTION A)
+// - Does NOT cancel pending or square-off positions
+// - Reads state:<uid> and mtm:<uid>
+// - Ensures state is consistent and returns it
+// ======================================================================
 
-/* ------------------------------------------------------
-   Helpers: send(), ok(), bad()
------------------------------------------------------- */
-function send(res, code, body = {}) {
-  res.status(code).setHeader("Cache-Control", "no-store").json(body);
-}
-const ok = (res, body = {}) => send(res, 200, { ok: true, ...body });
-const bad = (res, msg = "Bad request") => send(res, 400, { ok: false, error: msg });
+import { kv } from "./_lib/kv.js";
+import { getClientId } from "./kite.js";
 
-/* ------------------------------------------------------
-   GLOBAL SQUAREOFF LOCK
-   Prevents double/triple sells when using KV positions
------------------------------------------------------- */
-async function acquireSquareoffLock() {
-  const lock = await kv.get("risk:squareoff_lock");
-  if (lock === "1") return false;
-  await kv.set("risk:squareoff_lock", "1");
-  return true;
-}
-
-async function releaseSquareoffLock() {
-  await kv.del("risk:squareoff_lock");
-}
-
-/* ------------------------------------------------------
-   CANCEL PENDING ORDERS (unchanged)
------------------------------------------------------- */
-async function cancelPending(kc) {
-  try {
-    const orders = await kc.getOrders();
-    const pending = (orders || []).filter(o => {
-      const s = (o.status || "").toUpperCase();
-      return s === "OPEN" || s.includes("TRIGGER");
-    });
-    let cancelled = 0;
-    for (const o of pending) {
-      try {
-        await kc.cancelOrder(o.variety || "regular", o.order_id);
-        cancelled++;
-      } catch (e) {
-        // ignore failures
-      }
-    }
-    return cancelled;
-  } catch (e) {
-    return 0;
-  }
-}
-
-/* ------------------------------------------------------
-   SAFE SQUAREOFF USING KV POSITIONS + LOCK
------------------------------------------------------- */
-async function squareOffAll(kc) {
-  // Ensure only ONE squareoff runs anywhere in backend
-  const canRun = await acquireSquareoffLock();
-  if (!canRun) {
-    console.log("⚠️ Squareoff blocked — another squareoff is already running");
-    return 0;
-  }
-
+export default async function handler(req) {
   try {
     const userId = await getClientId();
-    let raw = await kv.get(USER_KEYS.positions(userId));
-    let positions = [];
-
-    try {
-      positions = JSON.parse(raw) || [];
-    } catch {
-      positions = [];
+    if (!userId) {
+      return json({ ok: false, error: "No userId found" });
     }
 
-    if (!Array.isArray(positions) || positions.length === 0) {
-      console.log("No KV positions to square off");
-      return 0;
-    }
+    // ----------------------------------------------------------
+    // KEYS
+    // ----------------------------------------------------------
+    const stateKey = `state:${userId}`;
+    const configKey = `config:${userId}`;
+    const mtmKey = `mtm:${userId}`;
 
-    let squared = 0;
+    // ----------------------------------------------------------
+    // LOAD KV VALUES
+    // ----------------------------------------------------------
+    const state = (await kv.get(stateKey)) || {};
+    const config = (await kv.get(configKey)) || {};
+    const rawMTM = await kv.get(mtmKey);
+    const currentMTM = Number(rawMTM || 0);
 
-    for (const p of positions) {
-      const qty = Number(p.quantity ?? p.net_quantity ?? 0);
-      if (!qty) continue;
+    // ----------------------------------------------------------
+    // ENSURE STATE FIELDS EXIST
+    // ----------------------------------------------------------
+    const nextState = {
+      tripped_day: state.tripped_day || false,
+      trip_reason: state.trip_reason || null,
+      consecutive_losses: Number(state.consecutive_losses || 0),
+      last_trade_mtm: Number(state.last_trade_mtm || 0),
+      unrealised: currentMTM,
+      total_pnl: currentMTM,
+      remaining_to_max_loss: Number(state.remaining_to_max_loss || 0),
+      last_update_ts: Date.now(),
+      ...state   // merge other fields
+    };
 
-      const side = qty > 0 ? "SELL" : "BUY";
-      const absQty = Math.abs(qty);
+    // ----------------------------------------------------------
+    // WRITE FINAL STATE BACK (minor correction only)
+    // ----------------------------------------------------------
+    await kv.set(stateKey, nextState);
 
-      try {
-        await kc.placeOrder("regular", {
-          exchange: p.exchange || "NSE",
-          tradingsymbol: p.tradingsymbol || p.trading_symbol,
-          transaction_type: side,
-          quantity: absQty,
-          order_type: "MARKET",
-          product: p.product || "MIS",
-          validity: "DAY"
-        });
-        squared++;
-      } catch (e) {
-        // ignore per-symbol failure
-      }
-    }
-
-    return squared;
-  } catch (e) {
-    return 0;
-  } finally {
-    await releaseSquareoffLock(); // always unlock
-  }
-}
-
-/* ------------------------------------------------------
-   MAIN HANDLER
------------------------------------------------------- */
-export default async function handler(req, res) {
-  try {
-    if (req.method !== "GET" && req.method !== "POST") 
-      return bad(res, "Method not allowed");
-
-    const key = `risk:${todayKey()}`;
-    const state = (await kv.get(key)) || {};
-
-    // If no trip, do nothing
-    if (!state.tripped_day && !state.block_new_orders) {
-      return ok(res, { 
-        tick: new Date().toISOString(), 
-        enforced: false, 
-        reason: "not_tripped" 
-      });
-    }
-
-    // Need Kite instance
-    let kc;
-    try {
-      kc = await instance();
-    } catch (e) {
-      return ok(res, { 
-        enforced: false, 
-        note: "Kite not connected", 
-        error: e.message 
-      });
-    }
-
-    // Enforce actions
-    const cancelled = await cancelPending(kc);
-    const squared = await squareOffAll(kc);
-
-    const next = { ...state, last_enforced_at: Date.now() };
-    await kv.set(key, next);
-
-    return ok(res, {
-      tick: new Date().toLocaleTimeString("en-IN", { 
-        timeZone: "Asia/Kolkata", 
-        hour12: false 
-      }),
-      enforced: true,
-      cancelled,
-      squared
+    // ----------------------------------------------------------
+    // RESPOND (fallback mode)
+    // ----------------------------------------------------------
+    return json({
+      ok: true,
+      mode: "fallback",
+      tripped: nextState.tripped_day,
+      tripReason: nextState.trip_reason,
+      state: nextState,
+      config
     });
 
   } catch (err) {
-    return send(res, 500, { 
-      ok: false, 
-      error: err.message || String(err) 
-    });
+    return json({ ok: false, error: err.message || String(err) });
   }
+}
+
+// --------------------------------------------------------------
+// Helper: JSON response
+// --------------------------------------------------------------
+function json(obj, status = 200) {
+  return new Response(JSON.stringify(obj), {
+    status,
+    headers: { "Content-Type": "application/json" }
+  });
 }
