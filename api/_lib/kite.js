@@ -1,41 +1,76 @@
-// api/_lib/kite.js
+// ======================================================================
+// kite.js  (MULTI-USER • FINAL • PRODUCTION)
+// Compatible with:
+// - enforce-trades.js
+// - exits.js (cancelPending, squareOffAll)
+// - ticker-worker.js
+// - state.js / guardian.js
+// ======================================================================
+
 import { KiteConnect } from "kiteconnect";
 import { kv } from "./kv.js";
 
 /* ---------------------------------------------------
-   ACCESS TOKEN HELPERS
+   KV KEY HELPERS (MULTI-USER)
 --------------------------------------------------- */
 
-export async function getAccessToken() {
-  return (await kv.get("kite:access_token")) || "";
+function key_access(userId) {
+  return `kite:access_token:${userId}`;
 }
 
-export async function setAccessToken(token) {
-  await kv.set("kite:access_token", token);
+function key_client(userId) {
+  return `kite:client_id:${userId}`;
+}
+
+/* ---------------------------------------------------
+   ACCESS TOKEN HELPERS (MULTI-USER)
+--------------------------------------------------- */
+
+export async function getAccessToken(userId) {
+  return (await kv.get(key_access(userId))) || "";
+}
+
+export async function setAccessToken(userId, token) {
+  await kv.set(key_access(userId), token);
   return token;
 }
 
 /* ---------------------------------------------------
-   KITE INSTANCE
+   GET CLIENT ID FOR CURRENT LOGGED IN USER
+   (For single-user mode, this returns your only user)
 --------------------------------------------------- */
+export async function getClientId() {
+  return await kv.get("kite:client_id:active") || null;
+}
 
-export async function instance() {
+/* ---------------------------------------------------
+   STORE CLIENT ID (called during login)
+--------------------------------------------------- */
+async function setClientId(userId) {
+  await kv.set("kite:client_id:active", userId);
+  await kv.sadd("global:users", userId);
+}
+
+/* ---------------------------------------------------
+   GET KITE CLIENT FOR SPECIFIC USER
+   (Used by enforce-trades, squareOffAll, ticker-worker)
+--------------------------------------------------- */
+export async function getKiteClient(userId) {
   const apiKey = process.env.KITE_API_KEY;
   if (!apiKey) throw new Error("Missing KITE_API_KEY");
 
+  const token = await getAccessToken(userId);
+  if (!token) throw new Error("User not logged in or token missing");
+
   const kc = new KiteConnect({ api_key: apiKey });
-  const token = await getAccessToken();
-
-  if (!token) throw new Error("Kite not logged in");
-
   kc.setAccessToken(token);
+
   return kc;
 }
 
 /* ---------------------------------------------------
    LOGIN URL
 --------------------------------------------------- */
-
 export function loginUrl() {
   const apiKey = process.env.KITE_API_KEY;
   const kc = new KiteConnect({ api_key: apiKey });
@@ -43,37 +78,25 @@ export function loginUrl() {
 }
 
 /* ---------------------------------------------------
-   EXCHANGE REQUEST TOKEN
+   EXCHANGE REQUEST TOKEN (LOGIN FLOW)
 --------------------------------------------------- */
-
 export async function exchangeRequestToken(request_token) {
   const apiKey = process.env.KITE_API_KEY;
   const apiSecret = process.env.KITE_API_SECRET;
 
   if (!apiKey || !apiSecret)
-    throw new Error("Missing KITE_API_KEY/SECRET");
+    throw new Error("Missing KITE_API_KEY or KITE_API_SECRET");
 
   const kc = new KiteConnect({ api_key: apiKey });
 
+  // exchange token with Zerodha
   const data = await kc.generateSession(request_token, apiSecret);
 
-  // Save access token (existing behavior)
-  await setAccessToken(data.access_token);
+  // Save multi-user token
+  await setAccessToken(data.user_id, data.access_token);
 
-  // NEW: Save Zerodha client_id for use across enforce.js, hub.js, etc.
-  // This enables KV positions, KV tradebook, per-user MTM.
-  await kv.set("kite:client_id", data.user_id);
+  // Save active user ID for backend access
+  await setClientId(data.user_id);
 
-  // NEW: Register this user in active users set (future multi-user support)
-  await kv.sadd("global:users", data.user_id);
-
-  return data;  // contains user_id, access_token, public_token, etc.
-}
-
-/* ---------------------------------------------------
-   GET CLIENT ID (NEW HELPER)
---------------------------------------------------- */
-
-export async function getClientId() {
-  return await kv.get("kite:client_id");
+  return data; // { user_id, access_token, public_token, ... }
 }
