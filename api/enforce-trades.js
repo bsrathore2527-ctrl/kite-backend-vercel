@@ -11,7 +11,7 @@
 // - MTM from ticker-worker
 // ======================================================================
 
-import { kv } from "./_lib/kv.js";
+import { kv } from "../_lib/kv.js";
 import { getClientId } from "./_lib/kite.js";
 import { cancelPending, squareOffAll } from "./_lib/exits.js";
 
