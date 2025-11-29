@@ -1,538 +1,188 @@
-// api/enforce-trades.js
-// Scheduled job — process new trades, compute realized closes, start cooldown and track consecutive losses.
-// Also: when total (realised + unrealised) loss breaches max_loss_abs derived from capital & max_loss_pct,
-// mark tripped_day and immediately attempt to enforce (cancel + square off).
+// ======================================================================
+// MULTI-USER ENFORCE-TRADES.JS (FINAL PRODUCTION VERSION)
+// - Uses Upstash KV correctly
+// - No sellbook
+// - Tradebook = Dictionary
+// - Zero-qty positions retained (Model A)
+// - Auto-add token to watchlist
+// - min_loss_to_count applied
+// - Consecutive-loss logic preserved
+// - Max-loss breach triggers full exit
+// - MTM from ticker-worker
+// ======================================================================
 
-import { kv, getState, setState } from "./_lib/kv.js";
-import { instance } from "./_lib/kite.js";
-// ---- UTC timestamp helpers (inlined) ----
-function normalizeTsToMs(ts) {
-  if (ts == null) return null;
-  if (typeof ts === 'number' && Number.isFinite(ts)) {
-    return (String(Math.trunc(ts)).length === 10) ? ts * 1000 : ts;
-  }
-  const s = String(ts).trim();
-  if (/^\d+$/.test(s)) {
-    const n = Number(s);
-    return (String(Math.trunc(n)).length === 10) ? n * 1000 : n;
-  }
-  // common pattern 'YYYY-MM-DD HH:MM:SS' -> treat as UTC by appending Z
-  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(s)) {
-    return Date.parse(s.replace(' ', 'T') + 'Z');
-  }
-  const parsed = Date.parse(s);
-  return Number.isNaN(parsed) ? null : parsed;
-}
+import { kv } from "./_lib/kv.js";
+import { getClientId } from "./kite.js";
+import { cancelPending, squareOffAll } from "./_lib/exits.js";
 
-function msForUTCHourMinute(hour, minute, d = new Date()) {
-  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), hour, minute, 0, 0);
-}
-
-function todayKeyUTC(d = new Date()) {
-  const y = d.getUTCFullYear();
-  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
-  const day = String(d.getUTCDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
-
-function nowMs() { return Date.now(); }
-// ---- end helpers ----
-
-
-const LAST_TRADE_KEY = "guardian:last_trade_ts";
-const REALIZED_PREFIX = "guardian:realized:"; // store realized events idempotently
-const BOOK_PREFIX = "guardian:book:";          // per-instrument book
-const TRADEBOOK_KEY = "guardian:tradebook";
-
-function now() { return Date.now(); }
-
-function makeRealizedId(tradeIds = [], ts = 0) {
-  const ids = Array.isArray(tradeIds) ? tradeIds.join("_") : String(tradeIds || "");
-  return `r_${ids}_${ts}`;
-}
-
-async function getLastProcessedTs() {
-  const v = await kv.get(LAST_TRADE_KEY);
-  return Number(v || 0);
-}
-async function setLastProcessedTs(ts) {
-  await kv.set(LAST_TRADE_KEY, Number(ts));
-}
-
-async function getBook(sym) {
-  const b = (await kv.get(BOOK_PREFIX + sym)) || { instrument: sym, lots: [], net_qty: 0 };
-  return b;
-}
-async function setBook(sym, book) {
-  await kv.set(BOOK_PREFIX + sym, book);
-}
-
-
-async function storeRealizedEvent(evt) {
-  const id = makeRealizedId(evt.trade_ids || [], evt.close_ts || now());
-  const key = REALIZED_PREFIX + id;
-  const existing = await kv.get(key);
-  if (existing) return false;
-  await kv.set(key, evt);
-
-  // Also update today's aggregated realised total in today's risk state
+export default async function handler(req) {
   try {
-    const todayKey = `risk:${new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }).split(",")[0].replace(/\//g,'-')}`;
-    // safer: use getState/setState helpers if available
-    // get current persisted state (today) and increment realised
-    const state = await getState();
-    const currentReal = Number(state.realised ?? 0);
-    const add = Number(evt.realized_pnl || evt.realised_pnl || evt.realized || evt.realised || 0);
-    if (!isNaN(add) && add !== 0) {
-      const next = currentReal + add;
-      await setState({ realised: next });
+    const userId = await getClientId();
+    if (!userId) {
+      return json({ ok: false, error: "No userId found" });
     }
-  } catch (e) {
-    console.warn("storeRealizedEvent: failed to update aggregated realised:", e && e.message ? e.message : e);
-  }
 
-  return true;
-}
+    // ----------------------------------------------------------
+    // KV KEYS
+    // ----------------------------------------------------------
+    const stateKey = `state:${userId}`;
+    const configKey = `config:${userId}`;
+    const posKey = `positions:${userId}`;
+    const tradebookKey = `tradebook:${userId}`;
+    const watchKey = `watchlist:${userId}`;
+    const mtmKey = `mtm:${userId}`;
 
-// append trade into server-side tradebook (keeps latest first)
+    // ----------------------------------------------------------
+    // LOAD BASIC DATA
+    // ----------------------------------------------------------
+    const config = (await kv.get(configKey)) || {};
+    const state = (await kv.get(stateKey)) || {};
+    const positions = (await kv.get(posKey)) || [];
+    const tradebook = (await kv.get(tradebookKey)) || {};
+    const watchlist = (await kv.get(watchKey)) || [];
 
-async function appendToTradebook(t) {
-  try {
-    const raw = await kv.get(TRADEBOOK_KEY);
-    const arr = Array.isArray(raw) ? raw : [];
+    // ----------------------------------------------------------
+    // CONFIG VALUES
+    // ----------------------------------------------------------
+    const maxLossAbs = Number(config.max_loss_abs || 0);
+    const minLossToCount = Number(config.minimum_loss_to_count || 0);
+    const maxConsec = Number(config.max_consecutive_losses || 0);
 
-    // helper: convert any ts into IST milliseconds
-    
-    // Normalize timestamps to epoch milliseconds (UTC-based). Accepts seconds (10-digit), ms (13-digit) or ISO strings.
-    function normalizeTsToMs(ts) {
-      if (ts === null || typeof ts === 'undefined') return null;
-      if (typeof ts === 'number') {
-        return (String(Math.trunc(ts)).length === 10) ? ts * 1000 : ts;
-      }
-      const s = String(ts).trim();
-      if (/^\d+$/.test(s)) {
-        const n = Number(s);
-        return (String(Math.trunc(n)).length === 10) ? n * 1000 : n;
-      }
-      // Try parse as ISO/UTC — Date.parse will interpret timezone if present, else treat as local; to be safe append Z for common no-tz formats
-      let ps = s;
-      if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(ps)) ps = ps.replace(' ', 'T') + 'Z';
-      const parsed = Date.parse(ps);
-      return Number.isNaN(parsed) ? null : parsed;
+    // ----------------------------------------------------------
+    // GET CURRENT LIVE MTM FROM WORKER
+    // ----------------------------------------------------------
+    const rawMTM = await kv.get(mtmKey);
+    const currentMTM = Number(rawMTM || 0); // total PNL for today
+
+    // ----------------------------------------------------------
+    // BUILD QTY MAPS FOR POSITION REDUCTION DETECTION
+    // ----------------------------------------------------------
+    const prevQtyMap = state.prev_position_qty || {};
+    const newQtyMap = {};
+
+    for (const p of positions) {
+      newQtyMap[p.token] = Number(p.qty || 0);
     }
-    const rec = {
-      ts: (function(){ const ms = normalizeTsToMs(t._ts || t.timestamp || Date.now()); return ms || Date.now(); })(),
-      iso_date: (function(){ const ms = normalizeTsToMs(t._ts || t.timestamp || Date.now()); return new Date(ms || Date.now()).toISOString(); })(),
-      tradingsymbol: t.tradingsymbol || t.trading_symbol || t.instrument || t.symbol,
-      account_id: t.account_id || t.accountId || null,
-      trade_id: t.trade_id || t.tradeId || (t.order_id ? `${t.order_id}` : null),
-      side: (t.transaction_type || t.order_side || t.side || '').toUpperCase(),
-      qty: Math.abs(Number(t.quantity || t.qty || 0)),
-      price: Number(t.price || t.trade_price || t.avg_price || 0),
-      raw: t.raw || t
+
+    // Ensure watchlist auto-contains all tokens
+    for (const token of Object.keys(newQtyMap)) {
+      if (!watchlist.includes(Number(token))) {
+        watchlist.push(Number(token));
+      }
+    }
+
+    // ----------------------------------------------------------
+    // TRADE DETECTION (POSITION REDUCTION)
+    // ----------------------------------------------------------
+    let tradeDetected = false;
+    let tradeDetails = null;
+
+    for (const token of Object.keys(newQtyMap)) {
+      const oldQ = Number(prevQtyMap[token] || 0);
+      const newQ = Number(newQtyMap[token]);
+
+      if (newQ < oldQ) {
+        tradeDetected = true;
+
+        tradeDetails = {
+          ts: Date.now(),
+          token: Number(token),
+          oldQty: oldQ,
+          newQty: newQ,
+          diffQty: newQ - oldQ
+        };
+      }
+    }
+
+    // ----------------------------------------------------------
+    // TRADEBOOK UPDATE (dictionary)
+    // ----------------------------------------------------------
+    if (tradeDetected) {
+      const tsKey = String(tradeDetails.ts);
+      tradebook[tsKey] = tradeDetails;
+      await kv.set(tradebookKey, tradebook);
+    }
+
+    // ----------------------------------------------------------
+    // CONSECUTIVE LOSS LOGIC
+    // ----------------------------------------------------------
+    let nextConsecutive = Number(state.consecutive_losses || 0);
+    let lastTradeMTM = Number(state.last_trade_mtm || 0);
+
+    if (tradeDetected) {
+      const tradePNL = currentMTM - lastTradeMTM;
+
+      if (Math.abs(tradePNL) >= minLossToCount) {
+        if (tradePNL < 0) nextConsecutive++;
+        else nextConsecutive = 0; // profitable trade resets count
+      }
+
+      lastTradeMTM = currentMTM;
+    }
+
+    // ----------------------------------------------------------
+    // TRIP FLAGS (CONSECUTIVE LOSS DOES NOT EXIT)
+    // ----------------------------------------------------------
+    let tripped = state.tripped_day || false;
+    let tripReason = state.trip_reason || null;
+
+    if (!tripped && maxConsec > 0 && nextConsecutive >= maxConsec) {
+      tripped = true;
+      tripReason = "max_consecutive_losses";
+    }
+
+    // ----------------------------------------------------------
+    // MAX LOSS / TRAILING LOSS FLOOR BREACH (EXIT ENGINE)
+    // ----------------------------------------------------------
+    const remaining =
+      maxLossAbs > 0 ? maxLossAbs - Math.abs(currentMTM) : 999999;
+
+    if (!tripped && maxLossAbs > 0 && remaining <= 0) {
+      tripped = true;
+      tripReason = "max_loss_floor_live_mtm";
+
+      // FULL EXIT ACTIONS
+      try { await cancelPending(userId); } catch (e) {}
+      try { await squareOffAll(userId); } catch (e) {}
+    }
+
+    // ----------------------------------------------------------
+    // UPDATE STATE (MASTER STATE)
+    // ----------------------------------------------------------
+    const nextState = {
+      ...state,
+      consecutive_losses: nextConsecutive,
+      last_trade_mtm: lastTradeMTM,
+      prev_position_qty: newQtyMap,
+      unrealised: currentMTM,
+      total_pnl: currentMTM,
+      remaining_to_max_loss: remaining,
+      tripped_day: tripped,
+      trip_reason: tripReason,
+      last_update_ts: Date.now()
     };
 
-// ensure normalized timestamps (UTC ms) and ISO string
-try {
-  const candidate = (t._ts || t.ts || t.timestamp || t.fill_timestamp || t.exchange_timestamp || Date.now());
-  const ms = normalizeTsToMs(candidate) || Date.now();
-  rec._ts = Number(ms);
-  rec._iso = new Date(ms).toISOString();
-  // also keep legacy ts field if present
-  if (!rec.ts) rec.ts = rec._ts;
-} catch (e) { /* safe fallback */ }
-// RECORD_NORMALIZE_BLOCK_DONE
+    await kv.set(stateKey, nextState);
+    await kv.set(watchKey, watchlist);
 
-    // unshift into array (most recent first) and limit to 200 (store more if you want)
-    arr.unshift(rec);
-    if (arr.length > 200) arr.length = 200;
-    await kv.set(TRADEBOOK_KEY, arr);
-    return true;
-  } catch (e) {
-    return false;
-  }
-
-}
-
-// FIFO matching functions (unchanged behavior)
-function matchSellAgainstBook(book, sellQty, sellPrice, tradeId, ts) {
-  let qtyToMatch = sellQty;
-  const realizedEvents = [];
-  const newLots = [];
-  for (let lot of book.lots) {
-    if (qtyToMatch <= 0) { newLots.push(lot); continue; }
-    if (lot.side === "BUY") {
-      const available = Math.abs(lot.qty);
-      const take = Math.min(available, qtyToMatch);
-      const pnl = (sellPrice - lot.avg_price) * take;
-      realizedEvents.push({
-        instrument: book.instrument,
-        qty: take,
-        realized_pnl: Number(pnl),
-        close_ts: ts,
-        trade_ids: [tradeId],
-        open_lot: { ...lot }
-      });
-      lot.qty = lot.qty - take;
-      qtyToMatch -= take;
-      if (Math.abs(lot.qty) > 0) newLots.push(lot);
-    } else {
-      newLots.push(lot);
-    }
-  }
-  if (qtyToMatch > 0) {
-    newLots.push({ qty: -qtyToMatch, avg_price: sellPrice, side: "SELL", open_ts: ts });
-  }
-  const netQty = newLots.reduce((s, l) => s + (l.side === "BUY" ? Number(l.qty || 0) : -Math.abs(Number(l.qty || 0))), 0);
-  return { realizedEvents, updatedBook: { instrument: book.instrument, lots: newLots, net_qty: netQty } };
-}
-
-function matchBuyAgainstBook(book, buyQty, buyPrice, tradeId, ts) {
-  let qtyToMatch = buyQty;
-  const realizedEvents = [];
-  const newLots = [];
-  for (let lot of book.lots) {
-    if (qtyToMatch <= 0) { newLots.push(lot); continue; }
-    if (lot.side === "SELL") {
-      const available = Math.abs(lot.qty);
-      const take = Math.min(available, qtyToMatch);
-      const pnl = (lot.avg_price - buyPrice) * take;
-      realizedEvents.push({
-        instrument: book.instrument,
-        qty: take,
-        realized_pnl: Number(pnl),
-        close_ts: ts,
-        trade_ids: [tradeId],
-        open_lot: { ...lot }
-      });
-      lot.qty = lot.qty + take;
-      qtyToMatch -= take;
-      if (Math.abs(lot.qty) > 0) newLots.push(lot);
-    } else {
-      newLots.push(lot);
-    }
-  }
-  if (qtyToMatch > 0) {
-    newLots.push({ qty: qtyToMatch, avg_price: buyPrice, side: "BUY", open_ts: ts });
-  }
-  const netQty = newLots.reduce((s, l) => s + (l.side === "BUY" ? Number(l.qty || 0) : -Math.abs(Number(l.qty || 0))), 0);
-  return { realizedEvents, updatedBook: { instrument: book.instrument, lots: newLots, net_qty: netQty } };
-}
-
-/* ---------------------------
-   Helpers to cancel/square-off
-   --------------------------- */
-async function cancelPending(kc) {
-  try {
-    const orders = await kc.getOrders();
-    const pending = (orders || []).filter(o => {
-      const s = (o.status || "").toUpperCase();
-      return s === "OPEN" || s.includes("TRIGGER") || s === "PENDING";
-    });
-    let cancelled = 0;
-    for (const o of pending) {
-      try {
-        await kc.cancelOrder(o.variety || "regular", o.order_id || o.orderId);
-        cancelled++;
-      } catch (e) {
-        // ignore individual failures
-      }
-    }
-    return cancelled;
-  } catch (e) {
-    return 0;
-  }
-}
-
-async function squareOffAll(kc) {
-  try {
-    const pos = await kc.getPositions();
-    const net = pos?.net || [];
-    let squared = 0;
-    for (const p of net) {
-      const qty = Number(p.net_quantity ?? p.quantity ?? 0);
-      if (!qty) continue;
-      const side = qty > 0 ? "SELL" : "BUY";
-      const absQty = Math.abs(qty);
-      try {
-        await kc.placeOrder("regular", {
-          exchange: p.exchange || "NSE",
-          tradingsymbol: p.tradingsymbol || p.trading_symbol,
-          transaction_type: side,
-          quantity: absQty,
-          order_type: "MARKET",
-          product: p.product || "MIS",
-          validity: "DAY"
-        });
-        squared++;
-      } catch (e) {
-        // ignore per-symbol failure
-      }
-    }
-    return squared;
-  } catch (e) {
-    return 0;
-  }
-}
-
-/* ---------------------------
-   Main handler
-   --------------------------- */
-export default async function handler(req, res) {
-  if (req.method === "OPTIONS") return res.status(204).end();
-
-  try {
-    const kc = await instance(); // may throw if not logged in
-
-    // fetch trades from kite (fall back to empty)
-    const trades = (await kc.getTrades()) || [];
- // mark kite as healthy on successful fetch
-    await setState({
-      kite_status: "ok",
-      kite_last_ok_at: Date.now(),
-      kite_error_message: null
+    return json({
+      ok: true,
+      tripped,
+      tradeDetected,
+      tripReason
     });
 
-    // last processed timestamp (to avoid reprocessing)
-    const lastTs = await getLastProcessedTs();
-
-    // normalize timestamps into numeric _ts
-    const normalized = trades.map(t => {
-      const ts = t.timestamp || t.trade_time || t.date || t.exchange_timestamp || t.utc_time || t.order_timestamp || null;
-      let tts = null;
-      if (!ts) {
-        tts = Date.now();
-      } else if (typeof ts === 'number') {
-        tts = (String(ts).length === 10) ? ts * 1000 : ts;
-      } else {
-        const sVal = String(ts).trim();
-        if (/^\d+$/.test(sVal)) {
-          const n = Number(sVal);
-          tts = (String(n).length === 10) ? n * 1000 : n;
-        } else {
-          const parsed = Date.parse(sVal);
-          tts = isNaN(parsed) ? Date.now() : parsed;
-        }
-      }
-      return { ...t, _ts: Number(tts) };
-    }).sort((a,b) => a._ts - b._ts);
-
-    const newTrades = normalized.filter(t => t._ts > lastTs);
-
-    let newest = lastTs;
-    let processed = 0;
-    for (const t of newTrades) {
-      processed++;
-      newest = Math.max(newest, t._ts);
-
-      // append to server-side tradebook for UI
-      try { await appendToTradebook(t); } catch(e){ /* ignore */ }
-
-      const sym = t.tradingsymbol || t.trading_symbol || t.instrument_token || t.instrument || t.symbol;
-      const tradeId = t.trade_id || t.tradeId || `${t.order_id || t.orderId || ""}_${t._ts}`;
-      const qty = Math.abs(Number(t.quantity || t.qty || 0));
-      const price = Number(t.price || t.trade_price || t.avg_price || 0);
-      const side = (t.transaction_type || t.order_side || t.side || "").toUpperCase();
-
-      let book = await getBook(sym);
-      let result;
-      if (side === "SELL") {
-        result = matchSellAgainstBook(book, qty, price, tradeId, t._ts);
-      } else {
-        result = matchBuyAgainstBook(book, qty, price, tradeId, t._ts);
-      }
-
-      await setBook(sym, result.updatedBook);
-
-      for (const ev of result.realizedEvents) {
-        const saved = await storeRealizedEvent(ev);
-        if (!saved) continue;
-// append to Sell Book using current total_pnl from state
-        try {
-          const stateForSell = await getState();
-          const mtm = Number(stateForSell.total_pnl ?? 0);
-
-          const rawSell = await kv.get("guardian:sell_orders");
-          let sellArr;
-          if (Array.isArray(rawSell)) {
-            sellArr = rawSell;
-          } else if (typeof rawSell === "string") {
-            try {
-              const parsed = JSON.parse(rawSell);
-              sellArr = Array.isArray(parsed) ? parsed : [];
-            } catch {
-              sellArr = [];
-            }
-          } else {
-            sellArr = [];
-          }
-
-          const last = sellArr.length > 0 ? sellArr[sellArr.length - 1] : null;
-          const lastMtm = last && Number.isFinite(Number(last.mtm)) ? Number(last.mtm) : 0;
-          const mtm_change = mtm - lastMtm;
-
-          sellArr.push({
-            instrument: ev.instrument,
-            qty: ev.qty,
-            mtm,
-            mtm_change,
-            time_ms: ev.close_ts || Date.now()
-          });
-
-          await kv.set("guardian:sell_orders", sellArr);
-        } catch (e) {
-          console.error("sellbook append failed:", e && e.message ? e.message : e);
-        }
-
-        // update global state: cooldown, consecutive_losses, last trade PnL/time
-        const s = await getState();
-        const cooldownMin = Number(s.cooldown_min ?? 15);
-        const nowTs = Date.now();
-        const cooldownUntil = nowTs + cooldownMin * 60 * 1000;
-        const isLoss = Number(ev.realized_pnl) < 0;
-
-        // respect min_loss_to_count if present
-        const minLossToCount = Number(s.min_loss_to_count ?? 0);
-        const countsAsLoss = isLoss && (Math.abs(Number(ev.realized_pnl)) >= minLossToCount);
-
-        const nextConsec = countsAsLoss ? ((s.consecutive_losses || 0) + 1) : (isLoss ? (s.consecutive_losses || 0) + 1 : 0);
-
-        const patch = {
-          last_trade_pnl: Number(ev.realized_pnl),
-          last_trade_time: ev.close_ts,
-          cooldown_until: cooldownUntil,
-          cooldown_active: true,
-          consecutive_losses: nextConsec
-        };
-
-        // consecutive loss limit check
-        const maxConsec = Number(s.max_consecutive_losses ?? 3);
-        if (maxConsec > 0 && nextConsec >= maxConsec) {
-          patch.tripped_day = true;
-          patch.block_new_orders = true;
-          patch.trip_reason = "max_consecutive_losses";
-        }
-
-        await setState(patch);
-      }
-    }
-
-    if (newest > lastTs) {
-      await setLastProcessedTs(newest);
-    }
-
-    // --- LOSS-FLOOR CHECK ---
-// load live MTM from broker and compute totals
-    try {
-      // fetch fresh positions and derive live MTM from broker's own P&L
-      let liveMTM = 0;
-      try {
-        const pos = await kc.getPositions();
-        const net = pos && Array.isArray(pos.net) ? pos.net : [];
-        liveMTM = net.reduce((sum, p) => {
-          const v = Number(p.pnl ?? p.unrealised ?? 0);
-          return sum + (Number.isFinite(v) ? v : 0);
-        }, 0);
-      } catch (e) {
-        console.warn("enforce-trades: failed to fetch live MTM from broker:", e && e.message ? e.message : e);
-      }
-
-      // --- TEST OVERRIDE (for testing module) ---
-      if (req.query && typeof req.query.test_mtm !== "undefined") {
-        const testVal = Number(req.query.test_mtm);
-        if (!Number.isNaN(testVal)) {
-          console.log("TEST-MTM OVERRIDE APPLIED:", testVal);
-          liveMTM = testVal;
-        }
-      }
-      // ------------------------------------------
-
-
-      const state = await getState();
-      const total = Number(liveMTM) || 0;
-
-      // ---- Trailing max-loss floor logic ----
-      // 1) Derive max_loss_abs: prefer stored value else compute from capital_day_915 * max_loss_pct
-      let maxLossAbs = Number(state.max_loss_abs ?? 0);
-      if (!maxLossAbs || !Number.isFinite(maxLossAbs) || maxLossAbs === 0) {
-        const capital = Number(state.capital_day_915 ?? 0);
-        const pct = Number(state.max_loss_pct ?? 0);
-        if (capital > 0 && pct > 0) {
-          maxLossAbs = Math.round(capital * (pct / 100));
-        }
-      }
-
-      const trailStep = Number(state.trail_step_profit ?? 0);
-
-      // 2) Current floor and peak profit from state
-      const currentFloorRaw = (state.active_loss_floor ?? (maxLossAbs ? -maxLossAbs : 0));
-      const currentFloor = Number.isFinite(Number(currentFloorRaw)) ? Number(currentFloorRaw) : (maxLossAbs ? -maxLossAbs : 0);
-
-      const currentPeakRaw = (state.peak_profit ?? 0);
-      const currentPeak = Number.isFinite(Number(currentPeakRaw)) ? Number(currentPeakRaw) : 0;
-
-      // 3) Update peak profit based on live total PnL
-      const totalPnl = Number.isFinite(total) ? total : 0;
-      let nextPeak = currentPeak;
-      if (totalPnl > currentPeak) nextPeak = totalPnl;
-
-      // 4) Compute trail level in multiples of trailStep
-      let trailLevel = 0;
-      if (trailStep > 0 && nextPeak > 0) {
-        trailLevel = Math.floor(nextPeak / trailStep) * trailStep;
-      }
-
-      // 5) Candidate new floor: start from -maxLossAbs, then move up as trailLevel increases
-      let newFloorCandidate = maxLossAbs > 0 ? -maxLossAbs : currentFloor;
-      if (trailLevel > 0 && maxLossAbs > 0) {
-        newFloorCandidate = trailLevel - maxLossAbs;
-      }
-
-      // 6) Final floor: never move floor down during the day
-      let nextFloor = currentFloor;
-      if (!Number.isFinite(nextFloor)) nextFloor = newFloorCandidate;
-      if (newFloorCandidate > nextFloor) nextFloor = newFloorCandidate;
-
-      // 7) remaining_to_max_loss = distance (in P&L) from current MTM down to the loss floor
-      const remaining = totalPnl - nextFloor;
-
-      const floorPatch = {
-        peak_profit: nextPeak,
-        max_loss_abs: maxLossAbs,
-        active_loss_floor: nextFloor,
-        remaining_to_max_loss: remaining
-      };
-      await setState(floorPatch);
-
-      // 8) Decide whether to trip based on trailing loss floor:
-      if (maxLossAbs > 0 && remaining <= 0) {
-        // mark tripped and block new orders
-        const tripPatch = {
-          tripped_day: true,
-          block_new_orders: true,
-          trip_reason: "max_loss_floor_live_mtm",
-          last_enforced_at: Date.now()
-        };
-        await setState(tripPatch);
-
-        // attempt immediate enforcement
-        try {
-          const cancelled = await cancelPending(kc);
-          const squared = await squareOffAll(kc);
-          const notePatch = { admin_last_enforce_result: { cancelled, squared, at: Date.now() } };
-          await setState(notePatch);
-          console.log("Auto-enforce executed (max loss floor):", notePatch.admin_last_enforce_result);
-        } catch (e) {
-          console.error("Auto-enforce failed (max loss floor):", e && e.stack ? e.stack : e);
-        }
-      }
-} catch (e) {
-      console.warn("loss-floor check failed:", e && e.message ? e.message : e);
-    }
-
-    return res.status(200).json({ ok: true, processed, newest_ts: newest });
   } catch (err) {
-    console.error("enforce-trades error:", err && err.stack ? err.stack : err);
-    return res.status(500).json({ ok: false, error: String(err) });
+    return json({ ok: false, error: err.message || String(err) });
   }
-                                                }
+}
+
+// --------------------------------------------------------------
+// Helper: return JSON correctly inside a Vercel API route
+// --------------------------------------------------------------
+function json(obj, status = 200) {
+  return new Response(JSON.stringify(obj), {
+    status,
+    headers: { "Content-Type": "application/json" }
+  });
+}
