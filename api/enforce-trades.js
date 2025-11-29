@@ -12,7 +12,7 @@
 // ======================================================================
 
 import { kv } from "./_lib/kv.js";
-import { getClientId } from "../kite.js";
+import { getClientId } from "./_lib/kite.js";
 import { cancelPending, squareOffAll } from "../_lib/exits.js";
 
 export default async function handler(req) {
