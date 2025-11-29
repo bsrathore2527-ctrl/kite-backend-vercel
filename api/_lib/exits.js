@@ -6,7 +6,7 @@
 // ======================================================================
 
 import { kv } from "./kv.js";
-import { getKiteClient } from "../kite.js";
+import { getKiteClient } from "./kite.js";
 
 // --------------------------------------------------------------
 // CANCEL ALL PENDING ORDERS
