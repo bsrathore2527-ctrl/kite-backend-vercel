@@ -7,8 +7,8 @@
 // - Ensures state is consistent and returns it
 // ======================================================================
 
-import { kv } from "./_lib/kv.js";
-import { getClientId } from "./kite.js";
+import { kv } from "../_lib/kv.js";
+import { getClientId } from "../kite.js";
 
 export default async function handler(req) {
   try {
