@@ -6,7 +6,7 @@
 // ======================================================================
 
 import { kv } from "./_lib/kv.js";
-import { getClientId } from "../kite.js";
+import { getClientId } from "./_lib/kite.js";
 
 export default async function handler(req) {
   try {
