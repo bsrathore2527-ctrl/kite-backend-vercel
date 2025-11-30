@@ -1,10 +1,5 @@
-import { Redis } from "@upstash/redis";
-import crypto from "crypto";
-
-const redis = new Redis({
-  url: process.env.UPSTASH_REDIS_URL,
-  token: process.env.UPSTASH_REDIS_REST_TOKEN,
-});
+import { exchangeRequestToken } from "./_lib/kite.js";
+import { getAccessToken, setAccessToken, kv } from "./_lib/kv.js";
 
 export default async function handler(req, res) {
   try {
@@ -15,85 +10,46 @@ export default async function handler(req, res) {
     }
 
     if (!request_token) {
-      return res.status(400).send("Missing request_token");
-    }
-
-    const apiKey = process.env.KITE_API_KEY;
-    const apiSecret = process.env.KITE_API_SECRET;
-
-    if (!apiKey || !apiSecret) {
-      return res.status(500).send("API KEY/SECRET not configured");
-    }
-
-    // Zerodha checksum
-    const checksum = crypto
-      .createHash("sha256")
-      .update(apiKey + request_token + apiSecret)
-      .digest("hex");
-
-    // Exchange token
-    const sessionRes = await fetch("https://api.kite.trade/session/token", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        "X-Kite-Version": "3"
-      },
-      body: new URLSearchParams({
-        api_key: apiKey,
-        request_token,
-        checksum
-      })
-    });
-
-    const data = await sessionRes.json();
-
-    if (!data?.data?.access_token) {
-      console.error("Token exchange failed:", data);
       return res.redirect("/admin.html?connected=0");
     }
 
-    const { access_token, public_token, user_id } = data.data;
+    // Use your working exchange logic
+    const session = await exchangeRequestToken(request_token);
 
-    // Extract enctoken
-    const setCookie = sessionRes.headers.get("set-cookie") || "";
-    const enctoken = extractEnctoken(setCookie);
-
-    if (!enctoken) {
-      console.error("ENCTOKEN not found in cookie");
+    if (!session || !session.access_token) {
+      console.error("Master session missing access token");
       return res.redirect("/admin.html?connected=0");
     }
 
-    // Save master session
-    await redis.set("master:zerodha:session", {
+    const { user_id, access_token, public_token, enctoken } = session;
+
+    // Save master session (Option A)
+    await kv.set("master:zerodha:session", {
       user_id,
       access_token,
       public_token,
       enctoken,
-      last_login_at: Date.now()
+      last_login_at: Date.now(),
     });
 
-    // Auto-register master user
+    // Auto-register master as a system user
     const profileKey = `u:${user_id}:profile`;
-    const existing = await redis.get(profileKey);
+    const existingProfile = await kv.get(profileKey);
 
-    if (!existing) {
-      await redis.set(profileKey, {
+    if (!existingProfile) {
+      await kv.set(profileKey, {
         id: user_id,
         is_master: true,
+        active: true,
         valid_until: 9999999999999,
-        active: true
       });
     }
 
+    // Redirect back to admin panel
     return res.redirect("/admin.html?connected=1");
 
   } catch (err) {
-    console.error("Callback error:", err);
+    console.error("callback error:", err);
     return res.redirect("/admin.html?connected=0");
   }
-}
-
-function extractEnctoken(cookieStr) {
-  const match = cookieStr.match(/enctoken=([^;]+)/);
-  return match ? match[1] : null;
 }
