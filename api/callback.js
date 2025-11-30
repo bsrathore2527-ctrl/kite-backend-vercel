@@ -1,5 +1,5 @@
 import { exchangeRequestToken } from "./_lib/kite.js";
-import { getAccessToken, setAccessToken, kv } from "./_lib/kv.js";
+import { get as kvGet, set as kvSet } from "./_lib/kv.js";
 
 export default async function handler(req, res) {
   try {
@@ -17,14 +17,14 @@ export default async function handler(req, res) {
     const session = await exchangeRequestToken(request_token);
 
     if (!session || !session.access_token) {
-      console.error("Master session missing access token");
+      console.error("Master session missing access token", session);
       return res.redirect("/admin.html?connected=0");
     }
 
     const { user_id, access_token, public_token, enctoken } = session;
 
-    // Save master session (Option A)
-    await kv.set("master:zerodha:session", {
+    // Store master session as one JSON object
+    await kvSet("master:zerodha:session", {
       user_id,
       access_token,
       public_token,
@@ -32,12 +32,12 @@ export default async function handler(req, res) {
       last_login_at: Date.now(),
     });
 
-    // Auto-register master as a system user
+    // Auto-register master user for multi-user system
     const profileKey = `u:${user_id}:profile`;
-    const existingProfile = await kv.get(profileKey);
+    const existing = await kvGet(profileKey);
 
-    if (!existingProfile) {
-      await kv.set(profileKey, {
+    if (!existing) {
+      await kvSet(profileKey, {
         id: user_id,
         is_master: true,
         active: true,
@@ -45,11 +45,10 @@ export default async function handler(req, res) {
       });
     }
 
-    // Redirect back to admin panel
     return res.redirect("/admin.html?connected=1");
 
   } catch (err) {
-    console.error("callback error:", err);
+    console.error("Master callback error:", err);
     return res.redirect("/admin.html?connected=0");
   }
 }
