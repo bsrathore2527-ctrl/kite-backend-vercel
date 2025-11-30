@@ -1,4 +1,5 @@
-import { Redis } from "@upstash/redis";
+import { kv } from "./_lib/kv.js";
+
 
 const redis = new Redis({
   url: process.env.UPSTASH_REDIS_URL,
