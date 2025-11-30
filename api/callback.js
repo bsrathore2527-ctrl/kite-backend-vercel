@@ -1,5 +1,10 @@
-import { kv } from "@vercel/kv";
+import { Redis } from "@upstash/redis";
 import crypto from "crypto";
+
+const redis = new Redis({
+  url: process.env.UPSTASH_REDIS_URL,
+  token: process.env.UPSTASH_REDIS_REST_TOKEN,
+});
 
 export default async function handler(req, res) {
   try {
@@ -20,13 +25,13 @@ export default async function handler(req, res) {
       return res.status(500).send("API KEY/SECRET not configured");
     }
 
-    // Compute checksum SHA256(api_key + request_token + api_secret)
+    // Zerodha checksum
     const checksum = crypto
       .createHash("sha256")
       .update(apiKey + request_token + apiSecret)
       .digest("hex");
 
-    // Exchange request_token → access_token
+    // Exchange token
     const sessionRes = await fetch("https://api.kite.trade/session/token", {
       method: "POST",
       headers: {
@@ -47,24 +52,19 @@ export default async function handler(req, res) {
       return res.redirect("/admin.html?connected=0");
     }
 
-    // Extract master info
     const { access_token, public_token, user_id } = data.data;
 
-    // -------------------------------------------
-    // 🔥 Extract ENCTOKEN from Set-Cookie headers
-    // -------------------------------------------
-    const rawSetCookie = sessionRes.headers.get("set-cookie") || "";
-    const enctoken = extractEnctoken(rawSetCookie);
+    // Extract enctoken
+    const setCookie = sessionRes.headers.get("set-cookie") || "";
+    const enctoken = extractEnctoken(setCookie);
 
     if (!enctoken) {
-      console.error("Enctoken missing in cookie header!");
+      console.error("ENCTOKEN not found in cookie");
       return res.redirect("/admin.html?connected=0");
     }
 
-    // -------------------------------------------
-    // Save master session in Redis
-    // -------------------------------------------
-    await kv.set("master:zerodha:session", {
+    // Save master session
+    await redis.set("master:zerodha:session", {
       user_id,
       access_token,
       public_token,
@@ -72,15 +72,12 @@ export default async function handler(req, res) {
       last_login_at: Date.now()
     });
 
-    // -------------------------------------------
-    // Auto-register master as system user
-    // -------------------------------------------
+    // Auto-register master user
     const profileKey = `u:${user_id}:profile`;
-
-    const existing = await kv.get(profileKey);
+    const existing = await redis.get(profileKey);
 
     if (!existing) {
-      await kv.set(profileKey, {
+      await redis.set(profileKey, {
         id: user_id,
         is_master: true,
         valid_until: 9999999999999,
@@ -88,7 +85,6 @@ export default async function handler(req, res) {
       });
     }
 
-    // Redirect back to admin panel
     return res.redirect("/admin.html?connected=1");
 
   } catch (err) {
@@ -97,9 +93,6 @@ export default async function handler(req, res) {
   }
 }
 
-// -------------------------------------------
-// Helper to extract enctoken from cookie
-// -------------------------------------------
 function extractEnctoken(cookieStr) {
   const match = cookieStr.match(/enctoken=([^;]+)/);
   return match ? match[1] : null;
