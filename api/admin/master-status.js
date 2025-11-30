@@ -1,4 +1,4 @@
-import { kv } from "./_lib/kv.js";
+import { kv } from "../_lib/kv.js";
 
 
 const redis = new Redis({
