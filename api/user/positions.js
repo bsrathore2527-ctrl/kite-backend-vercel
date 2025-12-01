@@ -1,32 +1,29 @@
-import { NextResponse } from "next/server";
-import { getUserFromList } from "../../../_lib/user-list";
-import { createKiteInstanceForUser } from "../../../_lib/kite-user-instance";
+import { kv } from "../../_lib/kv";
+import { createKiteInstanceForUser } from "../../_lib/kite-user-instance";
 
-export const dynamic = "force-dynamic";
-
-export async function GET(req) {
+export default async function handler(req, res) {
   try {
-    const { searchParams } = new URL(req.url);
-    const user_id = searchParams.get("user_id");
+    const user_id = req.query.user_id;
 
     if (!user_id) {
-      return NextResponse.json({ ok: false, error: "Missing user_id" });
+      return res.status(400).json({ ok: false, error: "Missing user_id" });
     }
 
-    const user = await getUserFromList(user_id);
-    if (!user) {
-      return NextResponse.json({ ok: false, error: "Invalid user" });
+    const userInfo = await kv.get(`user:${user_id}:info`);
+    if (!userInfo) {
+      return res.status(401).json({ ok: false, error: "Unauthorized user" });
     }
 
     const kc = await createKiteInstanceForUser(user_id);
     const pos = await kc.getPositions();
 
-    return NextResponse.json({
+    return res.status(200).json({
       ok: true,
       positions: pos.net || []
     });
 
   } catch (err) {
-    return NextResponse.json({ ok: false, error: err.message });
+    console.error("positions API error:", err);
+    return res.status(500).json({ ok: false, error: err.message });
   }
 }
