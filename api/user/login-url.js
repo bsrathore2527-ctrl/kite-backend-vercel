@@ -22,7 +22,8 @@ export default async function handler(req, res) {
     // Build Zerodha login URL
     const url = getUserLoginUrl(callbackRedirect);
 
-    return res.json({ ok: true, url });
+    return res.json({ ok: true, login_url: url });
+
 
   } catch (err) {
     return res.status(500).json({ ok: false, error: err.message });
