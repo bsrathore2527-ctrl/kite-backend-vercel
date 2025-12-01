@@ -6,36 +6,36 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <title>Admin Panel</title>
 </head>
-
 <body class="bg-gray-100 min-h-screen p-6" onload="initAdmin()">
 
 <header class="flex justify-between items-center mb-6">
   <h1 class="text-3xl font-bold text-gray-900">Admin Panel</h1>
-  <button onclick="clearAdminToken()" class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700">
-    Logout
-  </button>
+  <button onclick="clearAdminToken()" class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700">Logout</button>
 </header>
 
+<!-- Admin Token Status Panel -->
+<div id="adminTokenStatus" class="mb-4 p-3 rounded-lg bg-gray-200 text-gray-800">
+  Checking admin authentication...
+</div>
+
+<!-- Master Zerodha Status -->
 <div class="bg-white p-6 rounded-xl shadow-md border mb-6">
   <h2 class="text-xl font-semibold mb-2">Master Zerodha Status</h2>
   <p id="masterStatus" class="text-gray-700">Checking...</p>
-  <button onclick="masterLogin()" class="mt-3 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
-    Login Master Zerodha
-  </button>
+  <button onclick="masterLogin()" class="mt-3 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">Login Master Zerodha</button>
 </div>
 
+<!-- Add User Section -->
 <div class="bg-white p-6 rounded-xl shadow-md border mb-6">
   <h2 class="text-xl font-semibold mb-4">Add New User</h2>
-
   <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
     <input id="newUserId" placeholder="Zerodha User ID" class="p-3 border rounded-lg" />
     <input id="newUserValidity" type="number" placeholder="Validity Days" class="p-3 border rounded-lg" />
-    <button onclick="addUser()" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
-      Add User
-    </button>
+    <button onclick="addUser()" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">Add User</button>
   </div>
 </div>
 
+<!-- User List Section -->
 <div class="bg-white p-6 rounded-xl shadow-md border">
   <h2 class="text-xl font-semibold mb-4">Users</h2>
   <table class="w-full border-collapse">
@@ -53,12 +53,12 @@
 
 <script>
 /* ==========================================================
-   Admin Token Handler
+   Admin Token Helper
 ========================================================== */
-async function getAdminToken() {
+async function getAdminToken(forceReenter = false) {
   let token = localStorage.getItem("admin-token");
 
-  if (!token) {
+  if (!token || forceReenter) {
     token = prompt("Enter Admin Token:");
     if (!token) {
       alert("Admin token required.");
@@ -78,9 +78,43 @@ function clearAdminToken() {
 }
 
 /* ==========================================================
-   Init
+   Token Status Panel
+========================================================== */
+async function checkAdminTokenStatus() {
+  let token = localStorage.getItem("admin-token");
+  const panel = document.getElementById("adminTokenStatus");
+
+  if (!token) {
+    panel.innerHTML = `<span class='text-red-600 font-semibold'>Admin Token Not Set</span> — Enter token when prompted.`;
+    panel.classList.remove("bg-green-200");
+    panel.classList.add("bg-red-100");
+    return false;
+  }
+
+  // Validate token by calling listUsers
+  const res = await fetch("/api/admin/listUsers", {
+    headers: { "x-admin-token": token }
+  });
+
+  if (res.status === 401) {
+    panel.innerHTML = `<span class='text-red-600 font-semibold'>Invalid Admin Token</span> — Please enter again.`;
+    panel.classList.remove("bg-green-200");
+    panel.classList.add("bg-red-100");
+    return false;
+  }
+
+  panel.innerHTML = `<span class='text-green-700 font-semibold'>Admin Token Verified</span>`;
+  panel.classList.remove("bg-red-100");
+  panel.classList.add("bg-green-200");
+
+  return true;
+}
+
+/* ==========================================================
+   Init Admin
 ========================================================== */
 async function initAdmin() {
+  await checkAdminTokenStatus();
   await loadMasterStatus();
   await loadUsers();
 }
@@ -91,7 +125,6 @@ async function initAdmin() {
 async function masterLogin() {
   const token = await getAdminToken();
   if (!token) return;
-
   window.location.href = `/api/admin/master-login?token=${token}`;
 }
 
@@ -99,12 +132,17 @@ async function masterLogin() {
    Load Master Status
 ========================================================== */
 async function loadMasterStatus() {
-  const token = await getAdminToken();
+  const token = localStorage.getItem("admin-token");
   if (!token) return;
 
   const res = await fetch("/api/admin/master-status", {
     headers: { "x-admin-token": token }
   });
+
+  if (res.status === 401) {
+    await getAdminToken(true);
+    return loadMasterStatus();
+  }
 
   const data = await res.json();
   document.getElementById("masterStatus").innerText = data.status || "Unknown";
@@ -114,14 +152,14 @@ async function loadMasterStatus() {
    Add User
 ========================================================== */
 async function addUser() {
-  const token = await getAdminToken();
+  let token = await getAdminToken();
   if (!token) return;
 
-  const user_id = document.getElementById('newUserId').value.trim();
-  const days = Number(document.getElementById('newUserValidity').value.trim());
+  const user_id = document.getElementById("newUserId").value.trim();
+  const days = Number(document.getElementById("newUserValidity").value.trim());
 
   if (!user_id || !days) {
-    alert("Enter both User ID & Validity Days.");
+    alert("Enter User ID and Validity Days");
     return;
   }
 
@@ -131,17 +169,16 @@ async function addUser() {
       "Content-Type": "application/json",
       "x-admin-token": token
     },
-    body: JSON.stringify({
-      user_id,
-      valid_until: Date.now() + (days * 86400000)
-    })
+    body: JSON.stringify({ user_id, valid_until: Date.now() + days * 86400000 })
   });
 
-  const data = await res.json();
-  if (!data.ok) {
-    alert("Error: " + data.error);
-    return;
+  if (res.status === 401) {
+    await getAdminToken(true);
+    return addUser();
   }
+
+  const data = await res.json();
+  if (!data.ok) alert("Error: " + data.error);
 
   loadUsers();
 }
@@ -150,12 +187,17 @@ async function addUser() {
    Load Users
 ========================================================== */
 async function loadUsers() {
-  const token = await getAdminToken();
+  let token = localStorage.getItem("admin-token");
   if (!token) return;
 
   const res = await fetch("/api/admin/listUsers", {
     headers: { "x-admin-token": token }
   });
+
+  if (res.status === 401) {
+    await getAdminToken(true);
+    return loadUsers();
+  }
 
   const data = await res.json();
   const tbody = document.getElementById("usersTable");
@@ -176,8 +218,7 @@ async function loadUsers() {
         <button onclick="extendValidity('${u.id}')" class='px-3 py-1 bg-blue-600 text-white rounded'>Extend</button>
         <button onclick="resetTrip('${u.id}')" class='px-3 py-1 bg-orange-600 text-white rounded'>Reset</button>
         <button onclick="deleteUser('${u.id}')" class='px-3 py-1 bg-red-600 text-white rounded'>Delete</button>
-      </td>
-    `;
+      </td>`;
     tbody.appendChild(tr);
   });
 }
@@ -185,56 +226,4 @@ async function loadUsers() {
 /* ==========================================================
    Extend Validity
 ========================================================== */
-async function extendValidity(user_id) {
-  const token = await getAdminToken();
-  if (!token) return;
-
-  const days = prompt("Add days:");
-  if (!days) return;
-
-  await fetch("/api/admin/extendValidity", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-admin-token": token },
-    body: JSON.stringify({ user_id, days: Number(days) })
-  });
-
-  loadUsers();
-}
-
-/* ==========================================================
-   Reset Trip
-========================================================== */
-async function resetTrip(user_id) {
-  const token = await getAdminToken();
-  if (!token) return;
-
-  await fetch("/api/admin/resetTrip", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-admin-token": token },
-    body: JSON.stringify({ user_id })
-  });
-
-  alert("Trip reset!");
-}
-
-/* ==========================================================
-   Delete User
-========================================================== */
-async function deleteUser(user_id) {
-  const token = await getAdminToken();
-  if (!token) return;
-
-  if (!confirm("Delete this user?")) return;
-
-  await fetch("/api/admin/deleteUser", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-admin-token": token },
-    body: JSON.stringify({ user_id })
-  });
-
-  loadUsers();
-}
-</script>
-
-</body>
-</html>
+async function extend
