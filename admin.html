@@ -51,14 +51,21 @@
   </div>
 
   <!-- User List -->
-  <div class="bg-white p-6 rounded-xl shadow-md border">
+   <div class="bg-white p-6 rounded-xl shadow-md border">
     <div class="flex justify-between items-center mb-4">
       <h2 class="text-xl font-semibold">Users</h2>
 
-      <button onclick="refreshUsers()" class="px-3 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-800 text-sm">
-        Refresh Users
-      </button>
+      <div class="flex gap-2">
+        <button onclick="openChangeKeysModal()" class="px-3 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-sm">
+          Change API Keys
+        </button>
+
+        <button onclick="refreshUsers()" class="px-3 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-800 text-sm">
+          Refresh Users
+        </button>
+      </div>
     </div>
+
 
     <table class="w-full border-collapse">
       <thead>
@@ -74,6 +81,37 @@
         <tr><td colspan="4" class="p-3 text-center text-gray-500">Click "Refresh Users" to load list.</td></tr>
       </tbody>
     </table>
+  </div>
+  <!-- Change API Key / Secret Modal -->
+  <div id="changeKeysModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center">
+    <div class="bg-white p-6 rounded-xl w-full max-w-md shadow-xl">
+
+      <h2 class="text-xl font-semibold mb-4">Update API Key / Secret</h2>
+
+      <label class="block font-medium mt-2">User ID</label>
+      <input id="ck_userid" class="w-full p-2 border rounded-lg" placeholder="USERID">
+
+      <label class="block font-medium mt-2">API Key</label>
+      <input id="ck_apikey" class="w-full p-2 border rounded-lg" placeholder="New API Key">
+
+      <label class="block font-medium mt-2">API Secret</label>
+      <input id="ck_apisecret" class="w-full p-2 border rounded-lg" placeholder="New API Secret">
+
+      <label class="block font-medium mt-2">Admin Token</label>
+      <input id="ck_token" type="password" class="w-full p-2 border rounded-lg" placeholder="Enter Admin Token">
+
+      <div class="mt-4 flex justify-end gap-3">
+        <button onclick="closeChangeKeysModal()" class="px-4 py-2 bg-gray-400 text-white rounded-lg hover:bg-gray-500">
+          Cancel
+        </button>
+        <button onclick="updateUserKeys()" class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700">
+          Update
+        </button>
+      </div>
+
+      <p id="ck_msg" class="text-sm mt-3"></p>
+
+    </div>
   </div>
 
   <script>
@@ -337,6 +375,67 @@ tr.innerHTML = `
         alert("Failed to delete user.");
       }
     }
+        /* ==========================================================
+       CHANGE USER API KEY / SECRET
+    ========================================================== */
+    function openChangeKeysModal() {
+      document.getElementById("changeKeysModal").classList.remove("hidden");
+    }
+
+    function closeChangeKeysModal() {
+      document.getElementById("changeKeysModal").classList.add("hidden");
+    }
+
+    async function updateUserKeys() {
+      const user_id = document.getElementById("ck_userid").value.trim();
+      const api_key = document.getElementById("ck_apikey").value.trim();
+      const api_secret = document.getElementById("ck_apisecret").value.trim();
+      const admin_token = document.getElementById("ck_token").value.trim();
+      const msg = document.getElementById("ck_msg");
+
+      if (!user_id || !api_key || !api_secret || !admin_token) {
+        msg.textContent = "All fields are required.";
+        msg.className = "text-red-600 text-sm";
+        return;
+      }
+
+      msg.textContent = "Updating…";
+      msg.className = "text-blue-600 text-sm";
+
+      try {
+        const res = await fetch("/api/admin/updateUserKeys", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-admin-token": admin_token
+          },
+          body: JSON.stringify({ user_id, api_key, api_secret })
+        });
+
+        const data = await res.json();
+
+        if (res.status === 401 || data.ok === false && data.error === "Unauthorized") {
+          msg.textContent = "Invalid admin token.";
+          msg.className = "text-red-600 text-sm";
+          return;
+        }
+
+        if (!data.ok) {
+          msg.textContent = "Error: " + (data.error || "Failed to update keys");
+          msg.className = "text-red-600 text-sm";
+          return;
+        }
+
+        msg.textContent = "Updated successfully. User must login again.";
+        msg.className = "text-green-600 text-sm";
+
+      } catch (err) {
+        console.error("updateUserKeys error:", err);
+        msg.textContent = "Failed to update keys.";
+        msg.className = "text-red-600 text-sm";
+      }
+    }
+
   </script>
 
 </body>
