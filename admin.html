@@ -55,24 +55,17 @@
 /* ==========================================================
    Admin Token Helper
 ========================================================== */
-async function getAdminToken(forceReenter = false) {
-  let token = localStorage.getItem("admin-token");
-
-  if (!token || forceReenter) {
-    token = prompt("Enter Admin Token:");
-    if (!token) {
-      alert("Admin token required.");
-      return null;
-    }
-    token = token.trim();
-    localStorage.setItem("admin-token", token);
+async function getAdminToken() {
+  let token = prompt("Enter Admin Token:");
+  if (!token) {
+    alert("Admin token required.");
+    return null;
   }
-
-  return token;
+  return token.trim();
+}
 }
 
 function clearAdminToken() {
-  localStorage.removeItem("admin-token");
   alert("Logged out!");
   location.reload();
 }
@@ -80,34 +73,13 @@ function clearAdminToken() {
 /* ==========================================================
    Token Status Panel
 ========================================================== */
-async function checkAdminTokenStatus() {
-  let token = localStorage.getItem("admin-token");
-  const panel = document.getElementById("adminTokenStatus");
-
-  if (!token) {
-    panel.innerHTML = `<span class='text-red-600 font-semibold'>Admin Token Not Set</span> — Enter token when prompted.`;
-    panel.classList.remove("bg-green-200");
-    panel.classList.add("bg-red-100");
-    return false;
-  }
-
-  // Validate token by calling listUsers
-  const res = await fetch("/api/admin/listUsers", {
-    headers: { "x-admin-token": token }
-  });
-
-  if (res.status === 401) {
-    panel.innerHTML = `<span class='text-red-600 font-semibold'>Invalid Admin Token</span> — Please enter again.`;
-    panel.classList.remove("bg-green-200");
-    panel.classList.add("bg-red-100");
-    return false;
-  }
-
-  panel.innerHTML = `<span class='text-green-700 font-semibold'>Admin Token Verified</span>`;
-  panel.classList.remove("bg-red-100");
-  panel.classList.add("bg-green-200");
-
+async function async function checkAdminTokenStatus() {
+  document.getElementById("adminTokenStatus").innerHTML =
+    `<span class='text-blue-700 font-semibold'>Admin token will be requested when needed.</span>`;
+  document.getElementById("adminTokenStatus").classList.remove("bg-red-100","bg-green-200");
+  document.getElementById("adminTokenStatus").classList.add("bg-blue-100");
   return true;
+}
 }
 
 /* ==========================================================
