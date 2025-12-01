@@ -6,15 +6,19 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <title>User Dashboard</title>
 </head>
+
 <body class="bg-gray-100 min-h-screen p-4">
 
   <!-- LOGIN SECTION -->
   <div id="loginSection" class="max-w-md mx-auto mt-24 bg-white p-6 rounded-xl shadow">
     <h2 class="text-2xl font-bold mb-4 text-gray-800">Zerodha User Login</h2>
+
     <label class="block text-sm font-medium mb-1 text-gray-700">Zerodha User ID</label>
     <input id="uidInput" class="w-full p-3 border rounded-lg mb-3"
            placeholder="Enter User ID (e.g., ZD5101)" />
+
     <p id="loginStatus" class="text-sm mb-3 text-gray-600"></p>
+
     <button onclick="saveUID()"
             class="w-full bg-blue-600 hover:bg-blue-700 text-white p-3 rounded-lg font-semibold">
       Continue
@@ -43,11 +47,12 @@
     <div class="flex flex-wrap gap-2">
       <span id="kiteStatusBadge"
             class="px-3 py-1 text-xs rounded-full bg-gray-200 text-gray-800">
-        Kite: —
+        Kite: -
       </span>
+
       <span id="tripStatusBadge"
             class="px-3 py-1 text-xs rounded-full bg-gray-200 text-gray-800">
-        Status: —
+        Status: -
       </span>
     </div>
 
@@ -59,44 +64,42 @@
         <div class="flex justify-between items-center mb-1">
           <h2 class="text-sm font-semibold text-gray-600">Live MTM</h2>
         </div>
-        <div id="mtmTotal" class="text-2xl font-bold text-gray-900">—</div>
-        <div id="mtmBreakdown" class="text-xs text-gray-600 mt-1">R / UR / Total</div>
+        <div id="mtmTotal" class="text-2xl font-bold text-gray-900">-</div>
+        <div id="mtmBreakdown" class="text-xs text-gray-600 mt-1">-</div>
       </div>
 
-      <!-- Active loss floor -->
+      <!-- Loss floor -->
       <div class="bg-white p-4 rounded-xl shadow">
         <h2 class="text-sm font-semibold text-gray-600 mb-1">Loss Floor</h2>
-        <div id="lossFloor" class="text-lg font-semibold text-gray-900">—</div>
-        <div id="remainingLoss" class="text-xs text-gray-600 mt-1">
-          Remaining to max loss: —
-        </div>
+        <div id="lossFloor" class="text-lg font-semibold text-gray-900">-</div>
+        <div id="remainingLoss" class="text-xs text-gray-600 mt-1">-</div>
       </div>
 
-      <!-- P10 profit lock -->
+      <!-- Max Profit -->
       <div class="bg-white p-4 rounded-xl shadow">
-        <h2 class="text-sm font-semibold text-gray-600 mb-1">Profit Lock (P10)</h2>
-        <div id="p10Value" class="text-lg font-semibold text-gray-900">—</div>
-        <div id="p10Hint" class="text-xs text-gray-600 mt-1">—</div>
+        <h2 class="text-sm font-semibold text-gray-600 mb-1">Max Profit</h2>
+        <div id="maxProfitValue" class="text-lg font-semibold text-gray-900">-</div>
+        <div id="maxProfitInfo" class="text-xs text-gray-600 mt-1">-</div>
       </div>
 
-      <!-- Consecutive losses / cooldown -->
+      <!-- Consecutive losses -->
       <div class="bg-white p-4 rounded-xl shadow">
         <h2 class="text-sm font-semibold text-gray-600 mb-1">Consecutive Losses</h2>
         <div id="consecLosses" class="text-2xl font-bold text-gray-900">0</div>
-        <div id="cooldownStatus" class="text-xs text-gray-600 mt-1">Cooldown: —</div>
+        <div id="cooldownStatus" class="text-xs text-gray-600 mt-1">-</div>
       </div>
 
       <!-- Capital & max loss -->
       <div class="bg-white p-4 rounded-xl shadow">
         <h2 class="text-sm font-semibold text-gray-600 mb-1">Capital & Max Loss</h2>
-        <div id="capital915" class="text-lg font-semibold text-gray-900">—</div>
-        <div id="maxLossInfo" class="text-xs text-gray-600 mt-1">Max Loss: —</div>
+        <div id="capital915" class="text-lg font-semibold text-gray-900">-</div>
+        <div id="maxLossInfo" class="text-xs text-gray-600 mt-1">-</div>
       </div>
 
-      <!-- Last trade time -->
+      <!-- Last trade -->
       <div class="bg-white p-4 rounded-xl shadow">
         <h2 class="text-sm font-semibold text-gray-600 mb-1">Last Trade</h2>
-        <div id="lastTradeTime" class="text-lg font-semibold text-gray-900">—</div>
+        <div id="lastTradeTime" class="text-lg font-semibold text-gray-900">-</div>
         <div class="text-xs text-gray-600 mt-1">IST</div>
       </div>
     </div>
@@ -110,7 +113,7 @@
         </button>
       </div>
       <pre id="positionsBox"
-           class="text-xs text-gray-800 bg-gray-50 p-2 rounded max-h-60 overflow-auto">Loading…</pre>
+           class="text-xs text-gray-800 bg-gray-50 p-2 rounded max-h-60 overflow-auto">Loading...</pre>
     </div>
 
     <!-- Tradebook -->
@@ -122,16 +125,19 @@
         </button>
       </div>
       <pre id="tradebookBox"
-           class="text-xs text-gray-800 bg-gray-50 p-2 rounded max-h-60 overflow-auto">Loading…</pre>
+           class="text-xs text-gray-800 bg-gray-50 p-2 rounded max-h-60 overflow-auto">Loading...</pre>
     </div>
+
   </div>
 
   <script>
-   function formatINR(v) {
-  if (isNaN(Number(v))) return "-";
-  return "₹" + Number(v).toLocaleString("en-IN", { maximumFractionDigits: 0 });
-}
-
+    /* -----------------------------------------------------
+       SAFE CURRENCY FORMATTER
+    ----------------------------------------------------- */
+    function formatINR(v) {
+      if (isNaN(Number(v))) return "-";
+      return "₹" + Number(v).toLocaleString("en-IN", { maximumFractionDigits: 0 });
+    }
 
     let uid = localStorage.getItem("user_id") || null;
 
@@ -155,26 +161,30 @@
     function saveUID() {
       const v = document.getElementById("uidInput").value.trim().toUpperCase();
       const msg = document.getElementById("loginStatus");
+
       if (!v) {
         msg.textContent = "Please enter Zerodha User ID.";
         msg.className = "text-sm mb-3 text-red-600";
         return;
       }
+
       localStorage.setItem("user_id", v);
       uid = v;
-      msg.textContent = "Saved. Checking status…";
+
+      msg.textContent = "Checking user...";
       msg.className = "text-sm mb-3 text-blue-600";
+
       checkUser();
     }
 
+    /* -----------------------------------------------------
+       USER VALIDATION
+    ----------------------------------------------------- */
     async function checkUser() {
-      if (!uid) {
-        showLogin();
-        return;
-      }
+      if (!uid) return showLogin();
 
       const status = document.getElementById("loginStatus");
-      status.textContent = "Checking user registration…";
+      status.textContent = "Checking user registration...";
       status.className = "text-sm mb-3 text-gray-600";
 
       try {
@@ -182,7 +192,7 @@
         const d = await r.json();
 
         if (!d.ok || !d.user) {
-          alert("Not authorized user or not registered.");
+          alert("Not authorized user.");
           localStorage.removeItem("user_id");
           uid = null;
           showLogin();
@@ -191,12 +201,11 @@
 
         const u = d.user;
 
-        // update basic labels
-        document.getElementById("userIdLabel").textContent = `Logged in as: ${u.id}`;
+        document.getElementById("userIdLabel").textContent = "Logged in as: " + u.id;
         document.getElementById("validityLabel").textContent =
-          "Valid until: " + (u.valid_until ? new Date(u.valid_until).toLocaleString() : "—");
+          "Valid until: " + (u.valid_until ? new Date(u.valid_until).toLocaleString() : "-");
         document.getElementById("lastLoginLabel").textContent =
-          "Last login: " + (u.last_login ? new Date(u.last_login).toLocaleString() : "—");
+          "Last login: " + (u.last_login ? new Date(u.last_login).toLocaleString() : "-");
 
         if (u.expired) {
           status.textContent = "Your subscription has expired.";
@@ -205,14 +214,13 @@
           return;
         }
 
-        // user registered and not expired
         if (u.connected) {
-          status.textContent = "User is connected. Loading dashboard…";
+          status.textContent = "Connected. Loading dashboard...";
           status.className = "text-sm mb-3 text-green-600";
           showDashboard();
           startPolling();
         } else {
-          status.textContent = "User not connected to Zerodha. Redirecting…";
+          status.textContent = "Redirecting to Zerodha login...";
           status.className = "text-sm mb-3 text-orange-600";
 
           const r2 = await fetch(`/api/user/login-url?user_id=${encodeURIComponent(uid)}`);
@@ -232,26 +240,35 @@
       }
     }
 
+    /* -----------------------------------------------------
+       POLLING SETUP
+    ----------------------------------------------------- */
     function startPolling() {
       pollState();
       pollPositions();
       pollTradebook();
+
       setInterval(pollState, 5000);
       setInterval(pollPositions, 10000);
       setInterval(pollTradebook, 15000);
     }
 
+    /* -----------------------------------------------------
+       STATE POLL
+    ----------------------------------------------------- */
     async function pollState() {
       if (!uid) return;
+
       try {
         const r = await fetch(`/api/state?user_id=${encodeURIComponent(uid)}`);
         const j = await r.json();
+
         if (!j.ok) return;
 
         const s = j.state || {};
         const kiteStatus = j.kite_status || "unknown";
 
-        // kite status badge
+        // KITE STATUS
         const kiteBadge = document.getElementById("kiteStatusBadge");
         if (kiteStatus === "ok" || kiteStatus === "connected") {
           kiteBadge.textContent = "Kite: Connected";
@@ -263,9 +280,10 @@
             "px-3 py-1 text-xs rounded-full bg-red-100 text-red-700";
         }
 
-        // trip status
-        const trip = !!s.tripped_day || !!s.tripped;
+        // TRIP STATUS
+        const trip = !!s.tripped || !!s.tripped_day;
         const tripBadge = document.getElementById("tripStatusBadge");
+
         if (trip) {
           tripBadge.textContent = "Status: TRIPPED";
           tripBadge.className =
@@ -276,72 +294,79 @@
             "px-3 py-1 text-xs rounded-full bg-emerald-100 text-emerald-700 font-semibold";
         }
 
-        // MTM & PNL
-       
-const realised = Number(s.realised ?? 0);
-const unreal = Number(s.unrealised ?? 0);
-const total = realised + unreal;
+        // MTM
+        const realised = Number(s.realised ?? 0);
+        const unreal = Number(s.unrealised ?? 0);
+        const total = realised + unreal;
 
-document.getElementById("mtmTotal").textContent = formatINR(total);
-document.getElementById("mtmBreakdown").textContent =
-  `Realised: ${formatINR(realised)} • Unrealised: ${formatINR(unreal)} • Total: ${formatINR(total)}`;
+        document.getElementById("mtmTotal").textContent = formatINR(total);
+        document.getElementById("mtmBreakdown").textContent =
+          "Realised: " + formatINR(realised) +
+          " • Unrealised: " + formatINR(unreal) +
+          " • Total: " + formatINR(total);
 
-// capital & max loss
-const capital = Number(s.capital_day_915 ?? 0);
-const maxLossPct = Number(s.max_loss_pct ?? 0);
-const maxLossAbs = Math.round(capital * (maxLossPct / 100));
+        // CAPITAL & MAX LOSS
+        const capital = Number(s.capital_day_915 ?? 0);
+        const maxLossPct = Number(s.max_loss_pct ?? 0);
+        const maxLossAbs = capital ? Math.round(capital * (maxLossPct / 100)) : 0;
 
-document.getElementById("capital915").textContent = capital ? formatINR(capital) : "—";
-document.getElementById("maxLossInfo").textContent =
-  capital
-    ? `Max loss: ${formatINR(maxLossAbs)} (${maxLossPct.toFixed(2)}%)`
-    : "Max loss: —";
+        document.getElementById("capital915").textContent =
+          capital ? formatINR(capital) : "-";
 
-        // loss floor & remaining
+        document.getElementById("maxLossInfo").textContent =
+          capital
+            ? "Max loss: " + formatINR(maxLossAbs) + " (" + maxLossPct + "%)"
+            : "Max loss: -";
+
+        // LOSS FLOOR
         document.getElementById("lossFloor").textContent =
-          ₹(s.active_loss_floor ?? 0);
+          formatINR(s.active_loss_floor ?? 0);
+
         document.getElementById("remainingLoss").textContent =
-          "Remaining to max loss: " + ₹(s.remaining_to_max_loss ?? 0);
+          "Remaining to max loss: " + formatINR(s.remaining_to_max_loss ?? 0);
 
-        // P10
-        if (typeof s.p10 !== "undefined" && s.p10 !== null) {
-          const effAmt = capital ? Math.round(capital * (Number(s.p10) / 100)) : 0;
-          document.getElementById("p10Value").textContent = `${s.p10}%`;
-          document.getElementById("p10Hint").textContent = effAmt ? `≈ ${₹(effAmt)}` : "—";
-        } else if (typeof s.p10_amount !== "undefined") {
-          document.getElementById("p10Value").textContent = ₹(s.p10_amount);
-          document.getElementById("p10Hint").textContent = "Absolute amount";
-        } else {
-          document.getElementById("p10Value").textContent = "—";
-          document.getElementById("p10Hint").textContent = "—";
-        }
+        // MAX PROFIT %
+        const maxProfitPct = Number(s.max_profit_pct ?? 0);
+        const maxProfitAbs = capital ? Math.round(capital * (maxProfitPct / 100)) : 0;
 
-        // consecutive losses & cooldown
+        document.getElementById("maxProfitValue").textContent =
+          maxProfitPct ? (maxProfitPct + "%") : "-";
+
+        document.getElementById("maxProfitInfo").textContent =
+          maxProfitPct
+            ? "Max profit: " + formatINR(maxProfitAbs)
+            : "Max profit: -";
+
+        // CONSECUTIVE LOSSES
         const consec = Number(s.consecutive_losses ?? 0);
         document.getElementById("consecLosses").textContent = consec.toString();
 
-        const cooldownActive = !!s.cooldown_active;
-        if (cooldownActive) {
+        // COOLDOWN STATUS
+        if (s.cooldown_active) {
           document.getElementById("cooldownStatus").textContent =
-            "Cooldown active — trading blocked until timer ends.";
+            "Cooldown active - trading blocked until timer ends.";
         } else {
           document.getElementById("cooldownStatus").textContent =
             "No cooldown currently active.";
         }
 
-        // last trade time
+        // LAST TRADE
         if (s.last_trade_time && Number(s.last_trade_time) > 0) {
           const d = new Date(Number(s.last_trade_time));
           document.getElementById("lastTradeTime").textContent =
             d.toLocaleTimeString("en-GB", { hour12: false, timeZone: "Asia/Kolkata" });
         } else {
-          document.getElementById("lastTradeTime").textContent = "—";
+          document.getElementById("lastTradeTime").textContent = "-";
         }
+
       } catch (err) {
         console.error("pollState error", err);
       }
     }
 
+    /* -----------------------------------------------------
+       POSITIONS
+    ----------------------------------------------------- */
     async function pollPositions() {
       if (!uid) return;
       try {
@@ -354,6 +379,9 @@ document.getElementById("maxLossInfo").textContent =
       }
     }
 
+    /* -----------------------------------------------------
+       TRADEBOOK
+    ----------------------------------------------------- */
     async function pollTradebook() {
       if (!uid) return;
       try {
@@ -366,26 +394,33 @@ document.getElementById("maxLossInfo").textContent =
       }
     }
 
-    // initial boot
-    (function boot() {
-      // if returned from login callback with ?login=success etc, keep uid and go straight to checkUser
+    /* -----------------------------------------------------
+       INITIAL BOOT
+    ----------------------------------------------------- */
+    (function init() {
       const url = new URL(window.location.href);
       const loginStatus = url.searchParams.get("login");
+
       if (loginStatus === "success") {
-        document.getElementById("loginStatus").textContent = "Login successful. Loading…";
-        document.getElementById("loginStatus").className = "text-sm mb-3 text-green-600";
+        document.getElementById("loginStatus").textContent =
+          "Login successful. Loading...";
+        document.getElementById("loginStatus").className =
+          "text-sm mb-3 text-green-600";
       } else if (loginStatus === "failed") {
-        document.getElementById("loginStatus").textContent = "Login failed. Please try again.";
-        document.getElementById("loginStatus").className = "text-sm mb-3 text-red-600";
+        document.getElementById("loginStatus").textContent =
+          "Login failed. Try again.";
+        document.getElementById("loginStatus").className =
+          "text-sm mb-3 text-red-600";
       }
 
       if (!uid) {
         showLogin();
       } else {
-        showLogin(); // show but immediately check & potentially switch to dashboard
+        showLogin(); 
         checkUser();
       }
     })();
   </script>
+
 </body>
 </html>
