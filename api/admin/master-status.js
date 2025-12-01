@@ -8,7 +8,7 @@ export default async function handler(req, res) {
       return res.status(401).json({ ok: false, error: "Unauthorized" });
     }
 
-    // Load master session from KV
+    // Load master session
     const session = await kv.get("master:zerodha:session");
 
     if (!session) {
@@ -19,12 +19,31 @@ export default async function handler(req, res) {
       });
     }
 
+    const { access_token, user_id } = session;
+
+    // Validate token with Zerodha API
+    const profileRes = await fetch("https://api.kite.trade/user/profile", {
+      headers: {
+        "X-Kite-Version": "3",
+        Authorization: `token ${process.env.KITE_API_KEY}:${access_token}`,
+      },
+    });
+
+    // If Zerodha rejected token → expired
+    if (!profileRes.ok) {
+      return res.status(200).json({
+        ok: true,
+        connected: false,
+        status: "Token Expired — Please Login Again",
+      });
+    }
+
+    // VALID TOKEN → connected
     return res.status(200).json({
       ok: true,
       connected: true,
-      user_id: session.user_id,
-      last_login_at: session.last_login_at,
-      status: `Connected as ${session.user_id}`,
+      user_id,
+      status: `Connected as ${user_id}`,
     });
 
   } catch (err) {
