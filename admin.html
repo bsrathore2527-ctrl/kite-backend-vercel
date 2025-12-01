@@ -10,7 +10,7 @@
 
   <header class="flex justify-between items-center mb-6">
     <h1 class="text-3xl font-bold text-gray-900">Admin Panel</h1>
-    <button onclick="logoutAdmin()" class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700">Logout</button>
+    <button onclick="clearAdminToken()" class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700">Logout</button>
   </header>
 
   <div class="bg-white p-6 rounded-xl shadow-md border mb-6">
@@ -45,51 +45,108 @@
   </div>
 
 <script>
-function protectAdmin(){
-  const token = sessionStorage.getItem('admin-token');
-  if(!token){ window.location.href = '/admin-login.html'; return; }
-  window.ADMIN_TOKEN = token;
+// ------------------------------------------------------
+// Admin Token Helper
+// ------------------------------------------------------
+async function getAdminToken() {
+  let token = localStorage.getItem("admin-token");
+
+  if (!token) {
+    token = prompt("Enter Admin Token:");
+    if (!token) {
+      alert("Admin token required.");
+      return null;
+    }
+    localStorage.setItem("admin-token", token);
+  }
+
+  return token;
 }
 
-function initAdmin(){
-  protectAdmin();
-  loadMasterStatus();
-  loadUsers();
+function clearAdminToken() {
+  localStorage.removeItem("admin-token");
+  alert("Logged out.");
+  location.reload();
 }
 
-function logoutAdmin(){
-  sessionStorage.removeItem('admin-token');
-  window.location.href = '/admin-login.html';
+// ------------------------------------------------------
+// Init Page
+// ------------------------------------------------------
+async function initAdmin() {
+  await loadMasterStatus();
+  await loadUsers();
 }
 
-async function masterLogin(){
-  window.location.href = `/api/admin/master-login?token=${ADMIN_TOKEN}`;
+// ------------------------------------------------------
+// Master Zerodha Login
+// ------------------------------------------------------
+async function masterLogin() {
+  const token = await getAdminToken();
+  if (!token) return;
+
+  window.location.href = `/api/admin/master-login?token=${token}`;
 }
 
-async function loadMasterStatus(){
-  const res = await fetch('/api/admin/master-status',{ headers:{'x-admin-token':ADMIN_TOKEN} });
-  const data = await res.json();
-  document.getElementById('masterStatus').innerText = data.status || 'Unknown';
+// ------------------------------------------------------
+// Load Master Status
+// ------------------------------------------------------
+async function loadMasterStatus() {
+  const token = await getAdminToken();
+  if (!token) return;
+
+  try {
+    const res = await fetch('/api/admin/master-status', {
+      headers: { 'x-admin-token': token }
+    });
+
+    const data = await res.json();
+    document.getElementById('masterStatus').innerText = data.status || 'Unknown';
+
+  } catch (e) {
+    console.error('masterStatus error:', e);
+  }
 }
 
-async function addUser(){
+// ------------------------------------------------------
+// Add User
+// ------------------------------------------------------
+async function addUser() {
+  const token = await getAdminToken();
+  if (!token) return;
+
   const user_id = document.getElementById('newUserId').value.trim();
   const days = Number(document.getElementById('newUserValidity').value.trim());
-  if(!user_id || !days){ alert('Enter user ID + validity'); return; }
 
-  await fetch('/api/admin/addUser',{
-    method:'POST',
-    headers:{ 'Content-Type':'application/json', 'x-admin-token':ADMIN_TOKEN },
-    body: JSON.stringify({ user_id, valid_until: Date.now() + days*86400000 })
+  if (!user_id || !days) {
+    alert("Enter user ID + validity days");
+    return;
+  }
+
+  const res = await fetch('/api/admin/addUser', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-admin-token': token
+    },
+    body: JSON.stringify({ user_id, valid_until: Date.now() + (days * 86400000) })
   });
+
+  const data = await res.json();
+  if (!data.ok) alert("Error: " + data.error);
 
   loadUsers();
 }
 
-async function loadUsers(){
+// ------------------------------------------------------
+// Load Users
+// ------------------------------------------------------
+async function loadUsers() {
+  const token = await getAdminToken();
+  if (!token) return;
+
   try {
     const res = await fetch('/api/admin/listUsers', {
-      headers: { 'x-admin-token': ADMIN_TOKEN }
+      headers: { 'x-admin-token': token }
     });
 
     const data = await res.json();
@@ -115,39 +172,68 @@ async function loadUsers(){
         </td>`;
       tbody.appendChild(tr);
     });
+
   } catch (e) {
     console.error('loadUsers error:', e);
   }
 }
 
-async function extendValidity(user_id){
-  const days = prompt('Extend days by:');
-  if(!days) return;
+// ------------------------------------------------------
+// Extend Validity
+// ------------------------------------------------------
+async function extendValidity(user_id) {
+  const token = await getAdminToken();
+  if (!token) return;
 
-  await fetch('/api/admin/extendValidity',{
-    method:'POST',
-    headers:{'Content-Type':'application/json','x-admin-token':ADMIN_TOKEN},
-    body: JSON.stringify({ user_id, days:Number(days) })
+  const days = prompt("Extend validity by days:");
+  if (!days) return;
+
+  await fetch('/api/admin/extendValidity', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-admin-token': token
+    },
+    body: JSON.stringify({ user_id, days: Number(days) })
   });
 
   loadUsers();
 }
 
-async function resetTrip(user_id){
-  await fetch('/api/admin/resetTrip',{
-    method:'POST',
-    headers:{'Content-Type':'application/json','x-admin-token':ADMIN_TOKEN},
+// ------------------------------------------------------
+// Reset Trip
+// ------------------------------------------------------
+async function resetTrip(user_id) {
+  const token = await getAdminToken();
+  if (!token) return;
+
+  await fetch('/api/admin/resetTrip', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-admin-token': token
+    },
     body: JSON.stringify({ user_id })
   });
-  alert('Trip reset');
+
+  alert('Trip reset!');
 }
 
-async function deleteUser(user_id){
-  if(!confirm('Delete this user?')) return;
+// ------------------------------------------------------
+// Delete User
+// ------------------------------------------------------
+async function deleteUser(user_id) {
+  const token = await getAdminToken();
+  if (!token) return;
 
-  await fetch('/api/admin/deleteUser',{
-    method:'POST',
-    headers:{'Content-Type':'application/json','x-admin-token':ADMIN_TOKEN},
+  if (!confirm("Delete user?")) return;
+
+  await fetch('/api/admin/deleteUser', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-admin-token': token
+    },
     body: JSON.stringify({ user_id })
   });
 
