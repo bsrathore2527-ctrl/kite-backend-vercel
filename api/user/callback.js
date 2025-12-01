@@ -1,95 +1,51 @@
-import KiteConnect from "kiteconnect";
-import { kv } from "../_lib/kv.js";
+// /api/callback.js
+import { exchangeRequestToken } from "./_lib/kite.js";
+import { kv } from "./_lib/kv.js";
 
 export default async function handler(req, res) {
   try {
-    const { request_token, user_id } = req.query;
+    const { request_token, status } = req.query;
 
-    if (!request_token || !user_id) {
-      return res.status(400).send("Missing request_token or user_id");
+    // If Zerodha returned an error
+    if (status === "error") {
+      return res.redirect("/admin.html?connected=0&reason=zerodha_error");
     }
 
-    if (!process.env.USER_API_KEY || !process.env.USER_API_SECRET) {
-      return res.status(500).send("Missing USER_API_KEY or USER_API_SECRET");
+    if (!request_token) {
+      return res.redirect("/admin.html?connected=0&reason=no_request_token");
     }
 
-    console.log("Callback for:", user_id);
+    // Exchange request_token → access_token
+    const session = await exchangeRequestToken(request_token);
 
-    const kc = new KiteConnect({ api_key: process.env.USER_API_KEY });
+    if (!session || !session.access_token) {
+      console.error("Missing access token. Session:", session);
+      return res.redirect("/admin.html?connected=0&reason=exchange_failed");
+    }
 
-    // Get access token
-    const session = await kc.generateSession(
-      request_token,
-      process.env.USER_API_SECRET
-    );
+    const { user_id, access_token } = session;
 
-    const access_token = session.access_token;
+    // Clear old master keys
+    await kv.del("master:access_token");
+    await kv.del("master:user_id");
 
-    // ---------------------------------------------
-    // SAVE CURRENT ACTIVE SESSION (Single-user mode)
-    // ---------------------------------------------
-    await kv.set("kite:current:token", {
-      access_token,
-      updated_at: Date.now(),
+    // Save new master session
+    await kv.set("master:access_token", access_token);
+    await kv.set("master:user_id", user_id);
+    await kv.set("master:last_login_at", Date.now());
+
+    // OPTIONAL: Save master profile for display (not required for system)
+    await kv.set("master:profile", {
+      user_id,
+      logged_in_at: Date.now(),
     });
 
-    await kv.set("kite:current:user_id", user_id);
+    console.log("Master login OK:", user_id);
 
-    // ---------------------------------------------
-    // UPDATE USER INFO KV (Multi-user safe)
-    // ---------------------------------------------
-    const existing = (await kv.get(`user:${user_id}:info`)) || {};
-
-    const updatedInfo = {
-      id: user_id,
-      connected: true,
-      last_login: Date.now(),
-      valid_until: existing.valid_until || null,
-      expired: existing.expired || false,
-    };
-
-    await kv.set(`user:${user_id}:info`, updatedInfo);
-
-    // ---------------------------------------------
-    // PATCH: UPDATE users:list (for Admin UI)
-    // ---------------------------------------------
-    const list = (await kv.get("users:list")) || [];
-
-    const idx = list.findIndex((u) => u.id === user_id);
-    if (idx !== -1) {
-      list[idx].connected = true;
-      list[idx].last_login = updatedInfo.last_login;
-      list[idx].expired = updatedInfo.expired;
-      list[idx].valid_until = updatedInfo.valid_until;
-    }
-
-    await kv.set("users:list", list);
-
-    // ---------------------------------------------
-    // CREATE STATE IF MISSING
-    // ---------------------------------------------
-    const stateKey = `user:${user_id}:state`;
-    if (!(await kv.get(stateKey))) {
-      await kv.set(stateKey, {
-        realised: 0,
-        unrealised: 0,
-        capital_day_915: 0,
-        max_loss_pct: 0,
-        max_profit_pct: 0,
-        active_loss_floor: 0,
-        remaining_to_max_loss: 0,
-        consecutive_losses: 0,
-        tripped: false,
-        tripped_day: false,
-        cooldown_active: false,
-        last_trade_time: 0,
-      });
-    }
-
-    return res.redirect(`/user.html?login=success`);
+    return res.redirect("/admin.html?connected=1");
 
   } catch (err) {
-    console.error("Callback error:", err);
-    return res.redirect(`/user.html?login=failed`);
+    console.error("Master callback fatal error:", err);
+    return res.redirect("/admin.html?connected=0&reason=exception");
   }
 }
