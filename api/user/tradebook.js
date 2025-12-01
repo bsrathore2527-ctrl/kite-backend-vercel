@@ -21,7 +21,6 @@ export default async function handler(req, res) {
       ok: true,
       trades: trades || []
     });
-
   } catch (err) {
     console.error("tradebook API error:", err);
     return res.status(500).json({ ok:false, error: err.message });
