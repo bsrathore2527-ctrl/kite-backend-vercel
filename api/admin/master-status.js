@@ -8,17 +8,47 @@ export default async function handler(req, res) {
     }
 
     const access = await kv.get("master:access_token");
-    const profile = await kv.get("master:profile");
+
+    if (!access) {
+      return res.json({
+        ok: true,
+        connected: false,
+        reason: "no_token"
+      });
+    }
+
+    // Live API check
+    const resp = await fetch("https://api.kite.trade/user/profile", {
+      headers: {
+        "X-Kite-Version": "3",
+        Authorization: "token " + process.env.KITE_API_KEY + ":" + access
+      }
+    });
+
+    if (!resp.ok) {
+      return res.json({
+        ok: true,
+        connected: false,
+        reason: "invalid_token"
+      });
+    }
+
+    const data = await resp.json();
 
     return res.json({
       ok: true,
-      connected: !!access,
-      user_id: profile?.user_id || null,
-      last_login: profile?.login_time || null
+      connected: true,
+      user_id: data?.data?.user_id,
+      user_name: data?.data?.user_name,
+      profile: data?.data
     });
 
   } catch (err) {
-    console.error("master-status error:", err);
-    return res.status(500).json({ ok: false, error: "internal_error" });
+    console.error("master-status live check error:", err);
+    return res.json({
+      ok: true,
+      connected: false,
+      reason: "error",
+    });
   }
 }
