@@ -1,94 +1,91 @@
-// ======================================================================
-// MULTI-USER STATE.JS (FINAL VERSION)
-// - Returns full merged state for admin.html
-// - Read-only endpoint
-// - No enforcement logic
-// - Uses Upstash KV + getClientId()
-// ======================================================================
+// File: /api/state.js
+import { kv } from "../_lib/kv.js";
+import { getKiteForUser } from "../_lib/kite.js"; // we'll define this helper next
 
-import { kv } from "./_lib/kv.js";
-import { getClientId } from "./kite.js";
-
-export default async function handler(req) {
+export default async function handler(req, res) {
   try {
-    const userId = await getClientId();
-    if (!userId) {
-      return json({ ok: false, error: "No userId found" });
+    if (req.method !== "GET") {
+      return res.status(405).json({ ok: false, error: "GET only" });
     }
 
-    // ----------------------------------------------------------
-    // KV KEYS
-    // ----------------------------------------------------------
-    const stateKey = `state:${userId}`;
-    const configKey = `config:${userId}`;
-    const posKey = `positions:${userId}`;
-    const tradebookKey = `tradebook:${userId}`;
-    const watchKey = `watchlist:${userId}`;
-    const mtmKey = `mtm:${userId}`;
+    const { user_id } = req.query;
+    if (!user_id) {
+      return res.status(400).json({ ok: false, error: "Missing user_id" });
+    }
 
-    // ----------------------------------------------------------
-    // FETCH ALL DATA
-    // ----------------------------------------------------------
-    const [
-      state,
-      config,
-      positions,
-      tradebook,
-      watchlist,
-      rawMTM
-    ] = await Promise.all([
-      kv.get(stateKey),
-      kv.get(configKey),
-      kv.get(posKey),
-      kv.get(tradebookKey),
-      kv.get(watchKey),
-      kv.get(mtmKey)
-    ]);
+    // --- 1) Load per-user risk state from Redis ---
+    const stateKey = `user:${user_id}:state`;
+    let st = await kv.get(stateKey);
+    if (!st || typeof st !== "object") st = {};
 
-    const currentMTM = Number(rawMTM || 0);
+    // sensible defaults
+    const capital = Number(st.capital_day_915 ?? 0);
+    const maxLossPct = Number(st.max_loss_pct ?? 0);
 
-    // ----------------------------------------------------------
-    // PREPARE RETURN OBJECT
-    // ----------------------------------------------------------
-    const out = {
+    st.realised = Number(st.realised ?? 0);
+    st.unrealised = Number(st.unrealised ?? 0);
+    st.total_pnl = Number(st.total_pnl ?? st.realised + st.unrealised);
+    st.max_loss_pct = maxLossPct;
+    st.capital_day_915 = capital;
+    st.active_loss_floor = Number(st.active_loss_floor ?? 0);
+    st.remaining_to_max_loss = Number(st.remaining_to_max_loss ?? 0);
+    st.consecutive_losses = Number(st.consecutive_losses ?? 0);
+    st.cooldown_active = !!st.cooldown_active;
+    st.tripped = !!(st.tripped || st.tripped_day);
+
+    // p10 variants, for compatibility with old admin.html logic
+    if (typeof st.p10 === "undefined" && typeof st.p10_amount !== "undefined") {
+      // legacy rupee mode
+      st.p10_amount = Number(st.p10_amount ?? 0);
+    } else if (typeof st.p10 !== "undefined") {
+      st.p10 = Number(st.p10 ?? 0);
+    }
+
+    // --- 2) Try to get live data from Zerodha for this user ---
+    let kite_status = "not_logged_in";
+    try {
+      const kc = await getKiteForUser(user_id); // throws if no token / not logged in
+      if (!kc) {
+        kite_status = "not_logged_in";
+      } else {
+        // funds
+        const funds = await kc.getFunds().catch(() => null);
+        // positions
+        const pos = await kc.getPositions().catch(() => null);
+
+        // set live positions & funds on state for frontend
+        if (pos && Array.isArray(pos.net)) {
+          st.positions = pos.net;
+          // compute unrealised from Zerodha if present
+          let unreal = 0;
+          for (const p of pos.net) {
+            unreal += Number(p.unrealised || p.pnl || 0);
+          }
+          st.unrealised = unreal;
+          st.total_pnl = st.realised + st.unrealised;
+        }
+
+        if (funds && funds.equity) {
+          st.funds = funds.equity;
+        }
+
+        kite_status = "ok";
+      }
+    } catch (e) {
+      console.error("state.js getKiteForUser error", e);
+      kite_status = "error";
+    }
+
+    // --- 3) Respond with merged view ---
+    return res.status(200).json({
       ok: true,
-      userId,
-      mtm: currentMTM,
-
-      // State defaults
-      state: {
-        tripped_day: state?.tripped_day || false,
-        trip_reason: state?.trip_reason || null,
-        consecutive_losses: Number(state?.consecutive_losses || 0),
-        last_trade_mtm: Number(state?.last_trade_mtm || 0),
-        remaining_to_max_loss: Number(state?.remaining_to_max_loss || 0),
-        unrealised: currentMTM,
-        total_pnl: currentMTM,
-        last_update_ts: state?.last_update_ts || 0,
-        ...state
-      },
-
-      // Config defaults
-      config: config || {},
-
-      positions: positions || [],
-      tradebook: tradebook || {},
-      watchlist: watchlist || []
-    };
-
-    return json(out);
+      time: Date.now(),
+      kite_status,
+      state: st
+    });
 
   } catch (err) {
-    return json({ ok: false, error: err.message || String(err) });
+    console.error("STATE ERROR:", err);
+    return res.status(500).json({ ok: false, error: "Server error" });
   }
-}
-
-// --------------------------------------------------------------
-// Helper: JSON response
-// --------------------------------------------------------------
-function json(obj, status = 200) {
-  return new Response(JSON.stringify(obj), {
-    status,
-    headers: { "Content-Type": "application/json" }
-  });
 }
