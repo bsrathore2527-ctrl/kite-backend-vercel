@@ -1,5 +1,5 @@
 import { kv } from "./_lib/kv.js";
-import { createKiteInstanceForUser } from "./_lib/kite-user-instance.js";
+import { createKiteInstanceForCurrentUser } from "./_lib/kite-current-instance.js";
 
 export default async function handler(req, res) {
   try {
@@ -14,32 +14,31 @@ export default async function handler(req, res) {
       return res.status(401).json({ ok:false, error:"Unauthorized user" });
     }
 
-    const st = await kv.get(`user:${user_id}:state`) || {};
+    // Load stored state
+    const st = (await kv.get(`user:${user_id}:state`)) || {};
 
+    // STATIC USER-SPECIFIC DATA
     const realised = Number(st.realised || 0);
     const capital = Number(st.capital_day_915 || 0);
     const maxLossPct = Number(st.max_loss_pct || 0);
     const maxProfitPct = Number(st.max_profit_pct || 0);
 
-    let unreal = Number(st.unrealised || 0);
-    let positions = [];
-    let funds = {};
-    let kite_status = "disconnected";
+    // Fetch live Zerodha data ONLY for the single active session
+    let unreal = 0, positions = [], funds = {}, kite_status = "disconnected";
 
     try {
-      const kc = await createKiteInstanceForUser(user_id);
-
+      const kc = await createKiteInstanceForCurrentUser();
       const pos = await kc.getPositions();
       const f = await kc.getFunds();
 
       positions = pos.net || [];
-      funds = f?.equity || {};
+      funds = f.equity || {};
 
       unreal = positions.reduce((t, p) => t + Number(p.unrealised || 0), 0);
       kite_status = "connected";
 
-    } catch (err) {
-      console.error("Kite error:", err.message);
+    } catch (e) {
+      console.error("Kite fetch error:", e.message);
     }
 
     const total = realised + unreal;
@@ -48,6 +47,7 @@ export default async function handler(req, res) {
       ok: true,
       user_id,
       kite_status,
+
       state: {
         realised,
         unrealised: unreal,
@@ -74,7 +74,7 @@ export default async function handler(req, res) {
     });
 
   } catch (err) {
-    console.error("state API crash:", err);
+    console.error("state API error:", err);
     return res.status(500).json({ ok:false, error: err.message });
   }
 }
