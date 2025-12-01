@@ -1,249 +1,465 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <script src="https://cdn.tailwindcss.com"></script>
   <title>Admin Panel</title>
+<style>.status-green{color:#16a34a;font-weight:600}.status-red{color:#dc2626;font-weight:600}</style>
 </head>
 
-<body class="bg-gray-100 min-h-screen p-6">
+<body class="bg-gray-100 min-h-screen p-6" onload="initAdmin()">
 
-  <h1 class="text-3xl font-bold mb-6">Admin Panel</h1>
+  <header class="flex justify-between items-center mb-6">
+    <h1 class="text-3xl font-bold text-gray-900">Admin Panel</h1>
+    <button onclick="logoutAdmin()" class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700">
+      Logout
+    </button>
+  </header>
 
-  <!-- MASTER STATUS -->
+  <div id="adminTokenStatus" class="mb-4 p-3 rounded-lg bg-blue-100 text-blue-800">
+    <span class="font-semibold">Note:</span> Admin token will be requested only when you perform an action.
+  </div>
+
+  <!-- Master Zerodha Status -->
   <div class="bg-white p-6 rounded-xl shadow-md border mb-6">
     <h2 class="text-xl font-semibold mb-2">Master Zerodha Status</h2>
-    <p id="masterStatus" class="text-gray-700">Click button to check.</p>
+    <p id="masterStatus" class="text-gray-700">Click "Check Status" to load.</p>
 
-    <div class="flex gap-3 mt-3">
-      <button onclick="checkMasterStatus()"
-        class="px-4 py-2 bg-gray-700 text-white rounded-lg">Check Status</button>
+    <div class="mt-3 flex gap-3 flex-wrap">
+      <button onclick="refreshMasterStatus()" class="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-800">
+        Check Status
+      </button>
 
-      <button onclick="loginMaster()"
-        class="px-4 py-2 bg-blue-600 text-white rounded-lg">Login Master Zerodha</button>
-    </div>
-  </div>
-
-  <!-- ADD USER -->
-  <div class="bg-white p-6 rounded-xl shadow-md border mb-6">
-    <h2 class="text-xl font-semibold mb-4">Add New User</h2>
-
-    <div class="flex flex-col md:flex-row gap-3">
-      <input id="newUserId" placeholder="User ID"
-             class="p-3 border rounded-lg flex-1"/>
-
-      <input id="newUserDays" placeholder="Days" type="number"
-             class="p-3 border rounded-lg w-32"/>
-
-      <button onclick="addUser()"
-        class="px-4 py-2 bg-green-600 text-white rounded-lg">Add User</button>
-    </div>
-  </div>
-
-  <!-- USER LIST -->
-  <div class="bg-white p-6 rounded-xl shadow-md border">
-    <div class="flex justify-between mb-3">
-      <h2 class="text-xl font-semibold">Users</h2>
-
-      <button onclick="loadUsers()" class="px-4 py-2 bg-gray-700 text-white rounded-lg">
-        Refresh Users
+      <button onclick="masterLogin()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+        Login Master Zerodha
       </button>
     </div>
+  </div>
+
+  <!-- Add User -->
+  <div class="bg-white p-6 rounded-xl shadow-md border mb-6">
+    <h2 class="text-xl font-semibold mb-4">Add New User</h2>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <input id="newUserId" placeholder="Zerodha User ID" class="p-3 border rounded-lg" />
+      <input id="newUserValidity" type="number" placeholder="Validity Days" class="p-3 border rounded-lg" />
+
+      <button onclick="addUser()" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
+        Add User
+      </button>
+    </div>
+  </div>
+
+  <!-- User List -->
+   <div class="bg-white p-6 rounded-xl shadow-md border">
+    <div class="flex justify-between items-center mb-4">
+      <h2 class="text-xl font-semibold">Users</h2>
+
+      <div class="flex gap-2">
+        <button onclick="openChangeKeysModal()" class="px-3 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-sm">
+          Change API Keys
+        </button>
+
+        <button onclick="refreshUsers()" class="px-3 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-800 text-sm">
+          Refresh Users
+        </button>
+      </div>
+    </div>
+
 
     <table class="w-full border-collapse">
       <thead>
-      <tr class="bg-gray-200 text-left">
-        <th class="p-2">User ID</th>
-        <th class="p-2">Valid Until</th>
-        <th class="p-2">Actions</th>
-      </tr>
+        <tr class="bg-gray-200 text-left">
+          <th class="p-2">User ID</th>
+          <th class="p-2">Active</th>
+          <th class="p-2">Valid Until</th>
+          <th class="p-2">Connected</th>
+          <th class="p-2">Actions</th>
+        </tr>
       </thead>
-
       <tbody id="usersTable">
-      <tr><td class="p-3 text-gray-500" colspan="3">Click Refresh</td></tr>
+        <tr><td colspan="4" class="p-3 text-center text-gray-500">Click "Refresh Users" to load list.</td></tr>
       </tbody>
     </table>
   </div>
+  <!-- Change API Key / Secret Modal -->
+  <div id="changeKeysModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center">
+    <div class="bg-white p-6 rounded-xl w-full max-w-md shadow-xl">
 
-<script>
-/* ---------------------------------------------
-   UTILITY — Ask Admin Token
---------------------------------------------- */
-async function askToken() {
-  const t = prompt("Enter Admin Token:");
-  if (!t) return null;
-  return t.trim();
-}
+      <h2 class="text-xl font-semibold mb-4">Update API Key / Secret</h2>
 
-/* ---------------------------------------------
-   MASTER STATUS
---------------------------------------------- */
-async function checkMasterStatus() {
-  const token = await askToken();
-  if (!token) return;
+      <label class="block font-medium mt-2">User ID</label>
+      <input id="ck_userid" class="w-full p-2 border rounded-lg" placeholder="USERID">
 
-  const res = await fetch("/api/admin/master-status", {
-    headers: { "x-admin-token": token }
-  });
+      <label class="block font-medium mt-2">API Key</label>
+      <input id="ck_apikey" class="w-full p-2 border rounded-lg" placeholder="New API Key">
 
-  const data = await res.json();
-  document.getElementById("masterStatus").innerText =
-    data.ok ? (data.connected ? "Connected" : "Not Connected")
-            : data.error;
-}
+      <label class="block font-medium mt-2">API Secret</label>
+      <input id="ck_apisecret" class="w-full p-2 border rounded-lg" placeholder="New API Secret">
 
-async function loginMaster() {
-  const token = await askToken();
-  if (!token) return;
+      <label class="block font-medium mt-2">Admin Token</label>
+      <input id="ck_token" type="password" class="w-full p-2 border rounded-lg" placeholder="Enter Admin Token">
 
-  window.location.href = `/api/admin/master-login?token=${encodeURIComponent(token)}`;
-}
+      <div class="mt-4 flex justify-end gap-3">
+        <button onclick="closeChangeKeysModal()" class="px-4 py-2 bg-gray-400 text-white rounded-lg hover:bg-gray-500">
+          Cancel
+        </button>
+        <button onclick="updateUserKeys()" class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700">
+          Update
+        </button>
+      </div>
 
-/* ---------------------------------------------
-   ADD USER
---------------------------------------------- */
-async function addUser() {
-  const token = await askToken();
-  if (!token) return;
+      <p id="ck_msg" class="text-sm mt-3"></p>
 
-  const user_id = document.getElementById("newUserId").value.trim();
-  const days = Number(document.getElementById("newUserDays").value.trim());
+    </div>
+  </div>
 
-  if (!user_id || !days) {
-    alert("Provide user ID & days");
-    return;
-  }
+  <script>
+    /* ==========================================================
+       GENERAL
+    ========================================================== */
+    async function getAdminToken() {
+      const token = prompt("Enter Admin Token:");
+      if (!token) {
+        alert("Admin token required.");
+        return null;
+      }
+      return token.trim();
+    }
 
-  const res = await fetch("/api/admin/addUser", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-admin-token": token
-    },
-    body: JSON.stringify({ user_id, days })
-  });
+    function logoutAdmin() {
+      alert("Logged out.");
+      location.reload();
+    }
 
-  const data = await res.json();
-  if (!data.ok) {
-    alert(data.error || "Failed");
-    return;
-  }
+    function initAdmin() {
+      document.getElementById("masterStatus").innerText =
+        'Click "Check Status" to load.';
+    }
 
-  alert("User added");
-  loadUsers();
-}
+    /* ==========================================================
+       MASTER STATUS
+    ========================================================== */
+    async function refreshMasterStatus() {
+      const token = await getAdminToken();
+      if (!token) return;
+      await loadMasterStatusWithToken(token);
+    }
 
-/* ---------------------------------------------
-   LOAD USERS
---------------------------------------------- */
-async function loadUsers() {
-  const token = await askToken();
-  if (!token) return;
+    async function loadMasterStatus() {
+    try {
+        const token = await askAdminToken();
+        if (!token) return;
+        const res = await fetch('/api/admin/master-status', {
+            headers: { 'x-admin-token': token }
+        });
+        const data = await res.json();
+        const el = document.getElementById("masterStatus");
+        if (!data.ok) { el.innerHTML = `<span class="status-red">Error</span>`; return; }
+        if (data.connected) el.innerHTML = `<span class="status-green">Connected (${data.user_id})</span>`;
+        else el.innerHTML = `<span class="status-red">Not Connected</span>`;
+    } catch (err) {
+        console.error(err);
+        document.getElementById("masterStatus").innerHTML = `<span class="status-red">Error</span>`;
+    }
+}});
 
-  const res = await fetch("/api/admin/listUsers", {
-    method: "GET",
-    headers: { "x-admin-token": token }
-  });
+        if (res.status === 401) {
+          alert("Invalid admin token.");
+          document.getElementById("masterStatus").innerText = "Unauthorized.";
+          return;
+        }
 
-  const data = await res.json();
+        const data = await res.json();
+        document.getElementById("masterStatus").innerText = data.status || "Unknown";
 
-  const tbody = document.getElementById("usersTable");
-  tbody.innerHTML = "";
+      } catch (err) {
+        console.error("masterStatus error:", err);
+        document.getElementById("masterStatus").innerText = "Error loading status.";
+      }
+    }
 
-  if (!data.users || data.users.length === 0) {
-    tbody.innerHTML = `<tr><td class="p-3 text-center" colspan="3">No Users</td></tr>`;
-    return;
-  }
+    async function masterLogin() {
+      const token = await getAdminToken();
+      if (!token) return;
 
-  data.users.forEach(u => {
-    const tr = document.createElement("tr");
+      window.location.href = `/api/admin/master-login?token=${encodeURIComponent(token)}`;
+    }
 
-    tr.innerHTML = `
-      <td class="p-2">${u.id}</td>
-      <td class="p-2">${u.valid_until ? new Date(u.valid_until).toLocaleString() : "-"}</td>
+    /* ==========================================================
+       USERS (LIST)
+    ========================================================== */
+    async function refreshUsers() {
+      const token = await getAdminToken();
+      if (!token) return;
+      await loadUsersWithToken(token);
+    }
 
-      <td class="p-2 space-x-2">
-        <button onclick="extendUser('${u.id}')" class="px-3 py-1 bg-blue-600 text-white rounded">Extend</button>
-        <button onclick="resetTrip('${u.id}')" class="px-3 py-1 bg-orange-600 text-white rounded">Reset</button>
-        <button onclick="deleteUser('${u.id}')" class="px-3 py-1 bg-red-600 text-white rounded">Delete</button>
-      </td>
-    `;
-    tbody.appendChild(tr);
-  });
-}
+    async function loadUsers() {
+    try {
+        const token = await askAdminToken();
+        if (!token) return;
+        const res = await fetch('/api/admin/listUsers', { headers:{'x-admin-token':token}});
+        const data = await res.json();
+        const tbody = document.getElementById("usersTable");
+        tbody.innerHTML = '';
+        if (!data.ok) { tbody.innerHTML = `<tr><td colspan="3" class="text-red-600">Error</td></tr>`; return; }
+        data.users.forEach(u=>{
+            const color = u.is_connected ? "status-green" : "status-red";
+            const statusText = u.is_connected ? "Connected" : "Not Connected";
+            tbody.innerHTML += `<tr class="border-b"><td class="p-2">${u.id}</td><td class="p-2">${new Date(u.valid_until).toLocaleDateString()}</td><td class="p-2"><span class="${color}">${statusText}</span></td></tr>`;
+        });
+    } catch(err){ console.error(err); }
+}});
 
-/* ---------------------------------------------
-   EXTEND USER
---------------------------------------------- */
-async function extendUser(user_id) {
-  const token = await askToken();
-  if (!token) return;
+        const tbody = document.getElementById("usersTable");
 
-  const days = prompt("Extend by days:");
-  if (!days) return;
+        if (res.status === 401) {
+          alert("Invalid admin token.");
+          tbody.innerHTML = `<tr><td colspan="4" class="p-3 text-center text-red-500">Unauthorized</td></tr>`;
+          return;
+        }
 
-  const res = await fetch("/api/admin/extendValidity", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-admin-token": token
-    },
-    body: JSON.stringify({ user_id, days })
-  });
+        const data = await res.json();
+        tbody.innerHTML = "";
 
-  const data = await res.json();
-  if (!data.ok) return alert(data.error);
-  alert("Extended");
-  loadUsers();
-}
+        if (!data.users || data.users.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="4" class="p-3 text-center text-gray-500">No Users Found</td></tr>`;
+          return;
+        }
 
-/* ---------------------------------------------
-   RESET TRIP
---------------------------------------------- */
-async function resetTrip(user_id) {
-  const token = await askToken();
-  if (!token) return;
+        data.users.forEach(user => {
+          const tr = document.createElement("tr");
+         const connectedLabel = user.connected
+  ? '<span class="text-green-600 font-semibold">Connected</span>'
+  : '<span class="text-red-600 font-semibold">Not Connected</span>';
 
-  const res = await fetch("/api/admin/resetTrip", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-admin-token": token
-    },
-    body: JSON.stringify({ user_id })
-  });
+tr.innerHTML = `
+  <td class="p-2">${user.id}</td>
+  <td class="p-2">${user.profile?.active ? "Yes" : "No"}</td>
+  <td class="p-2">${user.profile?.valid_until
+      ? new Date(user.profile.valid_until).toLocaleDateString()
+      : "-"
+  }</td>
+  <td class="p-2">${connectedLabel}</td>
+  <td class="p-2 space-x-2">
+    <button onclick="extendValidity('${user.id}')" class="px-3 py-1 bg-blue-600 text-white rounded text-sm">Extend</button>
+    <button onclick="resetTrip('${user.id}')" class="px-3 py-1 bg-orange-600 text-white rounded text-sm">Reset</button>
+    <button onclick="deleteUser('${user.id}')" class="px-3 py-1 bg-red-600 text-white rounded text-sm">Delete</button>
+  </td>
+`;
 
-  const data = await res.json();
-  if (!data.ok) return alert(data.error);
-  alert("Trip Reset");
-}
+          tbody.appendChild(tr);
+        });
 
-/* ---------------------------------------------
-   DELETE USER
---------------------------------------------- */
-async function deleteUser(user_id) {
-  const token = await askToken();
-  if (!token) return;
+      } catch (err) {
+        console.error("loadUsers error:", err);
+        alert("Failed to load users.");
+      }
+    }
 
-  if (!confirm(`Delete ${user_id}?`)) return;
+    /* ==========================================================
+       ADD USER
+    ========================================================== */
+    async function addUser() {
+      const token = await getAdminToken();
+      if (!token) return;
 
-  const res = await fetch("/api/admin/deleteUser", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-admin-token": token
-    },
-    body: JSON.stringify({ user_id })
-  });
+      const user_id = document.getElementById("newUserId").value.trim();
+      const days = Number(document.getElementById("newUserValidity").value.trim());
 
-  const data = await res.json();
-  if (!data.ok) return alert(data.error);
+      if (!user_id || !days) {
+        alert("Enter User ID and Validity Days");
+        return;
+      }
 
-  alert("Deleted");
-  loadUsers();
-}
+      try {
+        const res = await fetch("/api/admin/addUser", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-admin-token": token
+          },
+          body: JSON.stringify({
+            user_id,
+            valid_until: Date.now() + days * 86400000
+          })
+        });
 
-</script>
+        if (res.status === 401) {
+          alert("Invalid admin token.");
+          return;
+        }
+
+        const data = await res.json();
+        if (!data.ok) {
+          alert("Error: " + (data.error || "Failed to add user"));
+          return;
+        }
+
+        document.getElementById("newUserId").value = "";
+        document.getElementById("newUserValidity").value = "";
+
+        await loadUsersWithToken(token);
+
+      } catch (err) {
+        console.error("addUser error:", err);
+        alert("Failed to add user.");
+      }
+    }
+
+    /* ==========================================================
+       EXTEND / RESET / DELETE
+    ========================================================== */
+    async function extendValidity(user_id) {
+      const token = await getAdminToken();
+      if (!token) return;
+
+      const days = prompt("Extend validity by days:");
+      if (!days) return;
+
+      try {
+        const res = await fetch("/api/admin/extendValidity", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-admin-token": token
+          },
+          body: JSON.stringify({ user_id, days: Number(days) })
+        });
+
+        if (res.status === 401) {
+          alert("Invalid admin token.");
+          return;
+        }
+
+        await loadUsersWithToken(token);
+
+      } catch (err) {
+        console.error("extendValidity error:", err);
+        alert("Failed to extend validity.");
+      }
+    }
+
+    async function resetTrip(user_id) {
+      const token = await getAdminToken();
+      if (!token) return;
+
+      try {
+        const res = await fetch("/api/admin/resetTrip", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-admin-token": token
+          },
+          body: JSON.stringify({ user_id })
+        });
+
+        if (res.status === 401) {
+          alert("Invalid admin token.");
+          return;
+        }
+
+        alert("Trip reset!");
+
+      } catch (err) {
+        console.error("resetTrip error:", err);
+        alert("Failed to reset trip.");
+      }
+    }
+
+    async function deleteUser(user_id) {
+      const token = await getAdminToken();
+      if (!token) return;
+
+      if (!confirm("Delete this user?")) return;
+
+      try {
+        const res = await fetch("/api/admin/deleteUser", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-admin-token": token
+          },
+          body: JSON.stringify({ user_id })
+        });
+
+        if (res.status === 401) {
+          alert("Invalid admin token.");
+          return;
+        }
+
+        await loadUsersWithToken(token);
+
+      } catch (err) {
+        console.error("deleteUser error:", err);
+        alert("Failed to delete user.");
+      }
+    }
+        /* ==========================================================
+       CHANGE USER API KEY / SECRET
+    ========================================================== */
+    function openChangeKeysModal() {
+      document.getElementById("changeKeysModal").classList.remove("hidden");
+    }
+
+    function closeChangeKeysModal() {
+      document.getElementById("changeKeysModal").classList.add("hidden");
+    }
+
+    async function updateUserKeys() {
+      const user_id = document.getElementById("ck_userid").value.trim();
+      const api_key = document.getElementById("ck_apikey").value.trim();
+      const api_secret = document.getElementById("ck_apisecret").value.trim();
+      const admin_token = document.getElementById("ck_token").value.trim();
+      const msg = document.getElementById("ck_msg");
+
+      if (!user_id || !api_key || !api_secret || !admin_token) {
+        msg.textContent = "All fields are required.";
+        msg.className = "text-red-600 text-sm";
+        return;
+      }
+
+      msg.textContent = "Updating…";
+      msg.className = "text-blue-600 text-sm";
+
+      try {
+        const res = await fetch("/api/admin/updateUserKeys", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-admin-token": admin_token
+          },
+          body: JSON.stringify({ user_id, api_key, api_secret })
+        });
+
+        const data = await res.json();
+
+        if (res.status === 401 || data.ok === false && data.error === "Unauthorized") {
+          msg.textContent = "Invalid admin token.";
+          msg.className = "text-red-600 text-sm";
+          return;
+        }
+
+        if (!data.ok) {
+          msg.textContent = "Error: " + (data.error || "Failed to update keys");
+          msg.className = "text-red-600 text-sm";
+          return;
+        }
+
+        msg.textContent = "Updated successfully. User must login again.";
+        msg.className = "text-green-600 text-sm";
+
+      } catch (err) {
+        console.error("updateUserKeys error:", err);
+        msg.textContent = "Failed to update keys.";
+        msg.className = "text-red-600 text-sm";
+      }
+    }
+
+  </script>
+
 </body>
+
 </html>
