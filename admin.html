@@ -107,6 +107,7 @@ async function refreshMasterStatus() {
 async function loadMasterStatusWithToken(token) {
   try {
     const res = await fetch("/api/admin/master-status", {
+      method: "POST",
       headers: { "x-admin-token": token }
     });
 
@@ -142,7 +143,8 @@ async function refreshUsers() {
 async function loadUsersWithToken(token) {
   try {
     const res = await fetch("/api/admin/listUsers", {
-      headers: { "x-admin-token": token }
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-admin-token": token }
     });
 
     const tbody = document.getElementById("usersTable");
@@ -198,10 +200,9 @@ async function addUser() {
   try {
     const res = await fetch("/api/admin/addUser", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-admin-token": token
-      },
+      headers: { "Content-Type": "application/json", "x-admin-token": token },
+      body: JSON.stringify({ user_id, valid_until: Date.now() + days * 86400000 })
+    }),
       body: JSON.stringify({
         user_id,
         valid_until: Date.now() + days * 86400000
@@ -243,10 +244,9 @@ async function extendValidity(user_id) {
   try {
     const res = await fetch("/api/admin/extendValidity", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-admin-token": token
-      },
+      headers: { "Content-Type": "application/json", "x-admin-token": token },
+      body: JSON.stringify({ user_id, days: Number(days) })
+    }),
       body: JSON.stringify({ user_id, days: Number(days) })
     });
 
@@ -269,10 +269,9 @@ async function resetTrip(user_id) {
   try {
     const res = await fetch("/api/admin/resetTrip", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-admin-token": token
-      },
+      headers: { "Content-Type": "application/json", "x-admin-token": token },
+      body: JSON.stringify({ user_id })
+    }),
       body: JSON.stringify({ user_id })
     });
 
@@ -297,10 +296,9 @@ async function deleteUser(user_id) {
   try {
     const res = await fetch("/api/admin/deleteUser", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-admin-token": token
-      },
+      headers: { "Content-Type": "application/json", "x-admin-token": token },
+      body: JSON.stringify({ user_id })
+    }),
       body: JSON.stringify({ user_id })
     });
 
