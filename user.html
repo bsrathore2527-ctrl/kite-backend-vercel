@@ -277,22 +277,25 @@
         }
 
         // MTM & PNL
-        const realised = Number(s.realised ?? 0);
-        const unreal = Number(s.unrealised ?? 0);
-        const total = realised + unreal;
+       
+const realised = Number(s.realised ?? 0);
+const unreal = Number(s.unrealised ?? 0);
+const total = realised + unreal;
 
-        document.getElementById("mtmTotal").textContent = formatINR(total);
-        document.getElementById("mtmBreakdown").textContent =
-          `Realised: ${₹(realised)} • Unrealised: ${₹(unreal)} • Total: ${₹(total)}`;
+document.getElementById("mtmTotal").textContent = formatINR(total);
+document.getElementById("mtmBreakdown").textContent =
+  `Realised: ${formatINR(realised)} • Unrealised: ${formatINR(unreal)} • Total: ${formatINR(total)}`;
 
-        // capital & max loss
-        const capital = Number(s.capital_day_915 ?? 0);
-        const maxLossPct = Number(s.max_loss_pct ?? 0);
-        const maxLossAbs = Math.round(capital * (maxLossPct / 100));
+// capital & max loss
+const capital = Number(s.capital_day_915 ?? 0);
+const maxLossPct = Number(s.max_loss_pct ?? 0);
+const maxLossAbs = Math.round(capital * (maxLossPct / 100));
 
-        document.getElementById("capital915").textContent = capital ? ₹(capital) : "—";
-        document.getElementById("maxLossInfo").textContent =
-          capital ? `Max loss: ${₹(maxLossAbs)} (${maxLossPct.toFixed(2)}%)` : "Max loss: —";
+document.getElementById("capital915").textContent = capital ? formatINR(capital) : "—";
+document.getElementById("maxLossInfo").textContent =
+  capital
+    ? `Max loss: ${formatINR(maxLossAbs)} (${maxLossPct.toFixed(2)}%)`
+    : "Max loss: —";
 
         // loss floor & remaining
         document.getElementById("lossFloor").textContent =
