@@ -1,38 +1,39 @@
+// File: /api/admin/extendValidity.js
+
 import { kv } from "../_lib/kv.js";
 
 export default async function handler(req, res) {
-  if (req.method !== "POST")
-    return res.status(405).json({ ok: false, error: "POST only" });
-
-  const token = req.headers["x-admin-token"];
-  if (!token || token !== process.env.ADMIN_TOKEN)
-    return res.status(401).json({ ok: false, error: "Unauthorized" });
-
   try {
+    if (req.method !== "POST")
+      return res.status(405).json({ ok: false, error: "POST only" });
+
+    const token = req.headers["x-admin-token"];
+    if (!token || token !== process.env.ADMIN_TOKEN)
+      return res.status(401).json({ ok: false, error: "Unauthorized" });
+
     const { user_id, days } = req.body;
+    if (!user_id || !days)
+      return res.status(400).json({ ok: false, error: "Missing fields" });
 
-    let profile = await kv.get(`user:${user_id}`);
+    const uid = user_id.toUpperCase().trim();
 
-    // Auto-recovery: if corrupted or missing
-    if (!profile || typeof profile !== "object") {
-      profile = {
-        active: true,
-        valid_until: Date.now(),
-        created_at: Date.now()
-      };
-    }
+    // Load list
+    let list = await kv.get("users:list");
+    if (!Array.isArray(list)) list = [];
 
-    profile.valid_until += days * 86400000;
-    profile.active = true;
+    const user = list.find(u => u.id === uid);
+    if (!user)
+      return res.json({ ok: false, error: "User not found" });
 
-    await kv.set(`user:${user_id}`, profile);
+    const addMs = Number(days) * 24 * 60 * 60 * 1000;
+    user.valid_until = (user.valid_until || Date.now()) + addMs;
 
-    return res.json({ ok: true });
+    await kv.set("users:list", list);
 
-  } catch (e) {
-    console.error("extendValidity error:", e);
-    return res.status(500).json({ ok: false, error: e.toString() });
+    return res.json({ ok: true, user });
+
+  } catch (err) {
+    console.error("EXTEND VALIDITY ERROR:", err);
+    return res.status(500).json({ ok: false, error: "Server error" });
   }
 }
-
-export const config = { api: { bodyParser: true } };
