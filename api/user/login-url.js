@@ -16,7 +16,7 @@ export default async function handler(req, res) {
     const api_key = profile.api_key;
 
     const url =
-      "https://kite.zerodha.com/connect/login?v=3&api_key=" + api_key;
+      `https://kite.zerodha.com/connect/login?v=3&api_key=${api_key}&state=${user_id}`;
 
     return res.json({ ok: true, url });
 
