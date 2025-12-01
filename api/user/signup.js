@@ -11,23 +11,38 @@ export default async function handler(req, res) {
     if (!user_id || !api_key || !api_secret)
       return res.json({ ok: false, error: "Missing fields" });
 
-    // Check if user exists in admin list
+    const uid = user_id.trim().toUpperCase();
+
+    // Load admin-approved list
     let list = await kv.get("users:list");
     if (!Array.isArray(list)) list = [];
 
-    if (!list.includes(user_id)) {
-      return res.json({ ok: false, error: "User not authorized" });
+    if (!list.includes(uid)) {
+      return res.json({
+        ok: false,
+        error: "User not found in admin list"
+      });
     }
 
-    // Load existing profile or create new
-    let profile = await kv.get(`user:${user_id}`) || {};
+    // Load or create profile
+    let profile = await kv.get(`user:${uid}`);
+    if (!profile || typeof profile !== "object") {
+      profile = {
+        active: true,
+        valid_until: Date.now() + 86400000, // fill placeholder; admin logic overwrites anyway
+        created_at: Date.now()
+      };
+    }
 
+    // Store user credentials
     profile.api_key = api_key;
     profile.api_secret = api_secret;
-    profile.active = true;
-    profile.updated_at = Date.now();
+    profile.signup_at = Date.now();
 
-    await kv.set(`user:${user_id}`, profile);
+    await kv.set(`user:${uid}`, profile);
+
+    // Reset old token if any
+    await kv.del(`user:${uid}:access_token`);
 
     return res.json({ ok: true });
 
