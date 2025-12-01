@@ -127,8 +127,11 @@
   </div>
 
   <script>
-    const ₹ = v => isNaN(Number(v)) ? "—" :
-      "₹" + Number(v).toLocaleString("en-IN", { maximumFractionDigits: 0 });
+   function formatINR(v) {
+  if (isNaN(Number(v))) return "-";
+  return "₹" + Number(v).toLocaleString("en-IN", { maximumFractionDigits: 0 });
+}
+
 
     let uid = localStorage.getItem("user_id") || null;
 
@@ -278,7 +281,7 @@
         const unreal = Number(s.unrealised ?? 0);
         const total = realised + unreal;
 
-        document.getElementById("mtmTotal").textContent = ₹(total);
+        document.getElementById("mtmTotal").textContent = formatINR(total);
         document.getElementById("mtmBreakdown").textContent =
           `Realised: ${₹(realised)} • Unrealised: ${₹(unreal)} • Total: ${₹(total)}`;
 
