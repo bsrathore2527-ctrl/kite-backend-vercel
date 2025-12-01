@@ -1,51 +1,85 @@
-// /api/callback.js
-import { exchangeRequestToken } from "./_lib/kite.js";
-import { kv } from "./_lib/kv.js";
+// /api/user/callback.js   DEBUG VERSION
+import { kv } from "../_lib/kv.js";
+import { exchangeRequestTokenUser } from "../_lib/kite-user.js";
+
+async function logDebug(message, data = null) {
+  const entry = {
+    time: new Date().toISOString(),
+    message,
+    data
+  };
+
+  const logs = await kv.get("debug:callback") || [];
+  logs.push(entry);
+
+  await kv.set("debug:callback", logs);
+}
 
 export default async function handler(req, res) {
   try {
-    const { request_token, status } = req.query;
+    await logDebug("CALLBACK HIT", { query: req.query });
 
-    // If Zerodha returned an error
+    const { request_token, status, state } = req.query;
+    const user_id = state;  // expected
+
+    // Log extracted parameters
+    await logDebug("Parsed Params", { request_token, status, user_id });
+
     if (status === "error") {
-      return res.redirect("/admin.html?connected=0&reason=zerodha_error");
+      await logDebug("Status returned error");
+      return res.redirect("/user.html?login=failed");
     }
 
+    // Validate presence of required fields
     if (!request_token) {
-      return res.redirect("/admin.html?connected=0&reason=no_request_token");
+      await logDebug("Missing request_token!");
+      return res.redirect("/user.html?login=failed&reason=missing_rt");
     }
 
-    // Exchange request_token → access_token
-    const session = await exchangeRequestToken(request_token);
+    if (!user_id) {
+      await logDebug("Missing user_id! STATE NOT ARRIVING");
+      return res.redirect("/user.html?login=failed&reason=missing_uid");
+    }
+
+    const profile = await kv.get(`user:${user_id}`);
+    if (!profile) {
+      await logDebug("Profile missing for user!", { user_id });
+      return res.redirect("/user.html?login=failed&reason=no_profile");
+    }
+
+    await logDebug("Profile Loaded", profile);
+
+    // Exchange request token using user API key/secret
+    await logDebug("Attempting exchangeRequestTokenUser() NOW");
+
+    const session = await exchangeRequestTokenUser(
+      request_token,
+      profile.api_key,
+      profile.api_secret
+    );
+
+    await logDebug("Exchange Response", session);
 
     if (!session || !session.access_token) {
-      console.error("Missing access token. Session:", session);
-      return res.redirect("/admin.html?connected=0&reason=exchange_failed");
+      await logDebug("Exchange FAILED. No access_token.", session);
+      return res.redirect("/user.html?login=failed&reason=exchange_failed");
     }
 
-    const { user_id, access_token } = session;
+    // Save KV data
+    await kv.set(`user:${user_id}:access_token`, session.access_token);
+    await kv.set(`user:${user_id}:last_login`, Date.now());
 
-    // Clear old master keys
-    await kv.del("master:access_token");
-    await kv.del("master:user_id");
-
-    // Save new master session
-    await kv.set("master:access_token", access_token);
-    await kv.set("master:user_id", user_id);
-    await kv.set("master:last_login_at", Date.now());
-
-    // OPTIONAL: Save master profile for display (not required for system)
-    await kv.set("master:profile", {
-      user_id,
-      logged_in_at: Date.now(),
+    await logDebug("LOGIN SUCCESS", {
+      saved_token: session.access_token
     });
 
-    console.log("Master login OK:", user_id);
+    return res.redirect(`/user.html?uid=${user_id}&login=success`);
 
-    return res.redirect("/admin.html?connected=1");
-
-  } catch (err) {
-    console.error("Master callback fatal error:", err);
-    return res.redirect("/admin.html?connected=0&reason=exception");
+  } catch (e) {
+    console.error("user callback error:", e);
+    await logDebug("CRASHED", { error: e.toString() });
+    return res.redirect("/user.html?login=error&reason=exception");
   }
 }
+
+export const config = { api: { bodyParser: false } };
