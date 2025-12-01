@@ -1,69 +1,81 @@
-// File: /api/user/callback.js
-
+import KiteConnect from "kiteconnect";
 import { kv } from "../_lib/kv.js";
-import { exchangeRequestTokenUser } from "../_lib/kite-user.js";
 
 export default async function handler(req, res) {
   try {
-    const { request_token, status } = req.query;
+    const { request_token, user_id } = req.query;
 
-    // 🔥 DEVELOPMENT MODE: HARD-CODE USER ID
-    const user_id = "ZD5101"; 
-    console.log("🔧 DEV MODE CALLBACK USING FIXED USER:", user_id);
-
-    // Step 1: Basic validation
-    if (status === "error") {
-      console.error("USER CALLBACK: Zerodha returned error status");
-      return res.redirect("/user.html?login=failed&reason=zerodha_error");
+    if (!request_token || !user_id) {
+      return res.status(400).send("Missing request_token or user_id");
     }
 
-    if (!request_token) {
-      console.error("USER CALLBACK: Missing request_token");
-      return res.redirect("/user.html?login=failed&reason=no_request_token");
+    if (!process.env.USER_API_KEY || !process.env.USER_API_SECRET) {
+      return res.status(500).send("Missing USER_API_KEY or USER_API_SECRET");
     }
 
-    // Step 2: Ensure user exists in KV list
-    let list = await kv.get("users:list");
-    if (!Array.isArray(list)) {
-      console.warn("users:list was not an array — resetting");
-      list = [];
-      await kv.set("users:list", list);
-    }
+    console.log("Callback for:", user_id);
 
-    const user = list.find(u => u.id === user_id);
-    if (!user) {
-      console.error("USER CALLBACK: User not in list", user_id);
-      return res.redirect("/user.html?login=failed&reason=user_not_registered");
-    }
+    const kc = new KiteConnect({
+      api_key: process.env.USER_API_KEY,
+    });
 
-    if (Date.now() > user.valid_until) {
-      console.error("USER CALLBACK: Subscription expired for", user_id);
-      return res.redirect("/user.html?login=failed&reason=expired");
-    }
-
-    // Step 3: Exchange request_token → access_token
-    const session = await exchangeRequestTokenUser(request_token);
-
-    if (!session || !session.access_token) {
-      console.error("USER CALLBACK: Token exchange failed", session);
-      return res.redirect("/user.html?login=failed&reason=exchange_failed");
-    }
+    // Exchange request token → access token
+    const session = await kc.generateSession(
+      request_token,
+      process.env.USER_API_SECRET
+    );
 
     const access_token = session.access_token;
 
-    // Step 4: Save to KV
-    await kv.set(`kite:access_token:${user_id}`, access_token);
-    await kv.set(`u:${user_id}:last_login`, Date.now());
+    // ---------------------------------------------
+    // SAVE SINGLE ACTIVE SESSION (current user)
+    // ---------------------------------------------
+    await kv.set("kite:current:token", {
+      access_token,
+      updated_at: Date.now(),
+    });
 
-    console.log("USER CALLBACK: Login success for", user_id);
+    await kv.set("kite:current:user_id", user_id);
 
-    // Step 5: Redirect to user page
-    return res.redirect(
-      `/user.html?login=success&uid=${encodeURIComponent(user_id)}`
-    );
+    // ---------------------------------------------
+    // SAVE USER INFO (multi-user kv structure)
+    // ---------------------------------------------
+    const existing = (await kv.get(`user:${user_id}:info`)) || {};
+
+    await kv.set(`user:${user_id}:info`, {
+      id: user_id,
+      connected: true,
+      last_login: Date.now(),
+      valid_until: existing.valid_until || null,
+      expired: existing.expired || false,
+    });
+
+    // ---------------------------------------------
+    // CREATE STATE IF MISSING
+    // ---------------------------------------------
+    const stateKey = `user:${user_id}:state`;
+    if (!(await kv.get(stateKey))) {
+      await kv.set(stateKey, {
+        realised: 0,
+        unrealised: 0,
+        capital_day_915: 0,
+        max_loss_pct: 0,
+        max_profit_pct: 0,
+        active_loss_floor: 0,
+        remaining_to_max_loss: 0,
+        consecutive_losses: 0,
+        tripped: false,
+        tripped_day: false,
+        cooldown_active: false,
+        last_trade_time: 0,
+      });
+    }
+
+    // Redirect back to dashboard
+    return res.redirect(`/user.html?login=success`);
 
   } catch (err) {
-    console.error("USER CALLBACK EXCEPTION:", err);
-    return res.redirect("/user.html?login=failed&reason=exception");
+    console.error("Callback error:", err);
+    return res.redirect(`/user.html?login=failed`);
   }
 }
