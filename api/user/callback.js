@@ -1,59 +1,71 @@
 // File: /api/user/callback.js
+
 import { kv } from "../_lib/kv.js";
-import { exchangeRequestTokenUser } from "../_lib/kite-user.js"; // we will create this next
+import { exchangeRequestTokenUser } from "../_lib/kite-user.js";
 
 export default async function handler(req, res) {
   try {
     const { request_token, status, state } = req.query;
 
-    // Reject on Zerodha error
+    // 1) Basic validation from Zerodha
     if (status === "error") {
+      console.error("USER CALLBACK: Zerodha returned error status");
       return res.redirect("/user.html?login=failed&reason=zerodha_error");
     }
 
     if (!request_token) {
+      console.error("USER CALLBACK: Missing request_token");
       return res.redirect("/user.html?login=failed&reason=no_request_token");
     }
 
     if (!state) {
+      console.error("USER CALLBACK: Missing state (user_id)");
       return res.redirect("/user.html?login=failed&reason=no_state");
     }
 
-    const user_id = state;
+    const user_id = state.trim().toUpperCase();
 
-    // Validate user
-    let users = await kv.get("users:list");
-    if (!Array.isArray(users)) users = [];
-
-    const user = users.find(u => u.id === user_id);
-    if (!user) {
-      return res.redirect("/user.html?login=failed&reason=not_registered");
+    // 2) Verify that user exists and is valid (from users:list)
+    let list = await kv.get("users:list");
+    if (!Array.isArray(list)) {
+      console.warn("USER CALLBACK: users:list was not array, resetting");
+      list = [];
+      await kv.set("users:list", list);
     }
 
-    if (!user.valid_until || Date.now() > user.valid_until) {
+    const user = list.find(u => u.id === user_id);
+    if (!user) {
+      console.error("USER CALLBACK: User not found in list", user_id);
+      return res.redirect("/user.html?login=failed&reason=user_not_registered");
+    }
+
+    const now = Date.now();
+    if (!user.valid_until || now > user.valid_until) {
+      console.error("USER CALLBACK: Subscription expired for", user_id);
       return res.redirect("/user.html?login=failed&reason=expired");
     }
 
-    // Exchange request token using USER API KEY + SECRET
+    // 3) Exchange request_token -> access_token using USER APP
     const session = await exchangeRequestTokenUser(request_token);
 
     if (!session || !session.access_token) {
-      console.error("USER LOGIN FAILED: session =", session);
+      console.error("USER CALLBACK: Token exchange failed. Session:", session);
       return res.redirect("/user.html?login=failed&reason=exchange_failed");
     }
 
-    const { access_token } = session;
+    const access_token = session.access_token;
 
-    // Save in KV
+    // 4) Save access token and last login in KV
     await kv.set(`kite:access_token:${user_id}`, access_token);
-    await kv.set(`u:${user_id}:last_login`, Date.now());
+    await kv.set(`u:${user_id}:last_login`, now);
 
-    console.log("USER LOGIN OK:", user_id);
+    console.log("USER CALLBACK: Login success for", user_id);
 
-    return res.redirect("/user.html?login=success");
+    // 5) Redirect to user panel
+    return res.redirect(`/user.html?login=success&uid=${encodeURIComponent(user_id)}`);
 
   } catch (err) {
-    console.error("User callback error:", err);
+    console.error("USER CALLBACK EXCEPTION:", err);
     return res.redirect("/user.html?login=failed&reason=exception");
   }
 }
