@@ -4,41 +4,45 @@ import { createKiteInstanceForCurrentUser } from "./_lib/kite-current-instance.j
 export default async function handler(req, res) {
   try {
     const user_id = req.query.user_id;
-
     if (!user_id) {
-      return res.status(400).json({ ok:false, error:"Missing user_id" });
+      return res.status(400).json({ ok: false, error: "Missing user_id" });
     }
 
+    // Load this user's stored info (subscription, connected, etc.)
     const userInfo = await kv.get(`user:${user_id}:info`);
     if (!userInfo) {
-      return res.status(401).json({ ok:false, error:"Unauthorized user" });
+      return res.status(401).json({ ok: false, error: "Unauthorized user" });
     }
 
-    // Load stored state
+    // Load user-specific risk-management state
     const st = (await kv.get(`user:${user_id}:state`)) || {};
 
-    // STATIC USER-SPECIFIC DATA
     const realised = Number(st.realised || 0);
     const capital = Number(st.capital_day_915 || 0);
     const maxLossPct = Number(st.max_loss_pct || 0);
     const maxProfitPct = Number(st.max_profit_pct || 0);
 
-    // Fetch live Zerodha data ONLY for the single active session
-    let unreal = 0, positions = [], funds = {}, kite_status = "disconnected";
+    // Hybrid mode: always use the single active Zerodha session
+    let unreal = 0;
+    let positions = [];
+    let funds = {};
+    let kite_status = "disconnected";
 
     try {
       const kc = await createKiteInstanceForCurrentUser();
+
       const pos = await kc.getPositions();
-      const f = await kc.getFunds();
+      const fundData = await kc.getFunds();
 
       positions = pos.net || [];
-      funds = f.equity || {};
+      funds = fundData.equity || {};
 
-      unreal = positions.reduce((t, p) => t + Number(p.unrealised || 0), 0);
+      unreal = positions.reduce((acc, p) => acc + Number(p.unrealised || 0), 0);
+
       kite_status = "connected";
-
-    } catch (e) {
-      console.error("Kite fetch error:", e.message);
+    } catch (err) {
+      console.error("Zerodha fetch error:", err.message);
+      kite_status = "disconnected";
     }
 
     const total = realised + unreal;
@@ -69,12 +73,11 @@ export default async function handler(req, res) {
         last_trade_time: Number(st.last_trade_time || 0),
 
         positions,
-        funds
-      }
+        funds,
+      },
     });
-
   } catch (err) {
     console.error("state API error:", err);
-    return res.status(500).json({ ok:false, error: err.message });
+    return res.status(500).json({ ok: false, error: err.message });
   }
 }
