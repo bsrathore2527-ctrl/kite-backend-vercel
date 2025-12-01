@@ -1,25 +1,28 @@
+// File: /api/admin/resetTrip.js
+
 import { kv } from "../_lib/kv.js";
 
 export default async function handler(req, res) {
-  if (req.method !== "POST")
-    return res.status(405).json({ ok: false, error: "POST only" });
-
-  const token = req.headers["x-admin-token"];
-  if (!token || token !== process.env.ADMIN_TOKEN)
-    return res.status(401).json({ ok: false, error: "Unauthorized" });
-
   try {
+    if (req.method !== "POST")
+      return res.status(405).json({ ok: false, error: "POST only" });
+
+    const token = req.headers["x-admin-token"];
+    if (!token || token !== process.env.ADMIN_TOKEN)
+      return res.status(401).json({ ok: false, error: "Unauthorized" });
+
     const { user_id } = req.body;
+    if (!user_id)
+      return res.status(400).json({ ok: false, error: "Missing user_id" });
 
-    // reset state safely
-    await kv.del(`user:${user_id}:state`);
+    const uid = user_id.toUpperCase().trim();
 
-    return res.json({ ok: true });
+    await kv.del(`trip:${uid}`);
 
-  } catch (e) {
-    console.error("resetTrip error:", e);
-    return res.status(500).json({ ok: false, error: e.toString() });
+    return res.json({ ok: true, reset: uid });
+
+  } catch (err) {
+    console.error("RESET TRIP ERROR:", err);
+    return res.status(500).json({ ok: false, error: "Server error" });
   }
 }
-
-export const config = { api: { bodyParser: true } };
