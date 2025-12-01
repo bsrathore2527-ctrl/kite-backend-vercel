@@ -1,31 +1,48 @@
+// /api/admin/addUser.js
 import { kv } from "../_lib/kv.js";
 
 export default async function handler(req, res) {
-  if (req.method !== "POST")
+  if (req.method !== "POST") {
     return res.status(405).json({ ok: false, error: "POST only" });
+  }
 
   const token = req.headers["x-admin-token"];
-  if (!token || token !== process.env.ADMIN_TOKEN)
+  if (!token || token !== process.env.ADMIN_TOKEN) {
     return res.status(401).json({ ok: false, error: "Unauthorized" });
+  }
 
   try {
     const { user_id, valid_until } = req.body;
-    if (!user_id || !valid_until)
-      return res.json({ ok: false, error: "Missing fields" });
 
-    // Load user list safely
+    if (!user_id || !valid_until) {
+      return res.json({ ok: false, error: "Missing fields" });
+    }
+
+    // Load the users list
     let list = await kv.get("users:list");
 
-    // Auto-recovery if corrupted
-    if (!Array.isArray(list)) list = [];
+    // ---------------------------------------------
+    // 🔥 AUTO-HEALING: If list is corrupted or wrong type
+    // ---------------------------------------------
+    if (!Array.isArray(list)) {
+      console.error("users:list is corrupted, repairing...");
 
-    // Avoid duplicate entries
-    if (!list.includes(user_id)) {
-      list.push(user_id);
+      // Reset list to an empty array
+      list = [];
       await kv.set("users:list", list);
     }
 
-    // Create user profile safely
+    // ---------------------------------------------
+    // Add user only if not present
+    // ---------------------------------------------
+    if (!list.includes(user_id)) {
+      list.push(user_id);
+      await kv.set("users:list", list); // always stores JSON array
+    }
+
+    // ---------------------------------------------
+    // Save user profile (safe JSON object)
+    // ---------------------------------------------
     await kv.set(`user:${user_id}`, {
       active: true,
       valid_until,
