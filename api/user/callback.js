@@ -15,11 +15,9 @@ export default async function handler(req, res) {
 
     console.log("Callback for:", user_id);
 
-    const kc = new KiteConnect({
-      api_key: process.env.USER_API_KEY,
-    });
+    const kc = new KiteConnect({ api_key: process.env.USER_API_KEY });
 
-    // Exchange request token → access token
+    // Get access token
     const session = await kc.generateSession(
       request_token,
       process.env.USER_API_SECRET
@@ -28,7 +26,7 @@ export default async function handler(req, res) {
     const access_token = session.access_token;
 
     // ---------------------------------------------
-    // SAVE SINGLE ACTIVE SESSION (current user)
+    // SAVE CURRENT ACTIVE SESSION (Single-user mode)
     // ---------------------------------------------
     await kv.set("kite:current:token", {
       access_token,
@@ -38,17 +36,34 @@ export default async function handler(req, res) {
     await kv.set("kite:current:user_id", user_id);
 
     // ---------------------------------------------
-    // SAVE USER INFO (multi-user kv structure)
+    // UPDATE USER INFO KV (Multi-user safe)
     // ---------------------------------------------
     const existing = (await kv.get(`user:${user_id}:info`)) || {};
 
-    await kv.set(`user:${user_id}:info`, {
+    const updatedInfo = {
       id: user_id,
       connected: true,
       last_login: Date.now(),
       valid_until: existing.valid_until || null,
       expired: existing.expired || false,
-    });
+    };
+
+    await kv.set(`user:${user_id}:info`, updatedInfo);
+
+    // ---------------------------------------------
+    // PATCH: UPDATE users:list (for Admin UI)
+    // ---------------------------------------------
+    const list = (await kv.get("users:list")) || [];
+
+    const idx = list.findIndex((u) => u.id === user_id);
+    if (idx !== -1) {
+      list[idx].connected = true;
+      list[idx].last_login = updatedInfo.last_login;
+      list[idx].expired = updatedInfo.expired;
+      list[idx].valid_until = updatedInfo.valid_until;
+    }
+
+    await kv.set("users:list", list);
 
     // ---------------------------------------------
     // CREATE STATE IF MISSING
@@ -71,7 +86,6 @@ export default async function handler(req, res) {
       });
     }
 
-    // Redirect back to dashboard
     return res.redirect(`/user.html?login=success`);
 
   } catch (err) {
