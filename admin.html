@@ -6,79 +6,64 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <title>Admin Panel</title>
 </head>
-<body class="bg-gray-100 min-h-screen p-6" onload="protectAdmin()">
+<body class="bg-gray-100 min-h-screen p-6" onload="initAdmin()">
+
+  <header class="flex justify-between items-center mb-6">
+    <h1 class="text-3xl font-bold text-gray-900">Admin Panel</h1>
+    <button onclick="logoutAdmin()" class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700">Logout</button>
+  </header>
+
+  <div class="bg-white p-6 rounded-xl shadow-md border mb-6">
+    <h2 class="text-xl font-semibold mb-2">Master Zerodha Status</h2>
+    <p id="masterStatus" class="text-gray-700">Checking...</p>
+    <button onclick="masterLogin()" class="mt-3 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">Login Master Zerodha</button>
+  </div>
+
+  <div class="bg-white p-6 rounded-xl shadow-md border mb-6">
+    <h2 class="text-xl font-semibold mb-4">Add New User</h2>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <input id="newUserId" placeholder="Zerodha User ID" class="p-3 border rounded-lg" />
+      <input id="newUserValidity" type="number" placeholder="Validity Days" class="p-3 border rounded-lg" />
+      <button onclick="addUser()" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">Add User</button>
+    </div>
+  </div>
+
+  <div class="bg-white p-6 rounded-xl shadow-md border">
+    <h2 class="text-xl font-semibold mb-4">Users</h2>
+    <table class="w-full border-collapse">
+      <thead>
+        <tr class="bg-gray-200 text-left">
+          <th class="p-2">User ID</th>
+          <th class="p-2">Active</th>
+          <th class="p-2">Valid Until</th>
+          <th class="p-2">Actions</th>
+        </tr>
+      </thead>
+      <tbody id="usersTable"></tbody>
+    </table>
+  </div>
 
 <script>
 function protectAdmin(){
   const token = sessionStorage.getItem('admin-token');
   if(!token){ window.location.href = '/admin-login.html'; return; }
   window.ADMIN_TOKEN = token;
+}
+
+function initAdmin(){
+  protectAdmin();
   loadMasterStatus();
   loadUsers();
 }
-function logoutAdmin(){ sessionStorage.removeItem('admin-token'); window.location.href='/admin-login.html'; }
-</script>
 
-<header class="flex justify-between items-center mb-6">
-  <h1 class="text-3xl font-bold text-gray-900">Master Admin Panel</h1>
-  <button onclick="logoutAdmin()" class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700">Logout</button>
-</header>
-
-<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-
-  <!-- MASTER ZERODHA LOGIN -->
-  <section class="bg-white p-5 rounded-xl shadow border border-gray-200">
-    <h2 class="text-xl font-semibold mb-3 text-gray-800">Master Zerodha Connection</h2>
-    <p class="text-gray-600 text-sm mb-4">Used only for ticker-worker market data.</p>
-
-    <button onclick="startZerodhaLogin()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 mb-4">Login to Zerodha (Master)</button>
-
-    <div class="mt-2 text-sm">
-      <span class="font-semibold">Status:</span> <span id="masterStatus">Checking...</span>
-    </div>
-
-    <button onclick="openMasterDashboard()" class="mt-4 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">Open Master User Dashboard</button>
-  </section>
-
-  <!-- ADD USER -->
-  <section class="bg-white p-5 rounded-xl shadow border border-gray-200">
-    <h2 class="text-xl font-semibold mb-3 text-gray-800">Add New User</h2>
-
-    <label class="block text-gray-700 font-medium mb-1">Zerodha User ID</label>
-    <input id="newUserId" type="text" class="w-full p-2 border rounded-lg mb-3" placeholder="e.g. DA1234" />
-
-    <label class="block text-gray-700 font-medium mb-1">Validity (Days)</label>
-    <input id="validityDays" type="number" class="w-full p-2 border rounded-lg mb-4" placeholder="30" />
-
-    <button onclick="addUser()" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">Add User</button>
-  </section>
-
-</div>
-
-<!-- USERS TABLE -->
-<section class="bg-white p-5 rounded-xl shadow border border-gray-200 mt-6">
-  <h2 class="text-xl font-semibold mb-4 text-gray-800">Registered Users</h2>
-
-  <table class="w-full text-left border-collapse text-sm">
-    <thead>
-      <tr class="border-b text-gray-700">
-        <th class="py-2">User ID</th>
-        <th>Valid Until</th>
-        <th>Status</th>
-        <th>Actions</th>
-      </tr>
-    </thead>
-    <tbody id="usersTable" class="text-gray-700"></tbody>
-  </table>
-</section>
-
-<script>
-function startZerodhaLogin(){
-  window.location.href = `/api/admin/master-login?token=${ADMIN_TOKEN}`;
+function logoutAdmin(){
+  sessionStorage.removeItem('admin-token');
+  window.location.href = '/admin-login.html';
 }
 
-function openMasterDashboard(){
-  window.location.href = `/user.html?user=MASTER`;
+async function masterLogin(){
+  window.location.href = `/api/admin/master-login?token=${ADMIN_TOKEN}`;
 }
 
 async function loadMasterStatus(){
@@ -88,46 +73,73 @@ async function loadMasterStatus(){
 }
 
 async function addUser(){
-  const id = newUserId.value.trim();
-  const days = parseInt(validityDays.value);
-  if(!id||!days){ alert('Enter valid details'); return; }
-  await fetch('/api/admin/addUser',{method:'POST',headers:{'Content-Type':'application/json','x-admin-token':ADMIN_TOKEN},body:JSON.stringify({id,days})});
+  const user_id = document.getElementById('newUserId').value.trim();
+  const days = Number(document.getElementById('newUserValidity').value.trim());
+  if(!user_id || !days){ alert('Enter user ID + validity'); return; }
+
+  await fetch('/api/admin/addUser',{
+    method:'POST',
+    headers:{ 'Content-Type':'application/json', 'x-admin-token':ADMIN_TOKEN },
+    body: JSON.stringify({ user_id, valid_until: Date.now() + days*86400000 })
+  });
+
   loadUsers();
 }
 
 async function loadUsers(){
-  const res = await fetch('/api/admin/listUsers',{headers:{'x-admin-token':ADMIN_TOKEN}});
+  const res = await fetch('/api/admin/listUsers',{ headers:{'x-admin-token':ADMIN_TOKEN} });
   const data = await res.json();
+
   const tbody = document.getElementById('usersTable');
   tbody.innerHTML = '';
 
-  data.users.forEach(u=>{
-    tbody.innerHTML += `
-      <tr class='border-b'>
-        <td class='py-2'>${u.id} ${u.is_master?'<span class="text-xs bg-yellow-300 px-2 py-1 rounded">MASTER</span>':''}</td>
-        <td>${u.valid_until}</td>
-        <td>${u.active?'Active':'Inactive'}</td>
-        <td class='flex gap-2'>
-          <button onclick="extendUser('${u.id}')" class='px-2 py-1 bg-yellow-500 text-white rounded'>Extend</button>
-          <button onclick="resetTrip('${u.id}')" class='px-2 py-1 bg-blue-600 text-white rounded'>Reset Trip</button>
-          <button onclick="deleteUser('${u.id}')" class='px-2 py-1 bg-red-600 text-white rounded'>Delete</button>
-        </td>
-      </tr>`;
+  data.users.forEach(u => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td class='p-2'>${u.id}</td>
+      <td class='p-2'>${u.profile?.active ? 'Yes' : 'No'}</td>
+      <td class='p-2'>${u.profile?.valid_until ? new Date(u.profile.valid_until).toLocaleDateString() : '-'}</td>
+      <td class='p-2 space-x-2'>
+        <button onclick="extendValidity('${u.id}')" class='px-3 py-1 bg-blue-600 text-white rounded'>Extend</button>
+        <button onclick="resetTrip('${u.id}')" class='px-3 py-1 bg-orange-600 text-white rounded'>Reset Trip</button>
+        <button onclick="deleteUser('${u.id}')" class='px-3 py-1 bg-red-600 text-white rounded'>Delete</button>
+      </td>
+    `;
+    tbody.appendChild(tr);
   });
 }
 
-async function extendUser(id){
-  await fetch('/api/admin/extendValidity',{method:'POST',headers:{'Content-Type':'application/json','x-admin-token':ADMIN_TOKEN},body:JSON.stringify({id})});
+async function extendValidity(user_id){
+  const days = prompt('Extend days by:');
+  if(!days) return;
+
+  await fetch('/api/admin/extendValidity',{
+    method:'POST',
+    headers:{'Content-Type':'application/json','x-admin-token':ADMIN_TOKEN},
+    body: JSON.stringify({ user_id, days:Number(days) })
+  });
+
   loadUsers();
 }
 
-async function resetTrip(id){
-  await fetch('/api/admin/resetTrip',{method:'POST',headers:{'Content-Type':'application/json','x-admin-token':ADMIN_TOKEN},body:JSON.stringify({id})});
+async function resetTrip(user_id){
+  await fetch('/api/admin/resetTrip',{
+    method:'POST',
+    headers:{'Content-Type':'application/json','x-admin-token':ADMIN_TOKEN},
+    body: JSON.stringify({ user_id })
+  });
   alert('Trip reset');
 }
 
-async function deleteUser(id){
-  await fetch('/api/admin/deleteUser',{method:'POST',headers:{'Content-Type':'application/json','x-admin-token':ADMIN_TOKEN},body:JSON.stringify({id})});
+async function deleteUser(user_id){
+  if(!confirm('Delete this user?')) return;
+
+  await fetch('/api/admin/deleteUser',{
+    method:'POST',
+    headers:{'Content-Type':'application/json','x-admin-token':ADMIN_TOKEN},
+    body: JSON.stringify({ user_id })
+  });
+
   loadUsers();
 }
 </script>
