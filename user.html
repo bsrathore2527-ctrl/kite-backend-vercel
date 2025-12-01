@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <title>User Panel</title>
+</head>
+
+<body class="bg-gray-100 min-h-screen p-6">
+
+  <!-- HEADER -->
+  <header class="text-center mb-8">
+    <h1 class="text-3xl font-bold text-gray-900">User Panel</h1>
+    <p class="text-gray-600">Login, Signup, and Manage Your Risk Tool</p>
+  </header>
+
+  <!-- MAIN WRAPPER -->
+  <div class="max-w-lg mx-auto bg-white p-6 rounded-xl shadow-lg border">
+
+    <!-- STEP 1: ENTER USER ID -->
+    <div id="stepUserId">
+      <h2 class="text-xl font-semibold mb-3">Enter Zerodha User ID</h2>
+
+      <input id="uidInput" class="w-full p-3 border rounded-lg mb-3" placeholder="Enter your Zerodha User ID">
+
+      <button onclick="checkUser()" class="w-full py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+        Continue
+      </button>
+
+      <p id="uidError" class="text-red-600 text-sm mt-3 hidden"></p>
+    </div>
+
+    <!-- STEP 2: SIGNUP (API KEY + SECRET) -->
+    <div id="stepSignup" class="hidden">
+      <h2 class="text-xl font-semibold mb-3">Complete Signup</h2>
+      <p class="text-gray-600 mb-3">Enter your Kite API credentials</p>
+
+      <input id="apiKeyInput" class="w-full p-3 border rounded-lg mb-3" placeholder="API Key">
+      <input id="apiSecretInput" type="password" class="w-full p-3 border rounded-lg mb-3" placeholder="API Secret">
+
+      <button onclick="openConsent()" class="w-full py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
+        Proceed to Signup
+      </button>
+    </div>
+
+    <!-- STEP 3: LOGIN -->
+    <div id="stepLogin" class="hidden">
+      <h2 class="text-xl font-semibold mb-3">Daily Login Required</h2>
+
+      <p class="text-gray-700 mb-3">You must login to Zerodha each day to activate trading.</p>
+
+      <button onclick="startUserLogin()" class="w-full py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-lg">
+        Login to Zerodha
+      </button>
+    </div>
+
+    <!-- STEP 4: DASHBOARD -->
+    <div id="stepDashboard" class="hidden">
+      <h2 class="text-xl font-semibold mb-3">Connected</h2>
+
+      <p class="text-green-600 mb-3">You are connected to Zerodha successfully.</p>
+
+      <button onclick="refreshStatus()" class="w-full py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-800">
+        Refresh Status
+      </button>
+
+      <div class="mt-4 p-3 bg-gray-100 rounded-lg">
+        <p><strong>User ID:</strong> <span id="dbUid"></span></p>
+        <p><strong>Status:</strong> <span id="dbStatus"></span></p>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- CONSENT MODAL -->
+  <div id="consentModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center">
+    <div class="bg-white w-full max-w-md p-6 rounded-xl shadow-lg">
+      <h2 class="text-xl font-bold mb-3">Consent Required</h2>
+
+      <p class="text-gray-700 mb-3">
+        By proceeding, you agree to securely share your Kite API Key and Secret.  
+        These are NOT login credentials and do NOT allow trading without your daily login.
+      </p>
+
+      <ul class="list-disc ml-6 text-gray-700 mb-4">
+        <li>You authorize the system to generate daily access tokens.</li>
+        <li>Your API key/secret are encrypted and stored securely.</li>
+        <li>You must login to Zerodha every day for safety.</li>
+      </ul>
+
+      <button onclick="submitSignup()" class="w-full py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 mb-2">
+        I Agree & Signup
+      </button>
+
+      <button onclick="closeConsent()" class="w-full py-2 bg-gray-300 rounded-lg hover:bg-gray-400">
+        Cancel
+      </button>
+    </div>
+  </div>
+
+  <script>
+    let CURRENT_UID = null;
+    let USER_PROFILE = null;
+
+    async function checkUser() {
+      const uid = document.getElementById("uidInput").value.trim().toUpperCase();
+      if (!uid) return;
+
+      CURRENT_UID = uid;
+
+      const res = await fetch("/api/user/check", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: uid })
+      });
+
+      const data = await res.json();
+
+      if (!data.exists) {
+        document.getElementById("uidError").innerText =
+          "No valid subscription found. Contact Admin.";
+        document.getElementById("uidError").classList.remove("hidden");
+        return;
+      }
+
+      USER_PROFILE = data.profile;
+
+      document.getElementById("stepUserId").classList.add("hidden");
+
+      if (!data.profile.api_key) {
+        document.getElementById("stepSignup").classList.remove("hidden");
+        return;
+      }
+
+      if (!data.connected) {
+        document.getElementById("stepLogin").classList.remove("hidden");
+        return;
+      }
+
+      loadDashboard();
+    }
+
+    function openConsent() {
+      document.getElementById("consentModal").classList.remove("hidden");
+    }
+    function closeConsent() {
+      document.getElementById("consentModal").classList.add("hidden");
+    }
+
+    async function submitSignup() {
+      const api_key = document.getElementById("apiKeyInput").value.trim();
+      const api_secret = document.getElementById("apiSecretInput").value.trim();
+
+      if (!api_key || !api_secret) {
+        alert("Enter API Key and Secret");
+        return;
+      }
+
+      const res = await fetch("/api/user/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: CURRENT_UID, api_key, api_secret })
+      });
+
+      const data = await res.json();
+      if (!data.ok) return alert("Signup failed: " + data.error);
+
+      closeConsent();
+
+      document.getElementById("stepSignup").classList.add("hidden");
+      document.getElementById("stepLogin").classList.remove("hidden");
+    }
+
+    async function startUserLogin() {
+      const res = await fetch("/api/user/login-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: CURRENT_UID })
+      });
+
+      const data = await res.json();
+      if (!data.ok) return alert("Error: " + data.error);
+
+      window.location.href = data.url;
+    }
+
+    async function refreshStatus() {
+      await checkUser();
+    }
+
+    function loadDashboard() {
+      document.getElementById("dbUid").innerText = CURRENT_UID;
+      document.getElementById("dbStatus").innerText = "Connected";
+
+      document.getElementById("stepLogin").classList.add("hidden");
+      document.getElementById("stepDashboard").classList.remove("hidden");
+    }
+  </script>
+</body>
+</html>
