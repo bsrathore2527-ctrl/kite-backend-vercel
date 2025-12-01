@@ -2,31 +2,26 @@ import { kv } from "../_lib/kv.js";
 
 export default async function handler(req, res) {
   try {
-    const adminToken = req.headers["x-admin-token"];
-
-    if (!adminToken || adminToken !== process.env.ADMIN_TOKEN) {
+    const token = req.headers["x-admin-token"];
+    if (!token || token !== process.env.ADMIN_TOKEN)
       return res.status(401).json({ ok: false, error: "Unauthorized" });
-    }
 
-    // ✔ FIXED: read JSON from req.body
     const { user_id, valid_until } = req.body;
 
-    if (!user_id) {
+    if (!user_id)
       return res.status(400).json({ ok: false, error: "Missing user_id" });
-    }
 
-    const profileKey = `u:${user_id}:profile`;
+    const key = `u:${user_id}:profile`;
+    const exists = await kv.get(key);
 
-    const existing = await kv.get(profileKey);
-    if (existing) {
+    if (exists)
       return res.status(400).json({ ok: false, error: "User already exists" });
-    }
 
-    await kv.set(profileKey, {
+    await kv.set(key, {
       id: user_id,
       active: true,
-      is_master: false,
-      valid_until: valid_until || (Date.now() + 7 * 86400000),
+      valid_until,
+      is_master: false
     });
 
     await kv.sadd("users:list", user_id);
@@ -34,12 +29,9 @@ export default async function handler(req, res) {
     return res.status(200).json({ ok: true });
 
   } catch (err) {
-    console.error("addUser error:", err);
-    return res.status(500).json({ ok: false, error: "Server Error" });
+    console.error("addUser error", err);
+    return res.status(500).json({ ok: false });
   }
 }
 
-// Let Vercel auto-parse JSON
-export const config = {
-  api: { bodyParser: true }
-};
+export const config = { api: { bodyParser: true } };
