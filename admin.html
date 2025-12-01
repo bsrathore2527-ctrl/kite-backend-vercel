@@ -66,6 +66,7 @@
           <th class="p-2">User ID</th>
           <th class="p-2">Active</th>
           <th class="p-2">Valid Until</th>
+          <th class="p-2">Connected</th>
           <th class="p-2">Actions</th>
         </tr>
       </thead>
@@ -170,19 +171,25 @@
 
         data.users.forEach(user => {
           const tr = document.createElement("tr");
-          tr.innerHTML = `
-            <td class="p-2">${user.id}</td>
-            <td class="p-2">${user.profile?.active ? "Yes" : "No"}</td>
-            <td class="p-2">${user.profile?.valid_until
-              ? new Date(user.profile.valid_until).toLocaleDateString()
-              : "-"
-            }</td>
-            <td class="p-2 space-x-2">
-              <button onclick="extendValidity('${user.id}')" class="px-3 py-1 bg-blue-600 text-white rounded text-sm">Extend</button>
-              <button onclick="resetTrip('${user.id}')" class="px-3 py-1 bg-orange-600 text-white rounded text-sm">Reset</button>
-              <button onclick="deleteUser('${user.id}')" class="px-3 py-1 bg-red-600 text-white rounded text-sm">Delete</button>
-            </td>
-          `;
+         const connectedLabel = user.connected
+  ? '<span class="text-green-600 font-semibold">Connected</span>'
+  : '<span class="text-red-600 font-semibold">Not Connected</span>';
+
+tr.innerHTML = `
+  <td class="p-2">${user.id}</td>
+  <td class="p-2">${user.profile?.active ? "Yes" : "No"}</td>
+  <td class="p-2">${user.profile?.valid_until
+      ? new Date(user.profile.valid_until).toLocaleDateString()
+      : "-"
+  }</td>
+  <td class="p-2">${connectedLabel}</td>
+  <td class="p-2 space-x-2">
+    <button onclick="extendValidity('${user.id}')" class="px-3 py-1 bg-blue-600 text-white rounded text-sm">Extend</button>
+    <button onclick="resetTrip('${user.id}')" class="px-3 py-1 bg-orange-600 text-white rounded text-sm">Reset</button>
+    <button onclick="deleteUser('${user.id}')" class="px-3 py-1 bg-red-600 text-white rounded text-sm">Delete</button>
+  </td>
+`;
+
           tbody.appendChild(tr);
         });
 
