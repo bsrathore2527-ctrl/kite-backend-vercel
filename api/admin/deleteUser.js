@@ -1,35 +1,38 @@
+// File: /api/admin/deleteUser.js
+
 import { kv } from "../_lib/kv.js";
 
 export default async function handler(req, res) {
-  if (req.method !== "POST")
-    return res.status(405).json({ ok: false, error: "POST only" });
-
-  const token = req.headers["x-admin-token"];
-  if (!token || token !== process.env.ADMIN_TOKEN)
-    return res.status(401).json({ ok: false, error: "Unauthorized" });
-
   try {
+    if (req.method !== "POST")
+      return res.status(405).json({ ok: false, error: "POST only" });
+
+    const token = req.headers["x-admin-token"];
+    if (!token || token !== process.env.ADMIN_TOKEN)
+      return res.status(401).json({ ok: false, error: "Unauthorized" });
+
     const { user_id } = req.body;
+    if (!user_id)
+      return res.status(400).json({ ok: false, error: "Missing user_id" });
 
+    const uid = user_id.toUpperCase().trim();
+
+    // Load list safely
     let list = await kv.get("users:list");
-
-    // Repair list if corrupted
     if (!Array.isArray(list)) list = [];
 
-    list = list.filter(u => u !== user_id);
-    await kv.set("users:list", list);
+    const newList = list.filter(u => u.id !== uid);
 
-    // Remove entire user data safely
-    await kv.del(`user:${user_id}`);
-    await kv.del(`user:${user_id}:config`);
-    await kv.del(`user:${user_id}:state`);
+    await kv.set("users:list", newList);
 
-    return res.json({ ok: true });
+    // Cleanup associated KV keys
+    await kv.del(`kite:access_token:${uid}`);
+    await kv.del(`u:${uid}:last_login`);
 
-  } catch (e) {
-    console.error("deleteUser error:", e);
-    return res.status(500).json({ ok: false, error: e.toString() });
+    return res.json({ ok: true, deleted: uid });
+
+  } catch (err) {
+    console.error("DELETE USER ERROR:", err);
+    return res.status(500).json({ ok: false, error: "Server error" });
   }
 }
-
-export const config = { api: { bodyParser: true } };
