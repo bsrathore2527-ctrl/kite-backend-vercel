@@ -1,3 +1,4 @@
+// /api/callback.js
 import { exchangeRequestToken } from "./_lib/kite.js";
 import { kv } from "./_lib/kv.js";
 
@@ -5,50 +6,46 @@ export default async function handler(req, res) {
   try {
     const { request_token, status } = req.query;
 
+    // If Zerodha returned an error
     if (status === "error") {
-      return res.redirect("/admin.html?connected=0");
+      return res.redirect("/admin.html?connected=0&reason=zerodha_error");
     }
 
     if (!request_token) {
-      return res.redirect("/admin.html?connected=0");
+      return res.redirect("/admin.html?connected=0&reason=no_request_token");
     }
 
-    // Use your working exchange logic
+    // Exchange request_token → access_token
     const session = await exchangeRequestToken(request_token);
 
     if (!session || !session.access_token) {
-      console.error("Master session missing access token:", session);
-      return res.redirect("/admin.html?connected=0");
+      console.error("Missing access token. Session:", session);
+      return res.redirect("/admin.html?connected=0&reason=exchange_failed");
     }
 
-    const { user_id, access_token, public_token, enctoken } = session;
+    const { user_id, access_token } = session;
 
-    // Save unified master session
-    await kv.set("master:zerodha:session", {
+    // Clear old master keys
+    await kv.del("master:access_token");
+    await kv.del("master:user_id");
+
+    // Save new master session
+    await kv.set("master:access_token", access_token);
+    await kv.set("master:user_id", user_id);
+    await kv.set("master:last_login_at", Date.now());
+
+    // OPTIONAL: Save master profile for display (not required for system)
+    await kv.set("master:profile", {
       user_id,
-      access_token,
-      public_token,
-      enctoken,
-      last_login_at: Date.now(),
+      logged_in_at: Date.now(),
     });
 
-    // Auto-register master as system user
-    const profileKey = `u:${user_id}:profile`;
-    const existingProfile = await kv.get(profileKey);
-
-    if (!existingProfile) {
-      await kv.set(profileKey, {
-        id: user_id,
-        is_master: true,
-        active: true,
-        valid_until: 9999999999999,
-      });
-    }
+    console.log("Master login OK:", user_id);
 
     return res.redirect("/admin.html?connected=1");
 
   } catch (err) {
-    console.error("Master callback error:", err);
-    return res.redirect("/admin.html?connected=0");
+    console.error("Master callback fatal error:", err);
+    return res.redirect("/admin.html?connected=0&reason=exception");
   }
 }
