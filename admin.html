@@ -17,16 +17,21 @@
 
   <!-- Info panel about admin token -->
   <div id="adminTokenStatus" class="mb-4 p-3 rounded-lg bg-blue-100 text-blue-800">
-    <span class="font-semibold">Note:</span> Admin token will be requested whenever you perform an action.
+    <span class="font-semibold">Note:</span> Admin token will be requested only when you perform an action.
   </div>
 
   <!-- Master Zerodha Status -->
   <div class="bg-white p-6 rounded-xl shadow-md border mb-6">
     <h2 class="text-xl font-semibold mb-2">Master Zerodha Status</h2>
-    <p id="masterStatus" class="text-gray-700">Checking...</p>
-    <button onclick="masterLogin()" class="mt-3 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
-      Login Master Zerodha
-    </button>
+    <p id="masterStatus" class="text-gray-700">Click "Check Status" to load.</p>
+    <div class="mt-3 flex gap-3 flex-wrap">
+      <button onclick="refreshMasterStatus()" class="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-800">
+        Check Status
+      </button>
+      <button onclick="masterLogin()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+        Login Master Zerodha
+      </button>
+    </div>
   </div>
 
   <!-- Add User Section -->
@@ -43,7 +48,12 @@
 
   <!-- User List Section -->
   <div class="bg-white p-6 rounded-xl shadow-md border">
-    <h2 class="text-xl font-semibold mb-4">Users</h2>
+    <div class="flex justify-between items-center mb-4">
+      <h2 class="text-xl font-semibold">Users</h2>
+      <button onclick="refreshUsers()" class="px-3 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-800 text-sm">
+        Refresh Users
+      </button>
+    </div>
     <table class="w-full border-collapse">
       <thead>
         <tr class="bg-gray-200 text-left">
@@ -53,14 +63,16 @@
           <th class="p-2">Actions</th>
         </tr>
       </thead>
-      <tbody id="usersTable"></tbody>
+      <tbody id="usersTable">
+        <tr><td colspan="4" class="p-3 text-center text-gray-500">Click "Refresh Users" to load list.</td></tr>
+      </tbody>
     </table>
   </div>
 
 <script>
-/* ==========================================================
-   Admin Token Prompt (NO storage)
-========================================================== */
+// =========================================================
+// Admin Token Prompt (NO storage)
+// =========================================================
 async function getAdminToken() {
   const token = prompt("Enter Admin Token:");
   if (!token) {
@@ -75,34 +87,24 @@ function logoutAdmin() {
   location.reload();
 }
 
-/* ==========================================================
-   Init
-========================================================== */
-async function initAdmin() {
-  await loadMasterStatus();
-  await loadUsers();
+// =========================================================
+// Init – no token prompts here
+// =========================================================
+function initAdmin() {
+  // Do not call any API here to avoid token prompts on load.
+  document.getElementById("masterStatus").innerText = 'Click "Check Status" to load.';
 }
 
-/* ==========================================================
-   Master Login
-========================================================== */
-async function masterLogin() {
+// =========================================================
+// Master Status & Login
+// =========================================================
+async function refreshMasterStatus() {
   const token = await getAdminToken();
   if (!token) return;
-
-  window.location.href = `/api/admin/master-login?token=${encodeURIComponent(token)}`;
+  await loadMasterStatusWithToken(token);
 }
 
-/* ==========================================================
-   Load Master Status
-========================================================== */
-async function loadMasterStatus() {
-  const token = await getAdminToken();
-  if (!token) {
-    document.getElementById("masterStatus").innerText = "Admin token not provided.";
-    return;
-  }
-
+async function loadMasterStatusWithToken(token) {
   try {
     const res = await fetch("/api/admin/master-status", {
       headers: { "x-admin-token": token }
@@ -110,7 +112,7 @@ async function loadMasterStatus() {
 
     if (res.status === 401) {
       alert("Invalid admin token.");
-      document.getElementById("masterStatus").innerText = "Unauthorized.";
+      document.getElementById("masterStatus").innerText = "Unauthorized";
       return;
     }
 
@@ -122,9 +124,65 @@ async function loadMasterStatus() {
   }
 }
 
-/* ==========================================================
-   Add User
-========================================================== */
+async function masterLogin() {
+  const token = await getAdminToken();
+  if (!token) return;
+  window.location.href = `/api/admin/master-login?token=${encodeURIComponent(token)}`;
+}
+
+// =========================================================
+// Users – list & helpers
+// =========================================================
+async function refreshUsers() {
+  const token = await getAdminToken();
+  if (!token) return;
+  await loadUsersWithToken(token);
+}
+
+async function loadUsersWithToken(token) {
+  try {
+    const res = await fetch("/api/admin/listUsers", {
+      headers: { "x-admin-token": token }
+    });
+
+    const tbody = document.getElementById("usersTable");
+
+    if (res.status === 401) {
+      alert("Invalid admin token.");
+      tbody.innerHTML = `<tr><td colspan="4" class="p-3 text-center text-red-500">Unauthorized</td></tr>`;
+      return;
+    }
+
+    const data = await res.json();
+    tbody.innerHTML = "";
+
+    if (!data.users || data.users.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="4" class="p-3 text-center text-gray-500">No Users Found</td></tr>`;
+      return;
+    }
+
+    data.users.forEach(u => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td class="p-2">${u.id}</td>
+        <td class="p-2">${u.profile?.active ? "Yes" : "No"}</td>
+        <td class="p-2">${u.profile?.valid_until ? new Date(u.profile.valid_until).toLocaleDateString() : "-"}</td>
+        <td class="p-2 space-x-2">
+          <button onclick="extendValidity('${u.id}')" class="px-3 py-1 bg-blue-600 text-white rounded text-sm">Extend</button>
+          <button onclick="resetTrip('${u.id}')" class="px-3 py-1 bg-orange-600 text-white rounded text-sm">Reset</button>
+          <button onclick="deleteUser('${u.id}')" class="px-3 py-1 bg-red-600 text-white rounded text-sm">Delete</button>
+        </td>`;
+      tbody.appendChild(tr);
+    });
+  } catch (err) {
+    console.error("loadUsers error:", err);
+    alert("Failed to load users.");
+  }
+}
+
+// =========================================================
+// Add User – reuses loadUsersWithToken to avoid extra prompt
+// =========================================================
 async function addUser() {
   const token = await getAdminToken();
   if (!token) return;
@@ -161,11 +219,10 @@ async function addUser() {
       return;
     }
 
-    // Clear form
     document.getElementById("newUserId").value = "";
     document.getElementById("newUserValidity").value = "";
 
-    await loadUsers();
+    await loadUsersWithToken(token);
 
   } catch (err) {
     console.error("addUser error:", err);
@@ -173,56 +230,9 @@ async function addUser() {
   }
 }
 
-/* ==========================================================
-   Load Users
-========================================================== */
-async function loadUsers() {
-  const token = await getAdminToken();
-  if (!token) return;
-
-  try {
-    const res = await fetch("/api/admin/listUsers", {
-      headers: { "x-admin-token": token }
-    });
-
-    if (res.status === 401) {
-      alert("Invalid admin token.");
-      return;
-    }
-
-    const data = await res.json();
-    const tbody = document.getElementById("usersTable");
-    tbody.innerHTML = "";
-
-    if (!data.users || data.users.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="4" class="p-3 text-center text-gray-500">No Users Found</td></tr>`;
-      return;
-    }
-
-    data.users.forEach(u => {
-      const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td class="p-2">${u.id}</td>
-        <td class="p-2">${u.profile?.active ? "Yes" : "No"}</td>
-        <td class="p-2">${u.profile?.valid_until ? new Date(u.profile.valid_until).toLocaleDateString() : "-"}</td>
-        <td class="p-2 space-x-2">
-          <button onclick="extendValidity('${u.id}')" class="px-3 py-1 bg-blue-600 text-white rounded">Extend</button>
-          <button onclick="resetTrip('${u.id}')" class="px-3 py-1 bg-orange-600 text-white rounded">Reset</button>
-          <button onclick="deleteUser('${u.id}')" class="px-3 py-1 bg-red-600 text-white rounded">Delete</button>
-        </td>
-      `;
-      tbody.appendChild(tr);
-    });
-
-  } catch (err) {
-    console.error("loadUsers error:", err);
-    alert("Failed to load users.");
-  }
-}
-
-/* ==========================================================
-   Extend Validity
-========================================================== */
+// =========================================================
+// Extend Validity / Reset Trip / Delete User
+// =========================================================
 async function extendValidity(user_id) {
   const token = await getAdminToken();
   if (!token) return;
@@ -245,17 +255,13 @@ async function extendValidity(user_id) {
       return;
     }
 
-    await loadUsers();
-
+    await loadUsersWithToken(token);
   } catch (err) {
     console.error("extendValidity error:", err);
     alert("Failed to extend validity.");
   }
 }
 
-/* ==========================================================
-   Reset Trip
-========================================================== */
 async function resetTrip(user_id) {
   const token = await getAdminToken();
   if (!token) return;
@@ -276,16 +282,12 @@ async function resetTrip(user_id) {
     }
 
     alert("Trip reset!");
-
   } catch (err) {
     console.error("resetTrip error:", err);
     alert("Failed to reset trip.");
   }
 }
 
-/* ==========================================================
-   Delete User
-========================================================== */
 async function deleteUser(user_id) {
   const token = await getAdminToken();
   if (!token) return;
@@ -307,8 +309,7 @@ async function deleteUser(user_id) {
       return;
     }
 
-    await loadUsers();
-
+    await loadUsersWithToken(token);
   } catch (err) {
     console.error("deleteUser error:", err);
     alert("Failed to delete user.");
