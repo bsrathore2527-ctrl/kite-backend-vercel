@@ -248,9 +248,10 @@
       pollPositions();
       pollTradebook();
 
-      setInterval(pollState, 5000);
-      setInterval(pollPositions, 10000);
-      setInterval(pollTradebook, 15000);
+     const interval = 30000;
+  setInterval(pollState, interval);
+  setInterval(pollPositions, interval);
+  setInterval(pollTradebook, interval);
     }
 
     /* -----------------------------------------------------
