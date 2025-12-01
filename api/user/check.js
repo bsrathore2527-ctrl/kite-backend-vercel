@@ -9,27 +9,36 @@ export default async function handler(req, res) {
     const { user_id } = req.body;
     if (!user_id) return res.json({ exists: false });
 
-    // Load user list
+    const uid = user_id.trim().toUpperCase();
+
+    // Load list
     let list = await kv.get("users:list");
     if (!Array.isArray(list)) list = [];
 
-    const exists = list.includes(user_id);
+    const exists = list.includes(uid);
 
     if (!exists) {
-      return res.json({ exists: false });
+      return res.json({
+        exists: false,
+        reason: "not_in_admin_list"
+      });
     }
 
     // Load profile
-    let profile = await kv.get(`user:${user_id}`) || {};
+    let profile = await kv.get(`user:${uid}`) || {};
 
-    // Check access token
-    const access = await kv.get(`user:${user_id}:access_token`);
+    // Determine if signup needed
+    const signup_required = !(profile.api_key && profile.api_secret);
+
+    // Check if connected
+    const access = await kv.get(`user:${uid}:access_token`);
     const connected = !!access;
 
     return res.json({
       exists: true,
-      profile,
-      connected
+      signup_required,
+      connected,
+      profile
     });
 
   } catch (e) {
