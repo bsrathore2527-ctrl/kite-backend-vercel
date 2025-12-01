@@ -1,59 +1,60 @@
-// /api/admin/addUser.js
+// File: /api/admin/addUser.js
+
 import { kv } from "../_lib/kv.js";
 
 export default async function handler(req, res) {
-  if (req.method !== "POST") {
-    return res.status(405).json({ ok: false, error: "POST only" });
-  }
-
-  const token = req.headers["x-admin-token"];
-  if (!token || token !== process.env.ADMIN_TOKEN) {
-    return res.status(401).json({ ok: false, error: "Unauthorized" });
-  }
-
   try {
-    const { user_id, valid_until } = req.body;
-
-    if (!user_id || !valid_until) {
-      return res.json({ ok: false, error: "Missing fields" });
+    if (req.method !== "POST") {
+      return res.status(405).json({ ok: false, error: "POST only" });
     }
 
-    // Load the users list
+    const adminToken = req.headers["x-admin-token"];
+    if (!adminToken || adminToken !== process.env.ADMIN_TOKEN) {
+      return res.status(401).json({ ok: false, error: "Unauthorized" });
+    }
+
+    const { user_id, days } = req.body;
+    if (!user_id || !days) {
+      return res.status(400).json({ ok: false, error: "Missing user_id or days" });
+    }
+
+    const uid = user_id.toUpperCase().trim();
+
+    // Load user list safely
     let list = await kv.get("users:list");
-
-    // ---------------------------------------------
-    // 🔥 AUTO-HEALING: If list is corrupted or wrong type
-    // ---------------------------------------------
     if (!Array.isArray(list)) {
-      console.error("users:list is corrupted, repairing...");
-
-      // Reset list to an empty array
+      console.log("⚠ Resetting corrupted users:list");
       list = [];
-      await kv.set("users:list", list);
     }
 
-    // ---------------------------------------------
-    // Add user only if not present
-    // ---------------------------------------------
-    if (!list.includes(user_id)) {
-      list.push(user_id);
-      await kv.set("users:list", list); // always stores JSON array
+    // Check for duplicate
+    const existing = list.find(u => u.id === uid);
+    if (existing) {
+      return res.status(400).json({ ok: false, error: "User already exists" });
     }
 
-    // ---------------------------------------------
-    // Save user profile (safe JSON object)
-    // ---------------------------------------------
-    await kv.set(`user:${user_id}`, {
-      active: true,
+    const valid_until = Date.now() + Number(days) * 24 * 60 * 60 * 1000;
+
+    const newUser = {
+      id: uid,
       valid_until,
       created_at: Date.now()
+    };
+
+    list.push(newUser);
+
+    // Save updated list
+    await kv.set("users:list", list);
+
+    return res.status(200).json({
+      ok: true,
+      user: newUser,
+      total: list.length
     });
 
-    return res.json({ ok: true });
-
-  } catch (e) {
-    console.error("addUser error:", e);
-    return res.status(500).json({ ok: false, error: e.toString() });
+  } catch (err) {
+    console.error("ADD USER ERROR:", err);
+    return res.status(500).json({ ok: false, error: "Server error" });
   }
 }
 
