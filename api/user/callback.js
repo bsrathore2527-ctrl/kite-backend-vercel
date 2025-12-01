@@ -4,7 +4,9 @@ import { exchangeRequestTokenUser } from "../_lib/kite-user.js";
 
 export default async function handler(req, res) {
   try {
-    const { request_token, status, user_id } = req.query;
+    const { request_token, status, state } = req.query;
+const user_id = state;   // state contains our user id
+
 
     if (status === "error")
       return res.redirect("/user.html?login=failed");
