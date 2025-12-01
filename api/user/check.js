@@ -1,50 +1,56 @@
-// /api/user/check.js
+// File: /api/user/check.js
+
 import { kv } from "../_lib/kv.js";
 
 export default async function handler(req, res) {
-  if (req.method !== "POST")
-    return res.status(405).json({ ok: false, error: "POST only" });
-
   try {
-    const { user_id } = req.body;
-    if (!user_id) return res.json({ exists: false });
+    if (req.method !== "GET") {
+      return res.status(405).json({ ok: false, error: "GET only" });
+    }
 
-    const uid = user_id.trim().toUpperCase();
+    const { user_id } = req.query;
 
-    // Load list
-    let list = await kv.get("users:list");
-    if (!Array.isArray(list)) list = [];
+    if (!user_id) {
+      return res.status(400).json({ ok: false, error: "Missing user_id" });
+    }
 
-    const exists = list.includes(uid);
+    // Load user list
+    let users = await kv.get("users:list");
+    if (!Array.isArray(users)) users = [];
 
-    if (!exists) {
-      return res.json({
-        exists: false,
-        reason: "not_in_admin_list"
+    const user = users.find(u => u.id === user_id);
+
+    if (!user) {
+      return res.status(404).json({
+        ok: false,
+        error: "User not registered"
       });
     }
 
-    // Load profile
-    let profile = await kv.get(`user:${uid}`) || {};
+    // Subscription validity
+    const now = Date.now();
+    const expired = !user.valid_until || now > user.valid_until;
 
-    // Determine if signup needed
-    const signup_required = !(profile.api_key && profile.api_secret);
+    // Access token check
+    const tokenKey = `kite:access_token:${user_id}`;
+    const access_token = await kv.get(tokenKey);
 
-    // Check if connected
-    const access = await kv.get(`user:${uid}:access_token`);
-    const connected = !!access;
+    const connected = !!access_token;
 
-    return res.json({
-      exists: true,
-      signup_required,
-      connected,
-      profile
+    // Prepare response
+    return res.status(200).json({
+      ok: true,
+      user: {
+        id: user_id,
+        valid_until: user.valid_until,
+        expired,
+        connected,
+        last_login: await kv.get(`u:${user_id}:last_login`) || null
+      }
     });
 
-  } catch (e) {
-    console.error("check.js error:", e);
-    return res.status(500).json({ ok: false, error: e.toString() });
+  } catch (err) {
+    console.error("USER CHECK ERROR:", err);
+    return res.status(500).json({ ok: false, error: "Server error" });
   }
 }
-
-export const config = { api: { bodyParser: true } };
