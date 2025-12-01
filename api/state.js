@@ -1,5 +1,5 @@
-import { kv } from "../_lib/kv";
-import { createKiteInstanceForUser } from "../_lib/kite-user-instance";
+import { kv } from "./_lib/kv.js";
+import { createKiteInstanceForUser } from "./_lib/kite-user-instance.js";
 
 export default async function handler(req, res) {
   try {
@@ -35,16 +35,11 @@ export default async function handler(req, res) {
       positions = pos.net || [];
       funds = f?.equity || {};
 
-      let unrealFromKite = 0;
-      for (const p of positions) {
-        unrealFromKite += Number(p.unrealised || 0);
-      }
-
-      unreal = unrealFromKite;
+      unreal = positions.reduce((t, p) => t + Number(p.unrealised || 0), 0);
       kite_status = "connected";
 
     } catch (err) {
-      console.error("Kite error:", err);
+      console.error("Kite error:", err.message);
     }
 
     const total = realised + unreal;
