@@ -87,26 +87,37 @@ async function addUser(){
 }
 
 async function loadUsers(){
-  const res = await fetch('/api/admin/listUsers',{ headers:{'x-admin-token':ADMIN_TOKEN} });
-  const data = await res.json();
+  try {
+    const res = await fetch('/api/admin/listUsers', {
+      headers: { 'x-admin-token': ADMIN_TOKEN }
+    });
 
-  const tbody = document.getElementById('usersTable');
-  tbody.innerHTML = '';
+    const data = await res.json();
 
-  data.users.forEach(u => {
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td class='p-2'>${u.id}</td>
-      <td class='p-2'>${u.profile?.active ? 'Yes' : 'No'}</td>
-      <td class='p-2'>${u.profile?.valid_until ? new Date(u.profile.valid_until).toLocaleDateString() : '-'}</td>
-      <td class='p-2 space-x-2'>
-        <button onclick="extendValidity('${u.id}')" class='px-3 py-1 bg-blue-600 text-white rounded'>Extend</button>
-        <button onclick="resetTrip('${u.id}')" class='px-3 py-1 bg-orange-600 text-white rounded'>Reset Trip</button>
-        <button onclick="deleteUser('${u.id}')" class='px-3 py-1 bg-red-600 text-white rounded'>Delete</button>
-      </td>
-    `;
-    tbody.appendChild(tr);
-  });
+    const tbody = document.getElementById('usersTable');
+    tbody.innerHTML = '';
+
+    if (!data.users || data.users.length === 0) {
+      tbody.innerHTML = `<tr><td colspan='4' class='p-3 text-center text-gray-500'>No users found</td></tr>`;
+      return;
+    }
+
+    data.users.forEach(u => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td class='p-2'>${u.id}</td>
+        <td class='p-2'>${u.profile?.active ? 'Yes' : 'No'}</td>
+        <td class='p-2'>${u.profile?.valid_until ? new Date(u.profile.valid_until).toLocaleDateString() : '-'}</td>
+        <td class='p-2 space-x-2'>
+          <button onclick="extendValidity('${u.id}')" class='px-3 py-1 bg-blue-600 text-white rounded'>Extend</button>
+          <button onclick="resetTrip('${u.id}')" class='px-3 py-1 bg-orange-600 text-white rounded'>Reset Trip</button>
+          <button onclick="deleteUser('${u.id}')" class='px-3 py-1 bg-red-600 text-white rounded'>Delete</button>
+        </td>`;
+      tbody.appendChild(tr);
+    });
+  } catch (e) {
+    console.error('loadUsers error:', e);
+  }
 }
 
 async function extendValidity(user_id){
