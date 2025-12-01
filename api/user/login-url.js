@@ -9,14 +9,16 @@ export default async function handler(req, res) {
     const { user_id } = req.body;
     if (!user_id) return res.json({ ok: false, error: "Missing user_id" });
 
-    const profile = await kv.get(`user:${user_id}`);
+    const uid = user_id.trim().toUpperCase();
+
+    const profile = await kv.get(`user:${uid}`);
     if (!profile || !profile.api_key)
       return res.json({ ok: false, error: "User not signed up" });
 
     const api_key = profile.api_key;
 
     const url =
-      `https://kite.zerodha.com/connect/login?v=3&api_key=${api_key}&state=${user_id}`;
+      `https://kite.zerodha.com/connect/login?v=3&api_key=${api_key}&state=${uid}`;
 
     return res.json({ ok: true, url });
 
