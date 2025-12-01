@@ -8,13 +8,13 @@ export default async function handler(req, res) {
       return res.status(401).json({ ok: false, error: "Unauthorized" });
     }
 
-    const { user_id, valid_until } = await req.json();
+    // ✔ FIXED: read JSON from req.body
+    const { user_id, valid_until } = req.body;
 
     if (!user_id) {
       return res.status(400).json({ ok: false, error: "Missing user_id" });
     }
 
-    // profile key
     const profileKey = `u:${user_id}:profile`;
 
     const existing = await kv.get(profileKey);
@@ -22,15 +22,13 @@ export default async function handler(req, res) {
       return res.status(400).json({ ok: false, error: "User already exists" });
     }
 
-    // save profile
     await kv.set(profileKey, {
       id: user_id,
       active: true,
       is_master: false,
-      valid_until: valid_until || Date.now() + 7 * 24 * 60 * 60 * 1000
+      valid_until: valid_until || (Date.now() + 7 * 86400000),
     });
 
-    // add to SET
     await kv.sadd("users:list", user_id);
 
     return res.status(200).json({ ok: true });
@@ -40,3 +38,8 @@ export default async function handler(req, res) {
     return res.status(500).json({ ok: false, error: "Server Error" });
   }
 }
+
+// Let Vercel auto-parse JSON
+export const config = {
+  api: { bodyParser: true }
+};
