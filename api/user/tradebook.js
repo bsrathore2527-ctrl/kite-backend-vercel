@@ -1,5 +1,5 @@
-import { kv } from "../../_lib/kv";
-import { createKiteInstanceForUser } from "../../_lib/kite-user-instance";
+import { kv } from "../_lib/kv.js";
+import { createKiteInstanceForUser } from "../_lib/kite-user-instance.js";
 
 export default async function handler(req, res) {
   try {
