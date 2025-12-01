@@ -1,107 +1,145 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <script src="https://cdn.tailwindcss.com"></script>
-  <title>User Login</title>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<script src="https://cdn.tailwindcss.com"></script>
+<title>User Dashboard</title>
 </head>
+<body class="bg-gray-100 min-h-screen p-4">
+<div id="loginSection" class="max-w-md mx-auto mt-24 bg-white p-6 rounded-xl shadow">
+  <h2 class="text-2xl font-bold mb-4">Enter Zerodha User ID</h2>
+  <input id="uidInput" class="w-full p-3 border rounded mb-4" placeholder="User ID" />
+  <button onclick="saveUID()" class="w-full bg-blue-600 text-white p-3 rounded-lg">Continue</button>
+</div>
 
-<body class="bg-gray-100 min-h-screen flex items-center justify-center p-6">
-
-  <div class="bg-white w-full max-w-md p-6 rounded-xl shadow-lg border border-gray-200">
-    <h2 class="text-2xl font-semibold text-gray-800 text-center mb-4">
-      User Login Panel
-    </h2>
-
-    <!-- USER ID INPUT -->
-    <label class="block font-medium mb-1">Zerodha User ID</label>
-    <input id="userid" type="text"
-           class="w-full p-3 border rounded-lg mb-4"
-           placeholder="Enter User ID (e.g., ZD5101)" />
-
-    <!-- STATUS BOX -->
-    <div id="statusBox" class="hidden p-3 rounded-lg mb-4"></div>
-
-    <!-- LOGIN BUTTON -->
-    <button onclick="userLogin()"
-            class="w-full py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-lg mb-3">
-      Login to Zerodha
-    </button>
-
-    <!-- CHECK STATUS BUTTON -->
-    <button onclick="checkStatus()"
-            class="w-full py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-800 text-lg">
-      Check Status
-    </button>
-
-    <!-- RESULT MESSAGE -->
-    <p id="msg" class="text-center text-sm mt-4"></p>
+<div id="dashboardSection" class="hidden">
+  <div class="flex justify-between items-center mb-4">
+    <h1 class="text-3xl font-bold">Dashboard</h1>
+    <span id="validity" class="text-gray-700"></span>
   </div>
 
-  <script>
-    // When redirected after login
-    const url = new URL(window.location.href);
-    if (url.searchParams.get("login") === "success") {
-      document.getElementById("msg").textContent = "Login Successful!";
-      document.getElementById("msg").className = "text-green-700 text-center text-sm";
-    } 
-    else if (url.searchParams.get("login") === "failed") {
-      document.getElementById("msg").textContent = "Login Failed.";
-      document.getElementById("msg").className = "text-red-700 text-center text-sm";
-    }
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+    <div class="bg-white p-4 rounded-xl shadow">
+      <h2 class="text-xl font-semibold mb-2">Live MTM</h2>
+      <div id="mtmBox" class="text-2xl font-bold text-gray-800">—</div>
+      <div id="pnlDetails" class="text-sm text-gray-600"></div>
+    </div>
 
-    async function checkStatus() {
-      const user_id = document.getElementById("userid").value.trim();
-      if (!user_id) return;
+    <div class="bg-white p-4 rounded-xl shadow">
+      <h2 class="text-xl font-semibold mb-2">Trailing Loss Floor</h2>
+      <div id="lossFloor" class="text-lg text-gray-700"></div>
+      <div id="remainingLoss" class="text-sm text-gray-600"></div>
+    </div>
 
-      const box = document.getElementById("statusBox");
-      box.classList.remove("hidden");
-      box.textContent = "Checking...";
-      box.className = "p-3 mb-4 rounded-lg bg-blue-100 text-blue-800";
+    <div class="bg-white p-4 rounded-xl shadow">
+      <h2 class="text-xl font-semibold mb-2">Cooldown / Consecutive Loss</h2>
+      <div id="cooldownBox" class="text-gray-700"></div>
+    </div>
 
-      const res = await fetch(`/api/user/check?user_id=${user_id}`);
-      const data = await res.json();
+    <div class="bg-white p-4 rounded-xl shadow">
+      <h2 class="text-xl font-semibold mb-2">P10 Profit Lock</h2>
+      <div id="p10Box" class="text-gray-700"></div>
+    </div>
+  </div>
 
-      if (!data.ok) {
-        box.textContent = data.error || "User not found";
-        box.className = "p-3 mb-4 rounded-lg bg-red-100 text-red-800";
-        return;
-      }
+  <div class="bg-white p-4 rounded-xl shadow mb-4">
+    <h2 class="text-xl font-semibold mb-2">Open Positions</h2>
+    <pre id="positionsBox" class="text-sm text-gray-800 bg-gray-50 p-2 rounded"></pre>
+  </div>
 
-      const u = data.user;
+  <div class="bg-white p-4 rounded-xl shadow mb-4">
+    <h2 class="text-xl font-semibold mb-2">Tradebook</h2>
+    <pre id="tradebookBox" class="text-sm text-gray-800 bg-gray-50 p-2 rounded"></pre>
+  </div>
 
-      box.innerHTML = `
-        <p><b>User:</b> ${u.id}</p>
-        <p><b>Connected:</b> ${u.connected ? "Yes" : "No"}</p>
-        <p><b>Subscription:</b> ${u.expired ? "Expired" : "Active"}</p>
-        <p><b>Expires On:</b> ${u.valid_until ? new Date(u.valid_until).toLocaleString() : "-"}</p>
-        <p><b>Last Login:</b> ${u.last_login ? new Date(u.last_login).toLocaleString() : "-"}</p>
-      `;
-      box.className = "p-3 mb-4 rounded-lg bg-green-100 text-green-800";
-    }
+  <div class="bg-white p-4 rounded-xl shadow">
+    <h2 class="text-xl font-semibold mb-2">Trip Status</h2>
+    <div id="tripBox" class="text-lg font-bold"></div>
+  </div>
+</div>
 
-    async function userLogin() {
-      const user_id = document.getElementById("userid").value.trim();
-      if (!user_id) return;
+<script>
+let uid = localStorage.getItem("user_id");
 
-      const msg = document.getElementById("msg");
-      msg.textContent = "Generating login URL…";
-      msg.className = "text-blue-700 text-center text-sm";
+function saveUID(){
+  const v=document.getElementById("uidInput").value.trim();
+  if(!v){ alert("Enter User ID"); return; }
+  localStorage.setItem("user_id",v);
+  location.reload();
+}
 
-      const res = await fetch(`/api/user/login-url?user_id=${user_id}`);
-      const data = await res.json();
+function showLogin(){ document.getElementById("loginSection").classList.remove("hidden"); }
+function showDash(){ document.getElementById("dashboardSection").classList.remove("hidden"); }
 
-      if (!data.ok) {
-        msg.textContent = data.error || "Login failed";
-        msg.className = "text-red-700 text-center text-sm";
-        return;
-      }
+async function checkUser(){
+  if(!uid){ showLogin(); return; }
+  const r=await fetch(`/api/user/check?user_id=${uid}`);
+  const d=await r.json();
+  if(!d.ok||!d.exists){
+    alert("Not authorized user");
+    localStorage.removeItem("user_id");
+    showLogin();
+    return;
+  }
+  document.getElementById("validity").innerText="Valid Until: "+new Date(d.valid_until).toLocaleString();
 
-      // Redirect user to Zerodha login
-      window.location.href = data.login_url;
-    }
-  </script>
+  if(d.connected){ loadDashboard(); }
+  else{
+    const r2=await fetch(`/api/user/login-url?user_id=${uid}`);
+    const d2=await r2.json();
+    if(d2.ok) location.href=d2.url;
+  }
+}
 
+async function loadDashboard(){
+  showDash();
+  pollState();
+  pollTradebook();
+  pollPositions();
+  setInterval(pollState,5000);
+  setInterval(pollTradebook,7000);
+  setInterval(pollPositions,7000);
+}
+
+async function pollState(){
+  const r=await fetch(`/api/state?user_id=${uid}`);
+  const d=await r.json();
+
+  document.getElementById("mtmBox").innerText = d.total_pnl ?? "—";
+  document.getElementById("pnlDetails").innerText = 
+    `Realised: ${d.realised} | Unrealised: ${d.unrealised}`;
+
+  document.getElementById("lossFloor").innerText = "Active Loss Floor: "+d.active_loss_floor;
+  document.getElementById("remainingLoss").innerText = 
+    "Remaining: "+d.remaining_to_max_loss;
+
+  document.getElementById("cooldownBox").innerText = 
+    `Cooldown Active: ${d.cooldown_active} | Consecutive Losses: ${d.consecutive_losses}`;
+
+  document.getElementById("p10Box").innerText =
+    `P10: ${d.p10_effective_amount}`;
+
+  document.getElementById("tripBox").innerText =
+    d.tripped ? "TRIPPED" : "ACTIVE";
+  document.getElementById("tripBox").className =
+    d.tripped ? "text-red-600" : "text-green-600";
+}
+
+async function pollTradebook(){
+  const r=await fetch(`/api/user/tradebook?user_id=${uid}`);
+  const d=await r.json();
+  document.getElementById("tradebookBox").innerText=
+    JSON.stringify(d,null,2);
+}
+
+async function pollPositions(){
+  const r=await fetch(`/api/user/positions?user_id=${uid}`);
+  const d=await r.json();
+  document.getElementById("positionsBox").innerText=
+    JSON.stringify(d,null,2);
+}
+
+checkUser();
+</script>
 </body>
 </html>
