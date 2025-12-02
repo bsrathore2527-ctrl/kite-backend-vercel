@@ -522,11 +522,103 @@ export default async function handler(req, res) {
           const notePatch = { admin_last_enforce_result: { cancelled, squared, at: Date.now() } };
           await setState(notePatch);
           console.log("Auto-enforce executed (max loss floor):", notePatch.admin_last_enforce_result);
-        } catch (e) {
-          console.error("Auto-enforce failed (max loss floor):", e && e.stack ? e.stack : e);
+// --- LOSS-FLOOR CHECK ---
+    // Use our own MTM (state.total_pnl) computed by mtm-worker
+    try {
+      const state = await getState();
+
+      // totalPnl = realised + unrealised as computed by mtm-worker
+      let totalPnl = Number(state.total_pnl ?? 0);
+
+      // --- TEST OVERRIDE (for testing module) ---
+      if (req.query && typeof req.query.test_mtm !== "undefined") {
+        const testVal = Number(req.query.test_mtm);
+        if (!Number.isNaN(testVal)) {
+          console.log("TEST-MTM OVERRIDE APPLIED:", testVal);
+          totalPnl = testVal;
         }
       }
-} catch (e) {
+      // ------------------------------------------
+
+      // ---- Trailing max-loss floor logic ----
+      // 1) Derive max_loss_abs: prefer stored value else compute from capital_day_915 * max_loss_pct
+      let maxLossAbs = Number(state.max_loss_abs ?? 0);
+      if (!maxLossAbs || !Number.isFinite(maxLossAbs) || maxLossAbs === 0) {
+        const capital = Number(state.capital_day_915 ?? 0);
+        const pct = Number(state.max_loss_pct ?? 0);
+        if (capital > 0 && pct > 0) {
+          maxLossAbs = Math.round(capital * (pct / 100));
+        }
+      }
+
+      const trailStep = Number(state.trail_step_profit ?? 0);
+
+      // 2) Current floor and peak profit from state
+      const currentFloorRaw = (state.active_loss_floor ?? (maxLossAbs ? -maxLossAbs : 0));
+      const currentFloor = Number.isFinite(Number(currentFloorRaw))
+        ? Number(currentFloorRaw)
+        : (maxLossAbs ? -maxLossAbs : 0);
+
+      const currentPeakRaw = (state.peak_profit ?? 0);
+      const currentPeak = Number.isFinite(Number(currentPeakRaw))
+        ? Number(currentPeakRaw)
+        : 0;
+
+      // 3) Update peak profit based on our own total PnL
+      let nextPeak = currentPeak;
+      if (totalPnl > currentPeak) nextPeak = totalPnl;
+
+      // 4) Compute trail level in multiples of trailStep
+      let trailLevel = 0;
+      if (trailStep > 0 && nextPeak > 0) {
+        trailLevel = Math.floor(nextPeak / trailStep) * trailStep;
+      }
+
+      // 5) Candidate new floor: start from -maxLossAbs, then move up as trailLevel increases
+      let newFloorCandidate = maxLossAbs > 0 ? -maxLossAbs : currentFloor;
+      if (trailLevel > 0 && maxLossAbs > 0) {
+        newFloorCandidate = trailLevel - maxLossAbs;
+      }
+
+      // 6) Final floor: never move floor down during the day
+      let nextFloor = currentFloor;
+      if (!Number.isFinite(nextFloor)) nextFloor = newFloorCandidate;
+      if (newFloorCandidate > nextFloor) nextFloor = newFloorCandidate;
+
+      // 7) remaining_to_max_loss = distance (in P&L) from current MTM down to the loss floor
+      const remaining = totalPnl - nextFloor;
+
+      const floorPatch = {
+        peak_profit: nextPeak,
+        max_loss_abs: maxLossAbs,
+        active_loss_floor: nextFloor,
+        remaining_to_max_loss: remaining
+      };
+      await setState(floorPatch);
+
+      // 8) Decide whether to trip based on trailing loss floor using our own MTM
+      if (maxLossAbs > 0 && remaining <= 0) {
+        // mark tripped and block new orders
+        const tripPatch = {
+          tripped_day: true,
+          block_new_orders: true,
+          trip_reason: "max_loss_floor_total_pnl",
+          last_enforced_at: Date.now()
+        };
+        await setState(tripPatch);
+
+        // attempt immediate enforcement
+        try {
+          const cancelled = await cancelPending(kc);
+          const squared = await squareOffAll(kc);
+          const notePatch = { admin_last_enforce_result: { cancelled, squared, at: Date.now() } };
+          await setState(notePatch);
+          console.log("Auto-enforce executed (max loss floor via total_pnl):", notePatch.admin_last_enforce_result);
+        } catch (e) {
+          console.error("Auto-enforce failed (max loss floor via total_pnl):", e && e.stack ? e.stack : e);
+        }
+      }
+    } catch (e) {
       console.warn("loss-floor check failed:", e && e.message ? e.message : e);
     }
 
