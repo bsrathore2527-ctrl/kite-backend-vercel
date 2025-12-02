@@ -6,7 +6,7 @@ export const config = {
   runtime: "nodejs20",
 };
 
-// === helpers ===
+// === Load today's tradebook ===
 async function loadTradebook() {
   try {
     const raw = await kv.get("guardian:tradebook");
@@ -17,6 +17,7 @@ async function loadTradebook() {
   }
 }
 
+// === Baseline storage helpers ===
 async function loadBaselines() {
   const key = `baseline:${todayKey()}`;
   try {
@@ -33,44 +34,53 @@ async function saveBaselines(obj) {
   await kv.set(key, obj);
 }
 
+// === Patch MTM into state ===
 async function saveStatePatch(patch = {}) {
   const key = `risk:${todayKey()}`;
   const cur = (await kv.get(key)) || {};
   const current = typeof cur === "string" ? JSON.parse(cur) : cur;
+
   const next = { ...current, ...patch };
   await kv.set(key, next);
   return next;
 }
 
+// === Get LTP stored by ltp-poll-worker ===
 async function getLTP(token) {
   const raw = await kv.get(`ltp:${token}`);
   if (!raw) return null;
-  if (typeof raw === "string") {
-    try { return JSON.parse(raw); } catch { return null; }
-  }
-  return raw;
+  return typeof raw === "string" ? JSON.parse(raw) : raw;
 }
 
-// ==== MAIN HANDLER ====
+// === MAIN HANDLER ===
 export default async function handler(req, res) {
   try {
     const kc = await instance();
 
-    // 1) Load tradebook (today)
+    // -------------------------------------------------
+    // 1) LOAD TRADEBOOK → DERIVE INTRADAY BUY/SELL LOGIC
+    // -------------------------------------------------
     const trades = await loadTradebook();
 
-    // Build intraday grouped trades
-    const intraday = {}; 
+    const intraday = {}; // symbol → { buyQty, buyVal, sellQty, sellVal }
+
     for (const t of trades) {
       const sym = t.tradingsymbol;
       if (!sym) continue;
 
       const qty = Number(t.quantity) || 0;
-      const price = Number(t.price_normalized || t.average_price || t.avg_price || t.price || 0);
+      const price = Number(
+        t.price_normalized ||
+        t.average_price ||
+        t.avg_price ||
+        t.price ||
+        0
+      );
 
       if (!intraday[sym]) {
         intraday[sym] = { buyQty: 0, buyVal: 0, sellQty: 0, sellVal: 0 };
       }
+
       if (t.transaction_type === "BUY") {
         intraday[sym].buyQty += qty;
         intraday[sym].buyVal += qty * price;
@@ -80,29 +90,36 @@ export default async function handler(req, res) {
       }
     }
 
-    // Realised PNL so far = sum of closed trades:
+    // REALISED = sum of closed intraday trades
     let realisedToday = 0;
     for (const sym in intraday) {
       const info = intraday[sym];
-      const closed = Math.min(info.buyQty, info.sellQty);
-      if (closed > 0) {
-        const buyAvg = info.buyQty ? info.buyVal / info.buyQty : 0;
-        const sellAvg = info.sellQty ? info.sellVal / info.sellQty : 0;
-        realisedToday += (sellAvg - buyAvg) * closed;
+      const closedQty = Math.min(info.buyQty, info.sellQty);
+
+      if (closedQty > 0) {
+        const buyAvg = info.buyVal / info.buyQty;
+        const sellAvg = info.sellVal / info.sellQty;
+        realisedToday += (sellAvg - buyAvg) * closedQty;
       }
     }
 
-    // 2) Fetch open positions from Kite
+    // -------------------------------------------------
+    // 2) FETCH OPEN POSITIONS
+    // -------------------------------------------------
     const pos = await kc.getPositions();
     const net = pos?.net || [];
 
-    // 3) Load existing baselines
-    const baselines = await loadBaselines();
-    const updatedBaselines = {};
+    // -------------------------------------------------
+    // 3) LOAD EXISTING BASELINES
+    // -------------------------------------------------
+    const oldBaselines = await loadBaselines();
+    const newBaselines = {};
 
     let totalUnrealised = 0;
 
-    // For each open position:
+    // -------------------------------------------------
+    // 4) PROCESS EACH OPEN POSITION
+    // -------------------------------------------------
     for (const p of net) {
       const symbol = p.tradingsymbol;
       const token = p.instrument_token;
@@ -110,69 +127,73 @@ export default async function handler(req, res) {
 
       if (!symbol || !token || qty === 0) continue;
 
-      // Get latest LTP
       const ltpObj = await getLTP(token);
-      if (!ltpObj || !ltpObj.last_price) continue;
+      if (!ltpObj?.last_price) continue;
+
       const LTP = Number(ltpObj.last_price);
 
       // Determine baseline price:
       let baselinePrice = null;
 
-      // Case A: Intraday trades exist for this symbol
-      if (intraday[symbol] && intraday[symbol].buyQty + intraday[symbol].sellQty > 0) {
-        // fresh intraday position baseline = weighted avg of today's buys (or sells for short)
+      // CASE A — INTRADAY TRADES EXIST → USE TODAY'S TRADE WEIGHTED AVG
+      if (intraday[symbol] &&
+          (intraday[symbol].buyQty + intraday[symbol].sellQty) > 0) {
+
         const info = intraday[symbol];
         const remaining = Math.abs(info.buyQty - info.sellQty);
 
         if (remaining > 0 && info.buyQty > info.sellQty) {
-          // net long
-          baselinePrice = info.buyVal / info.buyQty;
+          baselinePrice = info.buyVal / info.buyQty;   // long
         } else if (remaining > 0 && info.sellQty > info.buyQty) {
-          // net short
-          baselinePrice = info.sellVal / info.sellQty;
+          baselinePrice = info.sellVal / info.sellQty; // short
         }
       }
 
-      // Case B: No intraday trades → Overnight or carried-over qty
+      // CASE B — NO INTRADAY TRADES → OVERNIGHT POSITION
       if (!baselinePrice) {
-        // If baseline already saved (software started earlier), reuse it
-        if (baselines[symbol] && baselines[symbol].qty === qty) {
-          baselinePrice = baselines[symbol].price;
+        if (oldBaselines[symbol] && oldBaselines[symbol].qty === qty) {
+          baselinePrice = oldBaselines[symbol].price;
         } else {
-          // First time seeing this today → baseline = LTP
-          baselinePrice = LTP;
+          baselinePrice = LTP;  // first-time baseline
         }
       }
 
-      // Compute unrealised for this symbol
+      // Compute MTM for this symbol
       const direction = qty > 0 ? 1 : -1;
       const symbolUPNL = (LTP - baselinePrice) * qty * direction;
 
       totalUnrealised += symbolUPNL;
 
-      // Update baseline entry
-      updatedBaselines[symbol] = {
-        qty: qty,
+      // store new baseline
+      newBaselines[symbol] = {
+        qty,
         price: baselinePrice
       };
     }
 
-    // Save updated baselines
-    await saveBaselines(updatedBaselines);
+    // -------------------------------------------------
+    // 5) SAVE UPDATED BASELINES
+    // -------------------------------------------------
+    await saveBaselines(newBaselines);
 
-    // Save MTM in state
+    // -------------------------------------------------
+    // 6) SAVE MTM IN STATE
+    // -------------------------------------------------
+    const total_pnl = realisedToday + totalUnrealised;
+
     const nextState = await saveStatePatch({
       realised: realisedToday,
       unrealised: totalUnrealised,
-      live_balance: (realisedToday + totalUnrealised)
+      total_pnl: total_pnl
+      // DO NOT TOUCH live_balance
     });
 
     return res.json({
       ok: true,
       realised: realisedToday,
       unrealised: totalUnrealised,
-      live_balance: realisedToday + totalUnrealised,
-      baselines: updatedBaselines,
+      total_pnl,
+      baselines: newBaselines,
       state: nextState
     });
 
