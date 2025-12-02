@@ -3,7 +3,7 @@ import { kv } from "./_lib/kv.js";
 import { instance } from "./_lib/kite.js";
 
 export const config = {
-  runtime: "nodejs20",
+  runtime: "nodejs",
 };
 
 async function loadTradebookSymbols() {
