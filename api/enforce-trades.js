@@ -623,8 +623,5 @@ export default async function handler(req, res) {
     }
 
     return res.status(200).json({ ok: true, processed, newest_ts: newest });
-  } catch (err) {
-    console.error("enforce-trades error:", err && err.stack ? err.stack : err);
-    return res.status(500).json({ ok: false, error: String(err) });
   }
                                                 }
