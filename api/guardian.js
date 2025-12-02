@@ -39,6 +39,9 @@ export default async function handler(req, res) {
       capital_day_915: s.capital_day_915 || 0,
       realised: s.realised || 0,
       unrealised: s.unrealised || 0,
+      total_pnl: (typeof s.total_pnl === "number"
+        ? s.total_pnl
+        : fallbackTotalPnl),
       current_balance: s.current_balance || 0,
       live_balance: liveBalance,
       tripped_day: !!s.tripped_day,
