@@ -1,13 +1,23 @@
-// mtm-worker.js
+// mtm-worker.js (v3 FINAL)
 // --------------------------------------------------
 // REALISED = FIFO from Zerodha getTrades()
 // UNREALISED = (LTP - Avg) * Qty using kv("ltp:all")
-// SAFE TIMESTAMP HANDLING (NO slice() errors)
+// SAFE timestamp handling + IST date filter
 // --------------------------------------------------
 
 import { kv } from "./_lib/kv.js";
 import { setState } from "./_lib/kv.js";
 import { instance } from "./_lib/kite.js";
+
+/* ------------------------------------------------------
+   HELPER: GET TODAY DATE IN IST (YYYY-MM-DD)
+------------------------------------------------------ */
+
+function getTodayIST() {
+  const d = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
+  const [day, month, year] = d.split(",")[0].split("/");  // DD/MM/YYYY
+  return `${year}-${month}-${day}`;                       // YYYY-MM-DD
+}
 
 /* ------------------------------------------------------
    FIFO ENGINE (simple, clean, correct)
@@ -78,17 +88,16 @@ function fifoBuy(book, qty, price) {
 }
 
 /* ------------------------------------------------------
-   REALISED PNL FROM Zerodha Trades (TODAY ONLY + SAFE)
+   REALISED PNL (using trades from TODAY only)
 ------------------------------------------------------ */
 
 async function computeTodayRealised(kc) {
   const trades = await kc.getTrades();
-  const today = new Date().toISOString().slice(0, 10);
+  const today = getTodayIST();
 
   console.log("DEBUG RAW TRADES:", JSON.stringify(trades, null, 2));
 
-  // FIX: always convert timestamp to string safely
-  const todayTrades = trades.filter((t) => {
+  const todayTrades = trades.filter(t => {
     const ts =
       t.exchange_timestamp ||
       t.fill_timestamp ||
@@ -96,13 +105,14 @@ async function computeTodayRealised(kc) {
       "";
 
     const raw = String(ts);
-    const d = raw.slice(0, 10); // now safe
+    const d = raw.slice(0, 10);
+
     return d === today;
   });
 
   console.log("DEBUG TODAY TRADES:", JSON.stringify(todayTrades, null, 2));
 
-  // Sort using safe fallback
+  // Sort safely
   todayTrades.sort((a, b) => {
     const ta = new Date(
       a.exchange_timestamp ||
@@ -146,7 +156,7 @@ async function computeTodayRealised(kc) {
 }
 
 /* ------------------------------------------------------
-   UNREALISED USING LTP + OPEN POSITIONS
+   UNREALISED PNL (using ltp:all)
 ------------------------------------------------------ */
 
 async function computeUnrealised(kc, ltpAll) {
@@ -160,7 +170,7 @@ async function computeUnrealised(kc, ltpAll) {
 
   for (const p of net) {
     const qty = Number(p.quantity);
-    if (!qty) continue; // closed positions ignored
+    if (!qty) continue;
 
     const avg = Number(p.average_price);
     const token = Number(p.instrument_token);
@@ -170,9 +180,10 @@ async function computeUnrealised(kc, ltpAll) {
       Number(p.last_price) ||
       0;
 
-    const u = qty > 0
-      ? (ltp - avg) * qty
-      : (avg - ltp) * Math.abs(qty);
+    const u =
+      qty > 0
+        ? (ltp - avg) * qty
+        : (avg - ltp) * Math.abs(qty);
 
     unrealised += u;
 
@@ -185,7 +196,7 @@ async function computeUnrealised(kc, ltpAll) {
 }
 
 /* ------------------------------------------------------
-   MAIN ENTRYPOINT
+   MAIN HANDLER
 ------------------------------------------------------ */
 
 export default async function handler(req, res) {
@@ -219,6 +230,7 @@ export default async function handler(req, res) {
       unrealised,
       total_pnl: total,
     });
+
   } catch (err) {
     console.error("MTM ERROR:", err);
     return res.status(500).json({ ok: false, error: String(err) });
