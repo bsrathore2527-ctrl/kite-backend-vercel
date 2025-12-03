@@ -254,7 +254,7 @@ async function computeMTM() {
   state.unrealised = unrealised;
   state.total_pnl = total_pnl;
 
-  await kvSet("guardian:state", state);
+  await kvSet("guardian:state", JSON.stringify(state));
 
   console.log("✅ MTM (Zerodha-style):", {
     realised,
