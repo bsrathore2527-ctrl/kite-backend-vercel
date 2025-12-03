@@ -1,204 +1,185 @@
-// api/mtm-worker.js
-import { kv, todayKey } from "./_lib/kv.js";
-import { instance } from "./_lib/kite.js";
+// ===============================
+//       MTM WORKER (FINAL)
+// ===============================
+// ✔ FIFO realised PNL
+// ✔ Multi-baseline per instrument
+// ✔ Overnight baseline at 9:15 LTP
+// ✔ Intraday baseline using execution price
+// ✔ Uses raw.average_price for real exec
+// ✔ Reads LTP from ticker-worker
+// ✔ Writes to guardian:baselines + guardian:state
 
-export const config = {
-  runtime: "nodejs",
-};
+import fetch from "node-fetch";
 
-// === Load today's tradebook ===
-async function loadTradebook() {
+const KV_URL = process.env.UPSTASH_REDIS_REST_URL;
+const KV_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
+
+// -------------------------------
+// KV Helpers
+// -------------------------------
+async function kvGet(key) {
   try {
-    const raw = await kv.get("guardian:tradebook");
-    if (!raw) return [];
-    return JSON.parse(raw);
-  } catch {
-    return [];
+    const res = await fetch(`${KV_URL}/get/${key}`, {
+      headers: { Authorization: `Bearer ${KV_TOKEN}` }
+    }).then(r => r.json());
+    return res?.result ?? null;
+  } catch (err) {
+    console.log("❌ KV GET Error:", err);
+    return null;
   }
 }
 
-// === Baseline storage helpers ===
-async function loadBaselines() {
-  const key = `baseline:${todayKey()}`;
+async function kvSet(key, value) {
   try {
-    const raw = await kv.get(key);
-    if (!raw) return {};
-    return typeof raw === "string" ? JSON.parse(raw) : raw;
-  } catch {
-    return {};
+    return fetch(`${KV_URL}/set/${key}`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${KV_TOKEN}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(value)
+    }).then(r => r.json());
+  } catch (err) {
+    console.log("❌ KV SET Error:", err);
   }
 }
 
-async function saveBaselines(obj) {
-  const key = `baseline:${todayKey()}`;
-  await kv.set(key, obj);
-}
-
-// === Patch MTM into state ===
-async function saveStatePatch(patch = {}) {
-  const key = `risk:${todayKey()}`;
-  const cur = (await kv.get(key)) || {};
-  const current = typeof cur === "string" ? JSON.parse(cur) : cur;
-
-  const next = { ...current, ...patch };
-  await kv.set(key, next);
-  return next;
-}
-
-// === Get LTP stored by ltp-poll-worker ===
+// -------------------------------
+// Fetch LTP for a token
+// -------------------------------
 async function getLTP(token) {
-  const raw = await kv.get(`ltp:${token}`);
-  if (!raw) return null;
-  return typeof raw === "string" ? JSON.parse(raw) : raw;
+  let obj = await kvGet(`ltp:${token}`);
+  return obj?.last_price ?? null;
 }
 
-// === MAIN HANDLER ===
-export default async function handler(req, res) {
-  try {
-    const kc = await instance();
+// -------------------------------
+// FIFO reduce qty in baselines
+// -------------------------------
+function fifoReduce(baselines, sellQty, sellPrice) {
+  let realised = 0;
 
-    // -------------------------------------------------
-    // 1) LOAD TRADEBOOK → DERIVE INTRADAY BUY/SELL LOGIC
-    // -------------------------------------------------
-    const trades = await loadTradebook();
+  for (let block of baselines) {
+    if (sellQty <= 0) break;
 
-    const intraday = {}; // symbol → { buyQty, buyVal, sellQty, sellVal }
+    if (block.qty <= 0) continue;
 
-    for (const t of trades) {
-      const sym = t.tradingsymbol;
-      if (!sym) continue;
+    let closeQty = Math.min(block.qty, sellQty);
+    realised += (sellPrice - block.price) * closeQty;
 
-      const qty = Number(t.quantity) || 0;
-      const price = Number(
-        t.price_normalized ||
-        t.average_price ||
-        t.avg_price ||
-        t.price ||
-        0
+    block.qty -= closeQty;
+    sellQty -= closeQty;
+  }
+
+  // Remove zero-qty blocks
+  return { realised, remainingBlocks: baselines.filter(b => b.qty > 0) };
+}
+
+// -------------------------------
+// MTM FUNCTION
+// -------------------------------
+async function computeMTM() {
+  console.log("📊 Running MTM worker...");
+
+  let tradebook = await kvGet("guardian:tradebook");
+  if (!Array.isArray(tradebook)) tradebook = [];
+
+  let positions = await kvGet("guardian:positions"); // optional
+  let baselines = await kvGet("guardian:baselines") || {};
+
+  let realised = 0;
+  let unrealised = 0;
+
+  // -------------------------------
+  // STEP 1: Build initial baselines
+  // -------------------------------
+  // Overnight qty baseline (LTP at 9:15)
+  if (positions && positions.net) {
+    for (let p of positions.net) {
+      if (!p.instrument_token || !p.quantity) continue;
+
+      let token = p.instrument_token;
+
+      // If baseline doesn't exist, create overnight block
+      if (!baselines[token] || baselines[token].length === 0) {
+        let ltp = await getLTP(token); // 9:15 LTP from ticker-worker
+
+        if (ltp != null) {
+          baselines[token] = [
+            { qty: p.quantity, price: ltp, type: "overnight" }
+          ];
+        }
+      }
+    }
+  }
+
+  // -------------------------------
+  // STEP 2: Process trades FIFO
+  // -------------------------------
+  for (let t of tradebook) {
+    const raw = t.raw || {};
+    let token = raw.instrument_token;
+    let qty = raw.quantity;
+    let isBuy = raw.transaction_type === "BUY";
+    let execPrice = raw.average_price;
+
+    if (!token || !qty) continue;
+
+    // Ensure baseline array exists
+    if (!baselines[token]) baselines[token] = [];
+
+    if (isBuy) {
+      // Add new intraday baseline block
+      baselines[token].push({
+        qty: qty,
+        price: execPrice,
+        type: "intraday"
+      });
+    } else {
+      // SELL → FIFO reduce baseline blocks
+      let { realised: r, remainingBlocks } = fifoReduce(
+        baselines[token],
+        qty,
+        execPrice
       );
 
-      if (!intraday[sym]) {
-        intraday[sym] = { buyQty: 0, buyVal: 0, sellQty: 0, sellVal: 0 };
-      }
-
-      if (t.transaction_type === "BUY") {
-        intraday[sym].buyQty += qty;
-        intraday[sym].buyVal += qty * price;
-      } else if (t.transaction_type === "SELL") {
-        intraday[sym].sellQty += qty;
-        intraday[sym].sellVal += qty * price;
-      }
+      realised += r;
+      baselines[token] = remainingBlocks;
     }
-
-    // REALISED = sum of closed intraday trades
-    let realisedToday = 0;
-    for (const sym in intraday) {
-      const info = intraday[sym];
-      const closedQty = Math.min(info.buyQty, info.sellQty);
-
-      if (closedQty > 0) {
-        const buyAvg = info.buyVal / info.buyQty;
-        const sellAvg = info.sellVal / info.sellQty;
-        realisedToday += (sellAvg - buyAvg) * closedQty;
-      }
-    }
-
-    // -------------------------------------------------
-    // 2) FETCH OPEN POSITIONS
-    // -------------------------------------------------
-    const pos = await kc.getPositions();
-    const net = pos?.net || [];
-
-    // -------------------------------------------------
-    // 3) LOAD EXISTING BASELINES
-    // -------------------------------------------------
-    const oldBaselines = await loadBaselines();
-    const newBaselines = {};
-
-    let totalUnrealised = 0;
-
-    // -------------------------------------------------
-    // 4) PROCESS EACH OPEN POSITION
-    // -------------------------------------------------
-    for (const p of net) {
-      const symbol = p.tradingsymbol;
-      const token = p.instrument_token;
-      const qty = Number(p.net_quantity);
-
-      if (!symbol || !token || qty === 0) continue;
-
-      const ltpObj = await getLTP(token);
-      if (!ltpObj?.last_price) continue;
-
-      const LTP = Number(ltpObj.last_price);
-
-      // Determine baseline price:
-      let baselinePrice = null;
-
-      // CASE A — INTRADAY TRADES EXIST → USE TODAY'S TRADE WEIGHTED AVG
-      if (intraday[symbol] &&
-          (intraday[symbol].buyQty + intraday[symbol].sellQty) > 0) {
-
-        const info = intraday[symbol];
-        const remaining = Math.abs(info.buyQty - info.sellQty);
-
-        if (remaining > 0 && info.buyQty > info.sellQty) {
-          baselinePrice = info.buyVal / info.buyQty;   // long
-        } else if (remaining > 0 && info.sellQty > info.buyQty) {
-          baselinePrice = info.sellVal / info.sellQty; // short
-        }
-      }
-
-      // CASE B — NO INTRADAY TRADES → OVERNIGHT POSITION
-      if (!baselinePrice) {
-        if (oldBaselines[symbol] && oldBaselines[symbol].qty === qty) {
-          baselinePrice = oldBaselines[symbol].price;
-        } else {
-          baselinePrice = LTP;  // first-time baseline
-        }
-      }
-
-      // Compute MTM for this symbol
-      const direction = qty > 0 ? 1 : -1;
-      const symbolUPNL = (LTP - baselinePrice) * qty * direction;
-
-      totalUnrealised += symbolUPNL;
-
-      // store new baseline
-      newBaselines[symbol] = {
-        qty,
-        price: baselinePrice
-      };
-    }
-
-    // -------------------------------------------------
-    // 5) SAVE UPDATED BASELINES
-    // -------------------------------------------------
-    await saveBaselines(newBaselines);
-
-    // -------------------------------------------------
-    // 6) SAVE MTM IN STATE
-    // -------------------------------------------------
-    const total_pnl = realisedToday + totalUnrealised;
-
-    const nextState = await saveStatePatch({
-      realised: realisedToday,
-      unrealised: totalUnrealised,
-      total_pnl: total_pnl
-      // DO NOT TOUCH live_balance
-    });
-
-    return res.json({
-      ok: true,
-      realised: realisedToday,
-      unrealised: totalUnrealised,
-      total_pnl,
-      baselines: newBaselines,
-      state: nextState
-    });
-
-  } catch (err) {
-    console.error("MTM Worker Error:", err);
-    return res.status(500).json({ ok: false, error: String(err) });
   }
+
+  // -------------------------------
+  // STEP 3: Compute Unrealised PNL
+  // -------------------------------
+  for (let token of Object.keys(baselines)) {
+    let ltp = await getLTP(token);
+    if (ltp == null) continue;
+
+    for (let block of baselines[token]) {
+      if (block.qty > 0) {
+        unrealised += (ltp - block.price) * block.qty;
+      }
+    }
+  }
+
+  let total_pnl = realised + unrealised;
+
+  // -------------------------------
+  // STEP 4: Write results to KV
+  // -------------------------------
+  await kvSet("guardian:baselines", baselines);
+
+  // update guardian:state
+  let state = await kvGet("guardian:state") || {};
+  state.realised = realised;
+  state.unrealised = unrealised;
+  state.total_pnl = total_pnl;
+
+  await kvSet("guardian:state", state);
+
+  console.log("📊 MTM Done:", { realised, unrealised, total_pnl });
 }
+
+// Run every minute
+setInterval(computeMTM, 60000);
+
+computeMTM();
