@@ -9,7 +9,6 @@
 // ✔ Reads LTP from ticker-worker
 // ✔ Writes to guardian:baselines + guardian:state
 
-import fetch from "node-fetch";
 
 const KV_URL = process.env.UPSTASH_REDIS_REST_URL;
 const KV_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
