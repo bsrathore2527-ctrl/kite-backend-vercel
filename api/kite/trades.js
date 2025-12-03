@@ -78,6 +78,7 @@ function groupTradesByOrderId(trades){
         weighted_price_sum:qty*px,
         _ts:t._ts,
         _iso:t._iso
+        raw: trade
       });
     } else {
       const e=map.get(oid);
