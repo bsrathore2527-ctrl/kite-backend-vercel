@@ -1,8 +1,8 @@
-// mtm-worker.js (v3 FINAL)
+// mtm-worker.js (v4 FINAL)
 // --------------------------------------------------
-// REALISED = FIFO from Zerodha getTrades()
+// REALISED = FIFO from ALL Zerodha getTrades()
 // UNREALISED = (LTP - Avg) * Qty using kv("ltp:all")
-// SAFE timestamp handling + IST date filter
+// No date filtering needed (Zerodha clears tradebook daily)
 // --------------------------------------------------
 
 import { kv } from "./_lib/kv.js";
@@ -10,17 +10,7 @@ import { setState } from "./_lib/kv.js";
 import { instance } from "./_lib/kite.js";
 
 /* ------------------------------------------------------
-   HELPER: GET TODAY DATE IN IST (YYYY-MM-DD)
------------------------------------------------------- */
-
-function getTodayIST() {
-  const d = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
-  const [day, month, year] = d.split(",")[0].split("/");  // DD/MM/YYYY
-  return `${year}-${month}-${day}`;                       // YYYY-MM-DD
-}
-
-/* ------------------------------------------------------
-   FIFO ENGINE (simple, clean, correct)
+   FIFO ENGINE
 ------------------------------------------------------ */
 
 function fifoSell(book, qty, price) {
@@ -88,41 +78,21 @@ function fifoBuy(book, qty, price) {
 }
 
 /* ------------------------------------------------------
-   REALISED PNL (using trades from TODAY only)
+   REALISED PNL FROM ALL TRADES (NO DATE FILTER)
 ------------------------------------------------------ */
 
-async function computeTodayRealised(kc) {
+async function computeRealised(kc) {
   const trades = await kc.getTrades();
-  const today = getTodayIST();
 
-  console.log("DEBUG RAW TRADES:", JSON.stringify(trades, null, 2));
+  console.log("DEBUG TRADES:", JSON.stringify(trades, null, 2));
 
-  const todayTrades = trades.filter(t => {
-    const ts =
-      t.exchange_timestamp ||
-      t.fill_timestamp ||
-      t.order_timestamp ||
-      "";
-
-    const raw = String(ts);
-    const d = raw.slice(0, 10);
-
-    return d === today;
-  });
-
-  console.log("DEBUG TODAY TRADES:", JSON.stringify(todayTrades, null, 2));
-
-  // Sort safely
-  todayTrades.sort((a, b) => {
+  // Sort by actual fill timestamp
+  trades.sort((a, b) => {
     const ta = new Date(
-      a.exchange_timestamp ||
-      a.fill_timestamp ||
-      a.order_timestamp
+      a.exchange_timestamp || a.fill_timestamp || a.order_timestamp
     );
     const tb = new Date(
-      b.exchange_timestamp ||
-      b.fill_timestamp ||
-      b.order_timestamp
+      b.exchange_timestamp || b.fill_timestamp || b.order_timestamp
     );
     return ta - tb;
   });
@@ -130,7 +100,7 @@ async function computeTodayRealised(kc) {
   const books = {};
   let realised = 0;
 
-  for (const t of todayTrades) {
+  for (const t of trades) {
     const sym = t.tradingsymbol;
     const qty = Number(t.quantity);
     const side = t.transaction_type.toUpperCase();
@@ -156,7 +126,7 @@ async function computeTodayRealised(kc) {
 }
 
 /* ------------------------------------------------------
-   UNREALISED PNL (using ltp:all)
+   UNREALISED PNL USING LTP + OPEN POSITIONS
 ------------------------------------------------------ */
 
 async function computeUnrealised(kc, ltpAll) {
@@ -206,7 +176,7 @@ export default async function handler(req, res) {
     const kc = await instance();
     const ltpAll = (await kv.get("ltp:all")) || {};
 
-    const realised = await computeTodayRealised(kc);
+    const realised = await computeRealised(kc);
     const unrealised = await computeUnrealised(kc, ltpAll);
 
     const total = realised + unrealised;
