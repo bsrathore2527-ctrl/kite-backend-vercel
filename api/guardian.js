@@ -40,8 +40,8 @@ export default async function handler(req, res) {
       realised: s.realised || 0,
       unrealised: s.unrealised || 0,
       total_pnl: (typeof s.total_pnl === "number"
-        ? s.total_pnl
-        : fallbackTotalPnl),
+  ? s.total_pnl
+  : 0),
       current_balance: s.current_balance || 0,
       live_balance: liveBalance,
       tripped_day: !!s.tripped_day,
