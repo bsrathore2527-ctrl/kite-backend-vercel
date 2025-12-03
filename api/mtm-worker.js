@@ -1,25 +1,14 @@
 // ===========================================
-//             FINAL MTM WORKER
-//        VERCEL CRON COMPATIBLE
+//         Zerodha-style MTM WORKER
+//          (Vercel Cron endpoint)
 // ===========================================
-// ✔ FIFO realised PNL
-// ✔ Separate baseline blocks
-// ✔ Overnight baseline from 9:15 LTP
-// ✔ Intraday baseline from raw.average_price
-// ✔ Uses ticker-worker LTP format
-// ✔ Writes to guardian:baselines + guardian:state
-// ✔ Safe JSON parsing for all KV values
-// ✔ No node-fetch required (uses Vercel fetch)
 
-// -------------------------------------------
-// ENV Vars from Vercel
-// -------------------------------------------
 const KV_URL = process.env.UPSTASH_REDIS_REST_URL;
 const KV_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
 
-// -------------------------------------------
-// SAFE JSON PARSER
-// -------------------------------------------
+// ------------------------
+// Helpers
+// ------------------------
 function safeParse(obj) {
   if (!obj) return {};
   if (typeof obj === "object") return obj;
@@ -30,18 +19,25 @@ function safeParse(obj) {
   }
 }
 
-// -------------------------------------------
-// KV Helpers
-// -------------------------------------------
+function pad2(n) {
+  return String(n).padStart(2, "0");
+}
+
+function dateStrUTC(d) {
+  return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(
+    d.getUTCDate()
+  )}`;
+}
+
 async function kvGet(key) {
   try {
     const res = await fetch(`${KV_URL}/get/${key}`, {
-      headers: { Authorization: `Bearer ${KV_TOKEN}` }
-    }).then(r => r.json());
+      headers: { Authorization: `Bearer ${KV_TOKEN}` },
+    }).then((r) => r.json());
 
     return res?.result ?? null;
   } catch (err) {
-    console.log(`❌ KV GET error for key: ${key}`, err);
+    console.log(`❌ KV GET error for ${key}:`, err);
     return null;
   }
 }
@@ -52,93 +48,159 @@ async function kvSet(key, value) {
       method: "POST",
       headers: {
         Authorization: `Bearer ${KV_TOKEN}`,
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
       },
-      body: JSON.stringify(value)
-    }).then(r => r.json());
+      body: JSON.stringify(value),
+    }).then((r) => r.json());
   } catch (err) {
-    console.log(`❌ KV SET error for key: ${key}`, err);
+    console.log(`❌ KV SET error for ${key}:`, err);
   }
 }
 
-// -------------------------------------------
-// LTP Fetcher from ticker-worker
-// -------------------------------------------
 async function getLTP(token) {
   const data = await kvGet(`ltp:${token}`);
   return data?.last_price ?? null;
 }
 
-// -------------------------------------------
-// FIFO Realised Calculation
-// -------------------------------------------
+// FIFO realised on baseline blocks
 function fifoReduce(blocks, sellQty, sellPrice) {
   let realised = 0;
 
-  for (let block of blocks) {
+  for (const block of blocks) {
     if (sellQty <= 0) break;
     if (block.qty <= 0) continue;
 
     const closing = Math.min(block.qty, sellQty);
-
     realised += (sellPrice - block.price) * closing;
 
     block.qty -= closing;
     sellQty -= closing;
   }
 
-  // keep only blocks with qty
-  blocks = blocks.filter(b => b.qty > 0);
-
-  return { realised, blocks };
+  return {
+    realised,
+    blocks: blocks.filter((b) => b.qty > 0),
+  };
 }
 
 // ===========================================
-//                MTM ENGINE
+//              MTM ENGINE
 // ===========================================
 async function computeMTM() {
-  console.log("📊 MTM worker started...");
+  console.log("📊 MTM worker (Zerodha mode) starting...");
 
-  // Load tradebook
-  let rawTradebook = await kvGet("guardian:tradebook");
-  let tradebook = Array.isArray(rawTradebook) ? rawTradebook : [];
+  // --- today (UTC date; for NSE hours this matches IST date) ---
+  const now = new Date();
+  const todayStr = dateStrUTC(now);
 
-  // Load positions
-  let positions = safeParse(await kvGet("guardian:positions"));
+  // --- tradebook (may be string or array) ---
+  let tbRaw = await kvGet("guardian:tradebook");
+  let tradebook = tbRaw;
+  if (typeof tbRaw === "string") {
+    try {
+      tradebook = JSON.parse(tbRaw);
+    } catch {
+      tradebook = [];
+    }
+  }
+  if (!Array.isArray(tradebook)) tradebook = [];
 
-  // Load baselines (may be string or object)
-  let baselines = safeParse(await kvGet("guardian:baselines"));
+  // --- positions (for overnight open qty) ---
+  const positions = safeParse(await kvGet("guardian:positions"));
+
+  // --- baselines + meta (for per-day reset) ---
+  let baselinesRaw = await kvGet("guardian:baselines");
+  let baselines = safeParse(baselinesRaw);
+
+  let metaRaw = await kvGet("guardian:mtm_meta");
+  let meta = safeParse(metaRaw);
+
+  // RESET on new day (Zerodha-style new MTM day)
+  if (!meta.date || meta.date !== todayStr) {
+    console.log("🔁 New MTM day detected. Resetting baselines & PnL.");
+    baselines = {};
+    meta = { date: todayStr };
+  }
+
+  // --------------------------------------------------
+  // 1️⃣ Build set of tokens that have trades TODAY
+  // --------------------------------------------------
+  const tradesToday = [];
+  const tokensWithTradesToday = new Set();
+
+  for (const t of tradebook) {
+    const raw = t.raw || {};
+    const timeStr =
+      raw.exchange_timestamp || raw.fill_timestamp || t.iso_date || null;
+
+    let d = null;
+    if (timeStr) {
+      d = new Date(timeStr);
+    } else if (t.ts) {
+      d = new Date(Number(t.ts));
+    }
+
+    if (!d) continue;
+
+    const dStr = dateStrUTC(d);
+    if (dStr !== todayStr) continue; // ignore previous days
+
+    const token = raw.instrument_token;
+    if (!token) continue;
+
+    tradesToday.push(t);
+    tokensWithTradesToday.add(token);
+  }
+
+  console.log(
+    "📅 Trades today:",
+    tradesToday.length,
+    "Tokens:",
+    [...tokensWithTradesToday]
+  );
 
   let realised = 0;
   let unrealised = 0;
 
-  // ----------------------------------------------------
-  // 1️⃣ OVERNIGHT BASELINES USING 9:15 LTP
-  // ----------------------------------------------------
-  if (positions && positions.net) {
-    for (let p of positions.net) {
+  // --------------------------------------------------
+  // 2️⃣ Overnight baselines at 9:15 LTP
+  //    Only for tokens with NO trades today
+  // --------------------------------------------------
+  if (positions && Array.isArray(positions.net)) {
+    for (const p of positions.net) {
       const token = p.instrument_token;
       const qty = p.quantity;
 
       if (!token || !qty) continue;
 
+      // Skip if any trade for this token today (pure intraday)
+      if (tokensWithTradesToday.has(token)) continue;
+
+      // Only set baseline if not already set for today
       if (!baselines[token] || baselines[token].length === 0) {
-        let ltp = await getLTP(token);
+        const ltp = await getLTP(token); // should be near 9:15 on first run
         if (ltp != null) {
           baselines[token] = [
-            { qty: qty, price: ltp, type: "overnight" }
+            { qty, price: ltp, type: "overnight" }, // Zerodha-style reset
           ];
+          console.log(
+            "🌅 Overnight baseline set",
+            token,
+            "qty",
+            qty,
+            "price",
+            ltp
+          );
         }
       }
     }
   }
 
-  // ----------------------------------------------------
-  // 2️⃣ PROCESS INTRADAY TRADES (FIFO)
-  // ----------------------------------------------------
-  for (let t of tradebook) {
-    let raw = t.raw || {};
-
+  // --------------------------------------------------
+  // 3️⃣ Process TODAY's trades (FIFO realised)
+  // --------------------------------------------------
+  for (const t of tradesToday) {
+    const raw = t.raw || {};
     const token = raw.instrument_token;
     const qty = raw.quantity;
     const execPrice = raw.average_price;
@@ -149,64 +211,69 @@ async function computeMTM() {
     if (!baselines[token]) baselines[token] = [];
 
     if (isBuy) {
-      // intraday entry → create new baseline block
+      // New intraday block
       baselines[token].push({
         qty,
         price: execPrice,
-        type: "intraday"
+        type: "intraday",
       });
     } else {
-      // SELL → FIFO close
-      let result = fifoReduce(baselines[token], qty, execPrice);
+      // SELL → realised only for TODAY (blocks are only overnight+today)
+      const result = fifoReduce(baselines[token], qty, execPrice);
       realised += result.realised;
       baselines[token] = result.blocks;
     }
   }
 
-  // ----------------------------------------------------
-  // 3️⃣ UNREALISED PNL = Σ((LTP - baseline_price) × qty)
-  // ----------------------------------------------------
-  for (let token of Object.keys(baselines)) {
+  // --------------------------------------------------
+  // 4️⃣ Unrealised PnL on OPEN qty using today's baselines
+  // --------------------------------------------------
+  for (const token of Object.keys(baselines)) {
     const ltp = await getLTP(token);
     if (ltp == null) continue;
 
-    for (let block of baselines[token]) {
-      unrealised += (ltp - block.price) * block.qty;
+    for (const block of baselines[token]) {
+      if (block.qty > 0) {
+        unrealised += (ltp - block.price) * block.qty;
+      }
     }
   }
 
   const total_pnl = realised + unrealised;
 
-  // ----------------------------------------------------
-  // 4️⃣ SAVE BASELINES
-  // ----------------------------------------------------
-  await kvSet("guardian:baselines", JSON.stringify(baselines));
+  // --------------------------------------------------
+  // 5️⃣ Save baselines + meta + state
+  // --------------------------------------------------
+  await kvSet("guardian:baselines", baselines);
+  await kvSet("guardian:mtm_meta", meta);
 
-  // ----------------------------------------------------
-  // 5️⃣ SAVE MTM TO STATE
-  // ----------------------------------------------------
-  let rawState = await kvGet("guardian:state");
+  const rawState = await kvGet("guardian:state");
   let state = safeParse(rawState);
 
   state.realised = realised;
   state.unrealised = unrealised;
   state.total_pnl = total_pnl;
 
-  await kvSet("guardian:state", JSON.stringify(state));
+  await kvSet("guardian:state", state);
 
-  console.log("📊 MTM Completed:", { realised, unrealised, total_pnl });
+  console.log("✅ MTM (Zerodha-style):", {
+    realised,
+    unrealised,
+    total_pnl,
+  });
 
   return { realised, unrealised, total_pnl };
 }
 
 // ===========================================
-//     VERCEL CRON ENTRYPOINT (REQUIRED)
+//      Vercel Cron / API entrypoint
 // ===========================================
 export default async function handler(req, res) {
-  const mtm = await computeMTM();
-
-  return res.json({
-    ok: true,
-    mtm
-  });
-}
+  try {
+    const mtm = await computeMTM();
+    return res.json({ ok: true, mtm });
+  } catch (e) {
+    console.error("❌ MTM handler error:", e);
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+      }
