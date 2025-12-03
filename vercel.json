@@ -5,10 +5,7 @@
     { "source": "/api/guardian",   "destination": "/api/hub.js" }
   ],
   "crons": [
-    {
-      "path": "/api/ltp-poll-worker",
-      "schedule": "*/1 * * * *"
-    },
+    
     {
       "path": "/api/mtm-worker",
       "schedule": "*/1 * * * *"
