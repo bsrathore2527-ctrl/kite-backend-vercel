@@ -29,33 +29,38 @@ const REALIZED_PREFIX = "guardian:realized:";
 const BOOK_PREFIX = "guardian:book:";
 const TRADEBOOK_KEY = "guardian:tradebook";
 
+// --- DISABLED: last processed timestamp ---
 async function getLastProcessedTs() {
   const v = await kv.get(LAST_TRADE_KEY);
   return Number(v || 0);
 }
 async function setLastProcessedTs(ts) {
-  await kv.set(LAST_TRADE_KEY, Number(ts));
+  // disabled - do not write guardian:last_trade_ts
+  return;
 }
 
+// --- DISABLED: book read/write (will still read if exists, but no write) ---
 async function getBook(sym) {
   const b = (await kv.get(BOOK_PREFIX + sym)) || { instrument: sym, lots: [], net_qty: 0 };
   return b;
 }
-
 async function setBook(sym, book) {
-  await kv.set(BOOK_PREFIX + sym, book);
+  // disabled - do not write guardian:book:<symbol>
+  return;
 }
 
+// --- REALIZED EVENT DISABLED COMPLETELY ---
 function makeRealizedId(ids = [], ts = 0) {
   const joined = Array.isArray(ids) ? ids.join("_") : String(ids || "");
   return `r_${joined}_${ts}`;
 }
 
 async function storeRealizedEvent(evt) {
-  // Realized-event persistence disabled
-  return true; 
+  // disabled: do not write realized keys or realized increment
+  return true;  // must remain true so downstream logic works
 }
 
+// --- TRADEBOOK STILL ACTIVE ---
 async function appendToTradebook(t) {
   try {
     const raw = await kv.get(TRADEBOOK_KEY);
@@ -84,7 +89,7 @@ async function appendToTradebook(t) {
   }
 }
 
-// FIFO MATCHING: unchanged
+// FIFO MATCHING — unchanged
 function matchSellAgainstBook(book, sellQty, sellPrice, tradeId, ts) {
   let qtyRem = sellQty;
   const events = [];
@@ -274,36 +279,15 @@ export default async function handler(req, res) {
         ? matchSellAgainstBook(book, qty, price, tradeId, t._ts)
         : matchBuyAgainstBook(book, qty, price, tradeId, t._ts);
 
-      await setBook(sym, result.updatedBook);
+      // --- DISABLED writing book ---
+      // await setBook(sym, result.updatedBook);
 
       for (const ev of result.realizedEvents) {
         const saved = await storeRealizedEvent(ev);
         if (!saved) continue;
 
-        try {
-          const s = await getState();
-          const mtm = Number(s.total_pnl ?? 0);
-
-          const rawSell = await kv.get("guardian:sell_orders");
-          let arr = Array.isArray(rawSell)
-            ? rawSell
-            : (typeof rawSell === "string"
-              ? (JSON.parse(rawSell) || [])
-              : []);
-
-          const last = arr.length ? arr[arr.length - 1] : null;
-          const lastMtm = last ? Number(last.mtm) : 0;
-
-          arr.push({
-            instrument: ev.instrument,
-            qty: ev.qty,
-            mtm,
-            mtm_change: mtm - lastMtm,
-            time_ms: ev.close_ts
-          });
-
-          await kv.set("guardian:sell_orders", arr);
-        } catch { }
+        // ⛔ DISABLED SELL ORDERS WRITING
+        // (guardian:sell_orders)
 
         const s = await getState();
         const cooldownMin = Number(s.cooldown_min ?? 15);
@@ -339,7 +323,8 @@ export default async function handler(req, res) {
       }
     }
 
-    if (newest > lastTs) await setLastProcessedTs(newest);
+    // --- DISABLED writing last processed ts ---
+    // if (newest > lastTs) await setLastProcessedTs(newest);
 
     /* --------------------------
        LOSS-FLOOR USING total_pnl
@@ -435,4 +420,4 @@ export default async function handler(req, res) {
     });
     return res.status(500).json({ ok: false, error: String(err) });
   }
-}
+               }
