@@ -76,25 +76,7 @@ async function storeRealizedEvent(evt) {
 
   return true;
 }
-/* ===========================================================
-   🔥 NEW: Fetch & Save Current Positions for MTM worker
-   =========================================================== */
-try {
-  const pos = await (kc.getPositions?.() || kc.get_positions?.());
 
-  if (pos && pos.net) {
-    await kv.set("guardian:positions", pos);
-
-    console.log("📦 [enforce] Saved positions to KV:", {
-      count: pos.net.length,
-      tokens: pos.net.map(p => p.instrument_token)
-    });
-  } else {
-    console.log("⚠ [enforce] Zerodha returned no positions");
-  }
-} catch (err) {
-  console.log("❌ [enforce] Error fetching/saving positions:", err?.message || err);
-}
 async function appendToTradebook(t) {
   try {
     const raw = await kv.get(TRADEBOOK_KEY);
@@ -267,6 +249,25 @@ export default async function handler(req, res) {
 
   try {
     const kc = await instance();
+    /* ===========================================================
+   🔥 NEW: Fetch & Save Current Positions for MTM worker
+   =========================================================== */
+try {
+  const pos = await (kc.getPositions?.() || kc.get_positions?.());
+
+  if (pos && pos.net) {
+    await kv.set("guardian:positions", pos);
+
+    console.log("📦 [enforce] Saved positions to KV:", {
+      count: pos.net.length,
+      tokens: pos.net.map(p => p.instrument_token)
+    });
+  } else {
+    console.log("⚠ [enforce] Zerodha returned no positions");
+  }
+} catch (err) {
+  console.log("❌ [enforce] Error fetching/saving positions:", err?.message || err);
+}
 
     // fetch trades
     const trades = (await kc.getTrades()) || [];
@@ -474,4 +475,4 @@ export default async function handler(req, res) {
     });
     return res.status(500).json({ ok: false, error: String(err) });
   }
-        }
+      }
