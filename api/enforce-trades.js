@@ -52,29 +52,8 @@ function makeRealizedId(ids = [], ts = 0) {
 }
 
 async function storeRealizedEvent(evt) {
-  const id = makeRealizedId(evt.trade_ids || [], evt.close_ts || now());
-  const key = REALIZED_PREFIX + id;
-  const exists = await kv.get(key);
-  if (exists) return false;
-  await kv.set(key, evt);
-
-  // Update aggregated realised in today's state
-  try {
-    const s = await getState();
-    const current = Number(s.realised ?? 0);
-    const add =
-      Number(evt.realized_pnl ||
-        evt.realised_pnl ||
-        evt.realized ||
-        evt.realised ||
-        0);
-
-    if (!Number.isNaN(add) && add !== 0) {
-      await setState({ realised: current + add });
-    }
-  } catch { }
-
-  return true;
+  // Realized-event persistence disabled
+  return true; 
 }
 
 async function appendToTradebook(t) {
