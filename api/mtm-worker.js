@@ -1,10 +1,17 @@
-// mtm-worker.js (FINAL FIXED VERSION)
+// mtm-worker.js
+// --------------------------------------------------
+// REALISED = FIFO from Zerodha getTrades()
+// UNREALISED = (LTP - Avg) * Qty using kv("ltp:all")
+// SAFE TIMESTAMP HANDLING (NO slice() errors)
+// --------------------------------------------------
 
 import { kv } from "./_lib/kv.js";
 import { setState } from "./_lib/kv.js";
 import { instance } from "./_lib/kite.js";
 
-/* ---------------- FIFO ENGINE ---------------- */
+/* ------------------------------------------------------
+   FIFO ENGINE (simple, clean, correct)
+------------------------------------------------------ */
 
 function fifoSell(book, qty, price) {
   let qtyRem = qty;
@@ -12,7 +19,10 @@ function fifoSell(book, qty, price) {
   let newLots = [];
 
   for (const lot of book) {
-    if (qtyRem <= 0) { newLots.push(lot); continue; }
+    if (qtyRem <= 0) {
+      newLots.push(lot);
+      continue;
+    }
 
     if (lot.side === "BUY") {
       const take = Math.min(qtyRem, lot.qty);
@@ -21,6 +31,7 @@ function fifoSell(book, qty, price) {
       if (lot.qty > take) {
         newLots.push({ ...lot, qty: lot.qty - take });
       }
+
       qtyRem -= take;
     } else {
       newLots.push(lot);
@@ -40,7 +51,10 @@ function fifoBuy(book, qty, price) {
   let newLots = [];
 
   for (const lot of book) {
-    if (qtyRem <= 0) { newLots.push(lot); continue; }
+    if (qtyRem <= 0) {
+      newLots.push(lot);
+      continue;
+    }
 
     if (lot.side === "SELL") {
       const take = Math.min(qtyRem, lot.qty);
@@ -49,6 +63,7 @@ function fifoBuy(book, qty, price) {
       if (lot.qty > take) {
         newLots.push({ ...lot, qty: lot.qty - take });
       }
+
       qtyRem -= take;
     } else {
       newLots.push(lot);
@@ -62,26 +77,43 @@ function fifoBuy(book, qty, price) {
   return { realised, book: newLots };
 }
 
-/* ---------------- REALISED VIA FIFO ---------------- */
+/* ------------------------------------------------------
+   REALISED PNL FROM Zerodha Trades (TODAY ONLY + SAFE)
+------------------------------------------------------ */
 
 async function computeTodayRealised(kc) {
   const trades = await kc.getTrades();
   const today = new Date().toISOString().slice(0, 10);
 
-  // DEBUG
   console.log("DEBUG RAW TRADES:", JSON.stringify(trades, null, 2));
 
-  const todayTrades = trades.filter(t => {
-    const raw = t.exchange_timestamp || t.fill_timestamp || t.order_timestamp || "";
-    const d = raw.slice(0, 10);
+  // FIX: always convert timestamp to string safely
+  const todayTrades = trades.filter((t) => {
+    const ts =
+      t.exchange_timestamp ||
+      t.fill_timestamp ||
+      t.order_timestamp ||
+      "";
+
+    const raw = String(ts);
+    const d = raw.slice(0, 10); // now safe
     return d === today;
   });
 
   console.log("DEBUG TODAY TRADES:", JSON.stringify(todayTrades, null, 2));
 
+  // Sort using safe fallback
   todayTrades.sort((a, b) => {
-    const ta = new Date(a.exchange_timestamp || a.fill_timestamp);
-    const tb = new Date(b.exchange_timestamp || b.fill_timestamp);
+    const ta = new Date(
+      a.exchange_timestamp ||
+      a.fill_timestamp ||
+      a.order_timestamp
+    );
+    const tb = new Date(
+      b.exchange_timestamp ||
+      b.fill_timestamp ||
+      b.order_timestamp
+    );
     return ta - tb;
   });
 
@@ -98,9 +130,10 @@ async function computeTodayRealised(kc) {
 
     console.log(`FIFO PROCESS: ${side} ${qty} @ ${price} for ${sym}`);
 
-    const result = side === "BUY"
-      ? fifoBuy(books[sym], qty, price)
-      : fifoSell(books[sym], qty, price);
+    const result =
+      side === "BUY"
+        ? fifoBuy(books[sym], qty, price)
+        : fifoSell(books[sym], qty, price);
 
     realised += result.realised;
     books[sym] = result.book;
@@ -112,7 +145,9 @@ async function computeTodayRealised(kc) {
   return realised;
 }
 
-/* ---------------- UNREALISED VIA LTP ---------------- */
+/* ------------------------------------------------------
+   UNREALISED USING LTP + OPEN POSITIONS
+------------------------------------------------------ */
 
 async function computeUnrealised(kc, ltpAll) {
   const pos = await kc.getPositions();
@@ -125,7 +160,7 @@ async function computeUnrealised(kc, ltpAll) {
 
   for (const p of net) {
     const qty = Number(p.quantity);
-    if (!qty) continue;
+    if (!qty) continue; // closed positions ignored
 
     const avg = Number(p.average_price);
     const token = Number(p.instrument_token);
@@ -141,20 +176,24 @@ async function computeUnrealised(kc, ltpAll) {
 
     unrealised += u;
 
-    console.log(`UNRL: ${p.tradingsymbol} qty=${qty} avg=${avg} ltp=${ltp} → ${u}`);
+    console.log(
+      `UNRL: ${p.tradingsymbol} qty=${qty} avg=${avg} ltp=${ltp} → ${u}`
+    );
   }
 
   return unrealised;
 }
 
-/* ---------------- MAIN HANDLER ---------------- */
+/* ------------------------------------------------------
+   MAIN ENTRYPOINT
+------------------------------------------------------ */
 
 export default async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(204).end();
 
   try {
     const kc = await instance();
-    const ltpAll = await kv.get("ltp:all") || {};
+    const ltpAll = (await kv.get("ltp:all")) || {};
 
     const realised = await computeTodayRealised(kc);
     const unrealised = await computeUnrealised(kc, ltpAll);
@@ -168,10 +207,18 @@ export default async function handler(req, res) {
       mtm_last_update: Date.now(),
     });
 
-    console.log("🟢 MTM FINAL:", { realised, unrealised, total_pnl: total });
+    console.log("🟢 MTM FINAL:", {
+      realised,
+      unrealised,
+      total_pnl: total,
+    });
 
-    return res.json({ ok: true, realised, unrealised, total_pnl: total });
-
+    return res.json({
+      ok: true,
+      realised,
+      unrealised,
+      total_pnl: total,
+    });
   } catch (err) {
     console.error("MTM ERROR:", err);
     return res.status(500).json({ ok: false, error: String(err) });
