@@ -2,7 +2,7 @@
 //                TRADES ENDPOINT (FULLY FIXED)
 // ===========================================================
 
-import kv from "../_lib/kv.js";
+import * as kv from "../_lib/kv.js";
 import KiteConnect from "kiteconnect";
 
 const TRADEBOOK_KEY = "guardian:tradebook";
