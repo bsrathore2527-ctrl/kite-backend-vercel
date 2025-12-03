@@ -78,7 +78,6 @@ function groupTradesByOrderId(trades){
         weighted_price_sum:qty*px,
         _ts:t._ts,
         _iso:t._iso
-        raw: trade
       });
     } else {
       const e=map.get(oid);
@@ -137,20 +136,8 @@ export default async function handler(req,res){
       const kc=await instance();
       const trades=await kc.getTrades()||[];
       if(trades.length){
-      
-
-  // Normalize FIRST
-  const norm = trades.map(normalizeTrade);
-
-  // ✔ Save normalized tradebook to KV (critical for MTM)
-  try {
-    await kv.set(TRADEBOOK_KEY, JSON.stringify(norm));
-    console.log("📦 [trades] Saved NORMALIZED tradebook to KV:", norm.length);
-  } catch (err) {
-    console.log("❌ Error saving tradebook to KV:", err?.message || err);
-  }
-
-  const grouped = groupTradesByOrderId(norm);
+        const norm=trades.slice(-200).map(normalizeTrade);
+        const grouped=groupTradesByOrderId(norm);
 
         for(const t of trades){
           if(t.transaction_type==="SELL"){
