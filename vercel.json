@@ -15,6 +15,10 @@
       "schedule": "*/1 * * * *"
     },
     {
+      "path": "/api/enforce",
+      "schedule": "*/1 * * * *"
+    },
+    {
       "path": "/api/guardian",
       "schedule": "*/1 * * * *"
     }
