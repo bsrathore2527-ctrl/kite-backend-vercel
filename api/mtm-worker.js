@@ -1,114 +1,187 @@
-// FINAL ZERODHA-ACCURATE MTM ENGINE
-// ---------------------------------
-// Matches Zerodha exactly: FIFO + MTM snapshot
+// mtm-worker.js (v5 FINAL ZERODHA-PNL MATCHING)
+// ---------------------------------------------
+// REALISED = FIFO from ALL Zerodha getTrades()
+// UNREALISED = (LTP - AvgPrice) * NetQty   (Zerodha method)
+// Per-symbol separation (required for accuracy)
+// ---------------------------------------------
 
-import { kite } from "../../lib/kite.js";   // your kite instance
-import { kv } from "@vercel/kv";            // only used for snapshot (optional)
-import dayjs from "dayjs";
+import { kv, setState } from "./_lib/kv.js";
+import { instance } from "./_lib/kite.js";
 
+/* ------------------------------------------------------
+   FIFO ENGINE
+------------------------------------------------------ */
+
+function fifoSell(book, qty, price) {
+  let qtyRem = qty;
+  let realised = 0;
+  let newLots = [];
+
+  for (const lot of book) {
+    if (qtyRem <= 0) {
+      newLots.push(lot);
+      continue;
+    }
+
+    if (lot.side === "BUY") {
+      const take = Math.min(qtyRem, lot.qty);
+      realised += (price - lot.avg) * take;
+
+      if (lot.qty > take) {
+        newLots.push({ ...lot, qty: lot.qty - take });
+      }
+
+      qtyRem -= take;
+    } else {
+      newLots.push(lot);
+    }
+  }
+
+  if (qtyRem > 0) {
+    newLots.push({ side: "SELL", qty: qtyRem, avg: price });
+  }
+
+  return { realised, book: newLots };
+}
+
+function fifoBuy(book, qty, price) {
+  let qtyRem = qty;
+  let realised = 0;
+  let newLots = [];
+
+  for (const lot of book) {
+    if (qtyRem <= 0) {
+      newLots.push(lot);
+      continue;
+    }
+
+    if (lot.side === "SELL") {
+      const take = Math.min(qtyRem, lot.qty);
+      realised += (lot.avg - price) * take;
+
+      if (lot.qty > take) {
+        newLots.push({ ...lot, qty: lot.qty - take });
+      }
+
+      qtyRem -= take;
+    } else {
+      newLots.push(lot);
+    }
+  }
+
+  if (qtyRem > 0) {
+    newLots.push({ side: "BUY", qty: qtyRem, avg: price });
+  }
+
+  return { realised, book: newLots };
+}
+
+/* ------------------------------------------------------
+   REALISED PNL PER SYMBOL
+------------------------------------------------------ */
+async function computeRealisedBySymbol(kc) {
+  const trades = await kc.getTrades();
+
+  trades.sort((a, b) => {
+    const ta = new Date(a.exchange_timestamp || a.fill_timestamp || a.order_timestamp);
+    const tb = new Date(b.exchange_timestamp || b.fill_timestamp || b.order_timestamp);
+    return ta - tb;
+  });
+
+  const books = {};
+  const realisedMap = {};
+
+  for (const t of trades) {
+    const sym = t.tradingsymbol;
+    const qty = Number(t.quantity);
+    const price = Number(t.average_price);
+    const side = t.transaction_type.toUpperCase();
+
+    if (!books[sym]) books[sym] = [];
+    if (!realisedMap[sym]) realisedMap[sym] = 0;
+
+    let result =
+      side === "BUY"
+        ? fifoBuy(books[sym], qty, price)
+        : fifoSell(books[sym], qty, price);
+
+    realisedMap[sym] += result.realised;
+    books[sym] = result.book;
+  }
+
+  return realisedMap;
+}
+
+/* ------------------------------------------------------
+   UNREALISED PNL PER SYMBOL
+------------------------------------------------------ */
+async function computeUnrealisedBySymbol(kc, ltpAll) {
+  const pos = await kc.getPositions();
+  const net = pos.net || [];
+  const map = {};
+
+  for (const p of net) {
+    const sym = p.tradingsymbol;
+    const qty = Number(p.quantity);
+    if (qty === 0) continue;
+
+    const avg = Number(p.average_price);
+    const token = Number(p.instrument_token);
+
+    const ltp =
+      Number(ltpAll[token]?.last_price) ||
+      Number(p.last_price) ||
+      avg;
+
+    const u =
+      qty > 0
+        ? (ltp - avg) * qty
+        : (avg - ltp) * Math.abs(qty);
+
+    map[sym] = u;
+  }
+
+  return map;
+}
+
+/* ------------------------------------------------------
+   MAIN HANDLER
+------------------------------------------------------ */
 export default async function handler(req, res) {
+  if (req.method === "OPTIONS") return res.status(204).end();
+
   try {
-    console.log("🚀 MTM WORKER START");
+    const kc = await instance();
+    const ltpAll = (await kv.get("ltp:all")) || {};
 
-    // Fetch all needed data
-    const trades = await kite.getTrades();
-    const positions = await kite.getPositions();
-    const ltpAll = await kv.get("ltp:all") || {};
+    const realisedMap = await computeRealisedBySymbol(kc);
+    const unrealisedMap = await computeUnrealisedBySymbol(kc, ltpAll);
 
-    console.log("DEBUG TRADES:", JSON.stringify(trades, null, 2));
-    console.log("DEBUG POSITIONS:", JSON.stringify(positions.net, null, 2));
-    console.log("DEBUG LTP:", JSON.stringify(ltpAll, null, 2));
+    let realised = 0;
+    let unrealised = 0;
 
-    // Build per-symbol trade buckets
-    const symbolTrades = {};
-    for (let t of trades) {
-      const sym = t.tradingsymbol;
-      if (!symbolTrades[sym]) symbolTrades[sym] = [];
-      symbolTrades[sym].push({
-        type: t.transaction_type,
-        price: Number(t.average_price),
-        qty: Number(t.quantity)
-      });
-    }
+    // Combine both maps
+    for (const sym in realisedMap) realised += realisedMap[sym];
+    for (const sym in unrealisedMap) unrealised += unrealisedMap[sym];
 
-    let total_pnl = 0;
-    const debug = [];
+    const total = realised + unrealised;
 
-    for (let pos of positions.net) {
-      const sym = pos.tradingsymbol;
-      const token = pos.instrument_token;
+    await setState({
+      realised,
+      unrealised,
+      total_pnl: total,
+      mtm_last_update: Date.now(),
+    });
 
-      // LTP from ticker or fallback to Zerodha field
-      const ltp_used = ltpAll[token]?.last_price ?? pos.last_price;
-
-      const snapshot_qty = Number(pos.overnight_quantity);
-      const snapshot_close = Number(pos.close_price);
-
-      const yes_OQ = snapshot_qty;   // old carry-forward
-      const tradesToday = symbolTrades[sym] || [];
-
-      // FIFO queues
-      let fifo = [];
-      let realized = 0;
-
-      // Load snapshot FIFO if overnight qty exists
-      if (yes_OQ > 0) {
-        fifo.push({
-          qty: yes_OQ,
-          price: pos.buy_price || pos.average_price   // best possible buy ref
-        });
-      }
-
-      // Apply today's trades FIFO
-      for (let t of tradesToday) {
-        if (t.type === "BUY") {
-          fifo.push({ qty: t.qty, price: t.price });
-        } else if (t.type === "SELL") {
-          let sellQty = t.qty;
-          while (sellQty > 0 && fifo.length > 0) {
-            let bucket = fifo[0];
-            const matchQty = Math.min(sellQty, bucket.qty);
-            realized += (t.price - bucket.price) * matchQty;
-            bucket.qty -= matchQty;
-            sellQty -= matchQty;
-            if (bucket.qty === 0) fifo.shift();
-          }
-        }
-      }
-
-      // Unrealized MTM only for leftover snapshot qty
-      let remOvernightQty = 0;
-      if (yes_OQ > 0 && fifo.length > 0) {
-        remOvernightQty = fifo[0].qty; // only snapshot bucket left
-      }
-
-      let unrealised = 0;
-      if (remOvernightQty > 0) {
-        unrealised = (ltp_used - snapshot_close) * remOvernightQty;
-      }
-
-      const symbol_pnl = realized + unrealised;
-      total_pnl += symbol_pnl;
-
-      debug.push({
-        sym,
-        ltp_used,
-        snapshot_qty,
-        snapshot_close,
-        realized,
-        unrealised,
-        symbol_pnl
-      });
-
-      console.log("P&L DEBUG:", debug[debug.length-1]);
-    }
-
-    console.log("🟢 FINAL MTM:", total_pnl);
+    console.log("🟢 MTM FINAL:", { realised, unrealised, total_pnl: total });
 
     return res.json({
       ok: true,
-      total_pnl,
-      details: debug
+      realised,
+      unrealised,
+      total_pnl: total,
+      realisedMap,
+      unrealisedMap,
     });
 
   } catch (err) {
