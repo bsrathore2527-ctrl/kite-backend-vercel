@@ -1,208 +1,139 @@
-// mtm-worker.js (v4 FINAL)
-// --------------------------------------------------
-// REALISED = FIFO from ALL Zerodha getTrades()
-// UNREALISED = (LTP - Avg) * Qty using kv("ltp:all")
-// No date filtering needed (Zerodha clears tradebook daily)
-// --------------------------------------------------
+// mtm-worker.js (Zerodha Day P&L Version - FULL DEBUG)
+// -----------------------------------------------------
+// EXACT Zerodha Day P&L:
+// DAY_PNL = (day_sell_value – day_buy_value) + (ltp – close_price) × overnight_qty
+//
+// Writes to KV:
+// realised   = day_pnl_total
+// unrealised = 0
+// total_pnl  = day_pnl_total
+//
+// With full DEBUG logging
 
-import { kv } from "./_lib/kv.js";
-import { setState } from "./_lib/kv.js";
+import { kv, setState } from "./_lib/kv.js";
 import { instance } from "./_lib/kite.js";
-
-/* ------------------------------------------------------
-   FIFO ENGINE
------------------------------------------------------- */
-
-function fifoSell(book, qty, price) {
-  let qtyRem = qty;
-  let realised = 0;
-  let newLots = [];
-
-  for (const lot of book) {
-    if (qtyRem <= 0) {
-      newLots.push(lot);
-      continue;
-    }
-
-    if (lot.side === "BUY") {
-      const take = Math.min(qtyRem, lot.qty);
-      realised += (price - lot.avg) * take;
-
-      if (lot.qty > take) {
-        newLots.push({ ...lot, qty: lot.qty - take });
-      }
-
-      qtyRem -= take;
-    } else {
-      newLots.push(lot);
-    }
-  }
-
-  if (qtyRem > 0) {
-    newLots.push({ side: "SELL", qty: qtyRem, avg: price });
-  }
-
-  return { realised, book: newLots };
-}
-
-function fifoBuy(book, qty, price) {
-  let qtyRem = qty;
-  let realised = 0;
-  let newLots = [];
-
-  for (const lot of book) {
-    if (qtyRem <= 0) {
-      newLots.push(lot);
-      continue;
-    }
-
-    if (lot.side === "SELL") {
-      const take = Math.min(qtyRem, lot.qty);
-      realised += (lot.avg - price) * take;
-
-      if (lot.qty > take) {
-        newLots.push({ ...lot, qty: lot.qty - take });
-      }
-
-      qtyRem -= take;
-    } else {
-      newLots.push(lot);
-    }
-  }
-
-  if (qtyRem > 0) {
-    newLots.push({ side: "BUY", qty: qtyRem, avg: price });
-  }
-
-  return { realised, book: newLots };
-}
-
-/* ------------------------------------------------------
-   REALISED PNL FROM ALL TRADES (NO DATE FILTER)
------------------------------------------------------- */
-
-async function computeRealised(kc) {
-  const trades = await kc.getTrades();
-
-  console.log("DEBUG TRADES:", JSON.stringify(trades, null, 2));
-
-  // Sort by actual fill timestamp
-  trades.sort((a, b) => {
-    const ta = new Date(
-      a.exchange_timestamp || a.fill_timestamp || a.order_timestamp
-    );
-    const tb = new Date(
-      b.exchange_timestamp || b.fill_timestamp || b.order_timestamp
-    );
-    return ta - tb;
-  });
-
-  const books = {};
-  let realised = 0;
-
-  for (const t of trades) {
-    const sym = t.tradingsymbol;
-    const qty = Number(t.quantity);
-    const side = t.transaction_type.toUpperCase();
-    const price = Number(t.average_price);
-
-    if (!books[sym]) books[sym] = [];
-
-    console.log(`FIFO PROCESS: ${side} ${qty} @ ${price} for ${sym}`);
-
-    const result =
-      side === "BUY"
-        ? fifoBuy(books[sym], qty, price)
-        : fifoSell(books[sym], qty, price);
-
-    realised += result.realised;
-    books[sym] = result.book;
-
-    console.log("BOOK NOW:", books[sym]);
-    console.log("REALIZED SO FAR:", realised);
-  }
-
-  return realised;
-}
-
-/* ------------------------------------------------------
-   UNREALISED PNL USING LTP + OPEN POSITIONS
------------------------------------------------------- */
-
-async function computeUnrealised(kc, ltpAll) {
-  const pos = await kc.getPositions();
-  const net = pos.net || [];
-
-  console.log("DEBUG POSITIONS:", JSON.stringify(net, null, 2));
-  console.log("DEBUG LTPALL:", JSON.stringify(ltpAll, null, 2));
-
-  let unrealised = 0;
-
-  for (const p of net) {
-    const qty = Number(p.quantity);
-    if (!qty) continue;
-
-    const avg = Number(p.average_price);
-    const token = Number(p.instrument_token);
-
-    const ltp =
-      Number(ltpAll[token]?.last_price) ||
-      Number(p.last_price) ||
-      0;
-
-    const u =
-      qty > 0
-        ? (ltp - avg) * qty
-        : (avg - ltp) * Math.abs(qty);
-
-    unrealised += u;
-
-    console.log(
-      `UNRL: ${p.tradingsymbol} qty=${qty} avg=${avg} ltp=${ltp} → ${u}`
-    );
-  }
-
-  return unrealised;
-}
-
-/* ------------------------------------------------------
-   MAIN HANDLER
------------------------------------------------------- */
 
 export default async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(204).end();
 
   try {
     const kc = await instance();
+    const pos = await kc.getPositions();
+    const net = pos?.net || [];
+
     const ltpAll = (await kv.get("ltp:all")) || {};
 
-    const realised = await computeRealised(kc);
-    const unrealised = await computeUnrealised(kc, ltpAll);
+    console.log("\n\n=============================");
+    console.log("🔵 ZERODHA-MTM WORKER STARTED");
+    console.log("=============================\n");
 
-    const total = realised + unrealised;
+    console.log("DEBUG POSITIONS (net):");
+    console.log(JSON.stringify(net, null, 2));
+
+    console.log("\nDEBUG LTP ALL:");
+    console.log(JSON.stringify(ltpAll, null, 2));
+
+    let day_pnl_total = 0;
+
+    // -----------------------------------------------------------
+    // PROCESS EACH SYMBOL
+    // -----------------------------------------------------------
+    for (const p of net) {
+      const sym   = p.tradingsymbol;
+      const token = p.instrument_token;
+
+      const oqty  = Number(p.overnight_quantity || 0);
+
+      const day_buy_val  = Number(p.day_buy_value  || 0);
+      const day_buy_qty  = Number(p.day_buy_quantity || 0);
+
+      const day_sell_val = Number(p.day_sell_value || 0);
+      const day_sell_qty = Number(p.day_sell_quantity || 0);
+
+      const close = Number(p.close_price || 0);
+      const last  =
+        Number(ltpAll[token]?.last_price) ||
+        Number(p.last_price) ||
+        close;
+
+      console.log("\n----------------------------");
+      console.log(`🔸 SYMBOL: ${sym}`);
+      console.log("----------------------------");
+
+      console.log("Raw Data:");
+      console.log({
+        sym,
+        oqty,
+        close_price: close,
+        ltp_used: last,
+        day_buy_qty,
+        day_buy_val,
+        day_sell_qty,
+        day_sell_val
+      });
+
+      // ------------------------------------
+      // 1) Intraday Value P&L
+      // ------------------------------------
+      const intraday_pnl = day_sell_val - day_buy_val;
+
+      console.log(`➡️ Intraday PNL (value-based) = day_sell_val - day_buy_val`);
+      console.log(`   = ${day_sell_val} - ${day_buy_val}`);
+      console.log(`   = ${intraday_pnl}`);
+
+      // ------------------------------------
+      // 2) Overnight Mark-to-Market
+      // ------------------------------------
+      const overnight_mtm = (last - close) * oqty;
+
+      console.log(`➡️ Overnight MTM = (LTP - close_price) × overnight_qty`);
+      console.log(`   = (${last} - ${close}) × ${oqty}`);
+      console.log(`   = ${overnight_mtm}`);
+
+      // ------------------------------------
+      // 3) Symbol P&L
+      // ------------------------------------
+      const symbol_pnl = intraday_pnl + overnight_mtm;
+
+      console.log(`➡️ SYMBOL TOTAL PNL = intraday_pnl + overnight_mtm`);
+      console.log(`   = ${intraday_pnl} + ${overnight_mtm}`);
+      console.log(`   = ${symbol_pnl}`);
+
+      day_pnl_total += symbol_pnl;
+    }
+
+    // -----------------------------------------------------------
+    // Write KV values (Zerodha P&L only)
+    // -----------------------------------------------------------
+    console.log("\n=============================");
+    console.log("🔵 FINAL ZERODHA DAY P&L");
+    console.log("=============================");
+    console.log(`Total Day PNL = ${day_pnl_total}`);
 
     await setState({
-      realised,
-      unrealised,
-      total_pnl: total,
+      realised: day_pnl_total,
+      unrealised: 0,
+      total_pnl: day_pnl_total,
       mtm_last_update: Date.now(),
     });
 
-    console.log("🟢 MTM FINAL:", {
-      realised,
-      unrealised,
-      total_pnl: total,
+    console.log("STATE WRITTEN TO KV:", {
+      realised: day_pnl_total,
+      unrealised: 0,
+      total_pnl: day_pnl_total,
     });
+
+    console.log("\n🔵 ZERODHA-MTM WORKER END\n\n");
 
     return res.json({
       ok: true,
-      realised,
-      unrealised,
-      total_pnl: total,
+      realised: day_pnl_total,
+      unrealised: 0,
+      total_pnl: day_pnl_total,
     });
 
   } catch (err) {
-    console.error("MTM ERROR:", err);
+    console.error("❌ ZERODHA MTM ERROR:", err);
     return res.status(500).json({ ok: false, error: String(err) });
   }
 }
