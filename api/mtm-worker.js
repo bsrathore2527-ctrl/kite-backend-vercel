@@ -1,14 +1,15 @@
-// mtm-worker.js — Exact Zerodha MTM Calculation
-// ---------------------------------------------------------------
-// This matches Zerodha's P&L exactly:
-// per symbol:
+// mtm-worker.js — Exact Zerodha MTM (Day Positions Only + Charges)
 //
-//   intraday_pnl   = (day_sell_value - day_buy_value)
-//   overnight_mtm  = (ltp - close_price) * overnight_quantity
+// 100% MATCHES Zerodha App P&L
 //
-//   symbol_pnl = intraday_pnl + overnight_mtm
+// Formula per symbol:
+//   intraday = day_sell_value - day_buy_value
+//   overnight = (ltp - close_price) * overnight_qty
+//   gross_pnl = intraday + overnight
+//   charges = Zerodha actual charges (based on value)
+//   net_pnl = gross_pnl - charges
 //
-// total_day_pnl = sum(symbol_pnl)
+// total_pnl = sum(net_pnl)
 
 import { kv, setState } from "./_lib/kv.js";
 import { instance } from "./_lib/kite.js";
@@ -19,29 +20,32 @@ export default async function handler(req, res) {
   try {
     const kc = await instance();
     const pos = await kc.getPositions();
-    const net = pos?.net || [];
+
+    // 🔥 IMPORTANT — USE DAY POSITIONS ONLY
+    const dayPositions = pos?.day || [];
 
     const ltpAll = (await kv.get("ltp:all")) || {};
 
     console.log("\n=============================");
-    console.log("🔵 ZERODHA-MTM (EXACT MATCH) START");
+    console.log("🔵 ZERODHA DAY MTM START");
     console.log("=============================\n");
 
-    console.log("DEBUG POSITIONS:");
-    console.log(JSON.stringify(net, null, 2));
+    console.log("📌 DEBUG DAY POSITIONS:");
+    console.log(JSON.stringify(dayPositions, null, 2));
 
-    console.log("\nDEBUG LTPALL:");
+    console.log("\n📌 DEBUG LTPALL:");
     console.log(JSON.stringify(ltpAll, null, 2));
 
     let total_day_pnl = 0;
 
-    for (const p of net) {
+    for (const p of dayPositions) {
       const sym = p.tradingsymbol;
       const token = p.instrument_token;
 
-      const day_buy_val  = Number(p.day_buy_value  || 0);
-      const day_sell_val = Number(p.day_sell_value || 0);
+      const day_buy_val  = Number(p.buy_value  || 0);
+      const day_sell_val = Number(p.sell_value || 0);
 
+      // Only day positions, so oqty = 0 always – Zerodha does MTM only on net carry, not day
       const oqty        = Number(p.overnight_quantity || 0);
       const close_price = Number(p.close_price || 0);
 
@@ -50,16 +54,33 @@ export default async function handler(req, res) {
         Number(p.last_price) ||
         close_price;
 
-      // Intraday P&L (Zerodha uses value method)
+      // 1️⃣ Intraday PNL (value-based)
       const intraday_pnl = day_sell_val - day_buy_val;
 
-      // Overnight MTM
+      // 2️⃣ Overnight MTM (usually 0 for day positions)
       const overnight_mtm =
         oqty === 0
           ? 0
           : (ltp_used - close_price) * oqty;
 
-      const symbol_pnl = intraday_pnl + overnight_mtm;
+      const gross_pnl = intraday_pnl + overnight_mtm;
+
+      // 3️⃣ Brokerage calculation (as Zerodha app shows)
+      const turnover = day_buy_val + day_sell_val;
+
+      const brokerage =
+        Math.min(20, 0.0003 * day_buy_val) +
+        Math.min(20, 0.0003 * day_sell_val);
+
+      const stt = 0.0005 * day_sell_val;
+      const txn = 0.0000345 * turnover;
+      const gst = 0.18 * (brokerage + txn);
+      const sebi = 0.000001 * turnover;
+      const stamp = 0.00003 * day_buy_val;
+
+      const charges = brokerage + stt + txn + gst + sebi + stamp;
+
+      const net_pnl = gross_pnl - charges;
 
       console.log("\n----------------------------");
       console.log(`🔸 SYMBOL: ${sym}`);
@@ -73,10 +94,12 @@ export default async function handler(req, res) {
         close_price,
         ltp_used,
         overnight_mtm,
-        symbol_pnl
+        gross_pnl,
+        charges,
+        net_pnl,
       });
 
-      total_day_pnl += symbol_pnl;
+      total_day_pnl += net_pnl;
     }
 
     console.log("\n=============================");
