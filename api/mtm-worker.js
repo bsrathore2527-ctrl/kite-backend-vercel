@@ -1,14 +1,12 @@
-// mtm-worker.js (Zerodha Day P&L Version - FULL DEBUG)
-// -----------------------------------------------------
-// EXACT Zerodha Day P&L:
-// DAY_PNL = (day_sell_value – day_buy_value) + (ltp – close_price) × overnight_qty
-//
-// Writes to KV:
-// realised   = day_pnl_total
-// unrealised = 0
-// total_pnl  = day_pnl_total
-//
-// With full DEBUG logging
+// mtm-worker.js — Zerodha P&L Exact Match (sell_value - buy_value)
+// ---------------------------------------------------------------
+// Matches Zerodha Positions "P&L" exactly:
+//   symbol_pnl = sell_value - buy_value
+//   day_pnl_total = sum(symbol_pnl)
+// And writes:
+//   realised   = day_pnl_total
+//   unrealised = 0
+//   total_pnl  = day_pnl_total
 
 import { kv, setState } from "./_lib/kv.js";
 import { instance } from "./_lib/kite.js";
@@ -21,10 +19,11 @@ export default async function handler(req, res) {
     const pos = await kc.getPositions();
     const net = pos?.net || [];
 
+    // LTP not required for P&L, but logged for reference
     const ltpAll = (await kv.get("ltp:all")) || {};
 
     console.log("\n\n=============================");
-    console.log("🔵 ZERODHA-MTM WORKER STARTED");
+    console.log("🔵 ZERODHA-MTM (VALUE P&L) START");
     console.log("=============================\n");
 
     console.log("DEBUG POSITIONS (net):");
@@ -35,23 +34,15 @@ export default async function handler(req, res) {
 
     let day_pnl_total = 0;
 
-    // -----------------------------------------------------------
-    // PROCESS EACH SYMBOL
-    // -----------------------------------------------------------
     for (const p of net) {
       const sym   = p.tradingsymbol;
       const token = p.instrument_token;
 
-      const oqty  = Number(p.overnight_quantity || 0);
-
-      const day_buy_val  = Number(p.day_buy_value  || 0);
-      const day_buy_qty  = Number(p.day_buy_quantity || 0);
-
-      const day_sell_val = Number(p.day_sell_value || 0);
-      const day_sell_qty = Number(p.day_sell_quantity || 0);
-
-      const close = Number(p.close_price || 0);
-      const last  =
+      const buyVal  = Number(p.buy_value  || 0);
+      const sellVal = Number(p.sell_value || 0);
+      const oqty    = Number(p.overnight_quantity || 0);
+      const close   = Number(p.close_price || 0);
+      const last    =
         Number(ltpAll[token]?.last_price) ||
         Number(p.last_price) ||
         close;
@@ -59,54 +50,44 @@ export default async function handler(req, res) {
       console.log("\n----------------------------");
       console.log(`🔸 SYMBOL: ${sym}`);
       console.log("----------------------------");
-
-      console.log("Raw Data:");
+      console.log("Raw Zerodha position fields:");
       console.log({
         sym,
+        buy_value: buyVal,
+        sell_value: sellVal,
+        pnl_from_broker: p.pnl,
+        value_from_broker: p.value,
         oqty,
         close_price: close,
-        ltp_used: last,
-        day_buy_qty,
-        day_buy_val,
-        day_sell_qty,
-        day_sell_val
+        last_price: p.last_price,
+        ltp_from_ticker: ltpAll[token]?.last_price ?? null,
       });
 
-      // ------------------------------------
-      // 1) Intraday Value P&L
-      // ------------------------------------
-      const intraday_pnl = day_sell_val - day_buy_val;
+      // Zerodha-style P&L: simply sell_value - buy_value
+      const symbol_pnl = sellVal - buyVal;
 
-      console.log(`➡️ Intraday PNL (value-based) = day_sell_val - day_buy_val`);
-      console.log(`   = ${day_sell_val} - ${day_buy_val}`);
-      console.log(`   = ${intraday_pnl}`);
+      console.log(`➡️ Calc symbol_pnl = sell_value - buy_value`);
+      console.log(`   = ${sellVal} - ${buyVal} = ${symbol_pnl}`);
 
-      // ------------------------------------
-      // 2) Overnight Mark-to-Market
-      // ------------------------------------
-      const overnight_mtm = (last - close) * oqty;
-
-      console.log(`➡️ Overnight MTM = (LTP - close_price) × overnight_qty`);
-      console.log(`   = (${last} - ${close}) × ${oqty}`);
-      console.log(`   = ${overnight_mtm}`);
-
-      // ------------------------------------
-      // 3) Symbol P&L
-      // ------------------------------------
-      const symbol_pnl = intraday_pnl + overnight_mtm;
-
-      console.log(`➡️ SYMBOL TOTAL PNL = intraday_pnl + overnight_mtm`);
-      console.log(`   = ${intraday_pnl} + ${overnight_mtm}`);
-      console.log(`   = ${symbol_pnl}`);
+      // Compare with broker-reported pnl for sanity
+      if (typeof p.pnl !== "undefined") {
+        const brokerPnl = Number(p.pnl);
+        if (Math.abs(brokerPnl - symbol_pnl) > 0.01) {
+          console.warn(
+            `⚠️ MISMATCH with broker pnl for ${sym}: calc=${symbol_pnl}, broker=${brokerPnl}`
+          );
+        } else {
+          console.log(
+            `✅ Matches broker pnl (${brokerPnl}) for ${sym}`
+          );
+        }
+      }
 
       day_pnl_total += symbol_pnl;
     }
 
-    // -----------------------------------------------------------
-    // Write KV values (Zerodha P&L only)
-    // -----------------------------------------------------------
     console.log("\n=============================");
-    console.log("🔵 FINAL ZERODHA DAY P&L");
+    console.log("🔵 FINAL ZERODHA DAY P&L (VALUE)");
     console.log("=============================");
     console.log(`Total Day PNL = ${day_pnl_total}`);
 
@@ -123,7 +104,7 @@ export default async function handler(req, res) {
       total_pnl: day_pnl_total,
     });
 
-    console.log("\n🔵 ZERODHA-MTM WORKER END\n\n");
+    console.log("\n🔵 ZERODHA-MTM (VALUE P&L) END\n\n");
 
     return res.json({
       ok: true,
