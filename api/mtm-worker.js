@@ -1,180 +1,161 @@
-// mtm-worker.js (FINAL FULL DEBUG VERSION)
-// ---------------------------------------
-// ✔ Reads captures from `trades:YYYYMMDD`
-// ✔ Preloads overnight FIFO bucket
-// ✔ Performs Zerodha-accurate FIFO realised P&L
-// ✔ Computes unrealised P&L from positions + LTP
-// ✔ DEBUG logs everywhere
+// mtm-worker.js — FINAL PATCHED VERSION (close_price preload)
+// ------------------------------------------------------------
+// ✔ FIFO realised using full-day KV trades
+// ✔ Overnight FIFO preload uses `close_price` (correct Zerodha logic)
+// ✔ Unrealised = (LTP – average_price) × qty
+// ✔ No KV explosion (one key per day)
+// ✔ Full debug logs for bookkeeping
 
 import { kv, setState } from "./_lib/kv.js";
 import { instance } from "./_lib/kite.js";
 
 /* ------------------------------------------------------
-   FIFO UTILITIES
+   FIFO HELPERS
 ------------------------------------------------------ */
 
 function fifoSell(book, qty, price) {
-  console.log(`\n[FIFO SELL] qty=${qty} price=${price}`);
-  let remaining = qty;
-  let realised = 0;
-  const newBook = [];
+  console.log(`\n[FIFO SELL] qty=${qty} @ ${price}`);
+  let r = 0, rem = qty;
+  const out = [];
 
   for (const lot of book) {
-    console.log("  Checking lot:", lot);
-    if (remaining <= 0) {
-      newBook.push(lot);
-      continue;
-    }
+    console.log("  Lot:", lot);
+    if (rem <= 0) { out.push(lot); continue; }
+
     if (lot.side === "BUY") {
-      const use = Math.min(remaining, lot.qty);
+      const use = Math.min(rem, lot.qty);
       const pnl = (price - lot.avg) * use;
-      realised += pnl;
-      console.log(`  MATCH BUY → SELL: avg=${lot.avg} qty=${use} pnl=${pnl}`);
+      r += pnl;
+      console.log(`  BUY→SELL match: ${use} @ avg=${lot.avg} pnl=${pnl}`);
 
-      if (lot.qty > use) {
-        newBook.push({ ...lot, qty: lot.qty - use });
-      }
-      remaining -= use;
+      if (lot.qty > use) out.push({ ...lot, qty: lot.qty - use });
+      rem -= use;
     } else {
-      newBook.push(lot);
+      out.push(lot);
     }
   }
 
-  if (remaining > 0) {
-    console.log(`  Remaining unmatched SELL qty=${remaining}, adding sell lot`);
-    newBook.push({ side: "SELL", qty: remaining, avg: price });
+  if (rem > 0) {
+    console.log(`  Unmatched SELL qty=${rem} → new SELL lot`);
+    out.push({ side: "SELL", qty: rem, avg: price });
   }
 
-  console.log("[FIFO SELL RESULT]", { realised, newBook });
-  return { realised, book: newBook };
+  return { realised: r, book: out };
 }
 
 function fifoBuy(book, qty, price) {
-  console.log(`\n[FIFO BUY] qty=${qty} price=${price}`);
-  let remaining = qty;
-  let realised = 0;
-  const newBook = [];
+  console.log(`\n[FIFO BUY] qty=${qty} @ ${price}`);
+  let r = 0, rem = qty;
+  const out = [];
 
   for (const lot of book) {
-    console.log("  Checking lot:", lot);
-    if (remaining <= 0) {
-      newBook.push(lot);
-      continue;
-    }
+    console.log("  Lot:", lot);
+    if (rem <= 0) { out.push(lot); continue; }
+
     if (lot.side === "SELL") {
-      const use = Math.min(remaining, lot.qty);
+      const use = Math.min(rem, lot.qty);
       const pnl = (lot.avg - price) * use;
-      realised += pnl;
-      console.log(`  MATCH SELL → BUY: avg=${lot.avg} qty=${use} pnl=${pnl}`);
+      r += pnl;
+      console.log(`  SELL→BUY match: ${use} @ avg=${lot.avg} pnl=${pnl}`);
 
-      if (lot.qty > use) newBook.push({ ...lot, qty: lot.qty - use });
-      remaining -= use;
+      if (lot.qty > use) out.push({ ...lot, qty: lot.qty - use });
+      rem -= use;
     } else {
-      newBook.push(lot);
+      out.push(lot);
     }
   }
 
-  if (remaining > 0) {
-    console.log(`  Adding new BUY lot qty=${remaining}`);
-    newBook.push({ side: "BUY", qty: remaining, avg: price });
+  if (rem > 0) {
+    out.push({ side: "BUY", qty: rem, avg: price });
+    console.log(`  Adding BUY lot qty=${rem}`);
   }
 
-  console.log("[FIFO BUY RESULT]", { realised, newBook });
-  return { realised, book: newBook };
+  return { realised: r, book: out };
 }
 
 /* ------------------------------------------------------
-   LOAD ALL TRADES FROM KV (one-key-per-day)
+   LOAD CAPTURED TRADES (single key)
 ------------------------------------------------------ */
 
 async function loadCapturedTrades() {
-  const dateKey = new Date().toISOString().split("T")[0].replace(/-/g, "");
-  const key = `trades:${dateKey}`;
+  const dayKey = new Date().toISOString().split("T")[0].replace(/-/g, "");
+  const key = `trades:${dayKey}`;
+  let arr = (await kv.get(key)) || [];
 
-  const trades = (await kv.get(key)) || [];
+  console.log("\n=========== CAPTURED TRADES ===========");
+  console.log(JSON.stringify(arr, null, 2));
+  console.log("=======================================\n");
 
-  console.log("\n===================================================");
-  console.log("DEBUG: FULL TRADE LIST FROM KV");
-  console.log(JSON.stringify(trades, null, 2));
-  console.log("===================================================\n");
-
-  // Sort by timestamp to keep FIFO order correct
-  trades.sort((a, b) => a.ts - b.ts);
-
-  return trades;
+  arr.sort((a, b) => a.ts - b.ts);
+  return arr;
 }
 
 /* ------------------------------------------------------
-   FIFO REALISED (including overnight preload)
+   REALISED PNL WITH FIFO (close_price overnight preload)
 ------------------------------------------------------ */
 
 function computeRealisedFIFO(trades, positions) {
-  console.log("\n===== BUILDING FIFO REALISED =====");
-
   const books = {};
   const realisedMap = {};
 
-  // 1️⃣ Preload overnight lots
+  console.log("\n========= BUILDING FIFO (REALIZED) =========");
+
+  // 1️⃣ Preload overnight lots using correct close_price
   for (const p of positions) {
     const sym = p.tradingsymbol;
     const oq = Number(p.overnight_quantity || 0);
-    const buyPrice = Number(p.buy_price || p.average_price);
+    const closePrice = Number(p.close_price || 0);
 
-    if (!books[sym]) {
-      books[sym] = [];
-      realisedMap[sym] = 0;
-    }
+    realisedMap[sym] = realisedMap[sym] || 0;
+    books[sym] = books[sym] || [];
 
     if (oq > 0) {
       console.log(
-        `\n[PRELOAD OVERNIGHT] ${sym} oq=${oq} @ ${buyPrice}`
+        `[PRELOAD OVERNIGHT] ${sym} qty=${oq} @ close_price=${closePrice}`
       );
       books[sym].push({
         side: "BUY",
         qty: oq,
-        avg: buyPrice,
+        avg: closePrice
       });
     }
   }
 
-  // 2️⃣ Apply FIFO for today's trades
+  // 2️⃣ Apply FIFO with captured trades
   for (const t of trades) {
     const sym = t.sym;
-    const side = t.side;
     const qty = Number(t.qty);
     const price = Number(t.price);
+    const side = t.side;
 
-    if (!books[sym]) {
-      books[sym] = [];
-      realisedMap[sym] = 0;
-    }
+    books[sym] = books[sym] || [];
+    realisedMap[sym] = realisedMap[sym] || 0;
 
-    console.log(`\n[FIFO APPLY] ${sym} ${side} ${qty} @ ${price}`);
+    console.log(`\n[TRADE] ${sym} ${side} ${qty} @ ${price}`);
 
-    const r =
-      side === "BUY"
-        ? fifoBuy(books[sym], qty, price)
-        : fifoSell(books[sym], qty, price);
+    const r = side === "BUY"
+      ? fifoBuy(books[sym], qty, price)
+      : fifoSell(books[sym], qty, price);
 
     realisedMap[sym] += r.realised;
     books[sym] = r.book;
   }
 
-  console.log("\n===== REALISED MAP =====");
+  console.log("\n========= REALISED MAP =========");
   console.log(realisedMap);
-  console.log("=========================\n");
+  console.log("================================\n");
 
   return realisedMap;
 }
 
 /* ------------------------------------------------------
-   UNREALISED
+   UNREALISED PNL
 ------------------------------------------------------ */
 
 function computeUnrealised(positions, ltpAll) {
-  const unrealisedMap = {};
+  const uMap = {};
 
-  console.log("\n===== COMPUTING UNREALISED =====");
+  console.log("\n========= COMPUTING UNREALISED =========");
 
   for (const p of positions) {
     const sym = p.tradingsymbol;
@@ -185,18 +166,20 @@ function computeUnrealised(positions, ltpAll) {
     const token = p.instrument_token;
     const ltp = ltpAll[token]?.last_price || p.last_price || avg;
 
-    const u = qty > 0 ? (ltp - avg) * qty : (avg - ltp) * Math.abs(qty);
+    const u = qty > 0
+      ? (ltp - avg) * qty
+      : (avg - ltp) * Math.abs(qty);
 
-    unrealisedMap[sym] = u;
+    uMap[sym] = u;
 
-    console.log(`${sym}: qty=${qty} avg=${avg} ltp=${ltp} => U=${u}`);
+    console.log(`${sym}: qty=${qty}, avg=${avg}, ltp=${ltp}, U=${u}`);
   }
 
-  console.log("===== UNREALISED MAP =====");
-  console.log(unrealisedMap);
-  console.log("===========================\n");
+  console.log("\n========= UNREALISED MAP =========");
+  console.log(uMap);
+  console.log("==================================\n");
 
-  return unrealisedMap;
+  return uMap;
 }
 
 /* ------------------------------------------------------
@@ -211,47 +194,47 @@ export default async function handler(req, res) {
 
     const pos = await kc.getPositions();
     const positions = pos.net || [];
+
     const ltpAll = (await kv.get("ltp:all")) || {};
 
-    console.log("\n============== POSITIONS ==============");
+    console.log("\n=========== POSITIONS ===========");
     console.log(JSON.stringify(positions, null, 2));
-    console.log("=======================================\n");
+    console.log("=================================\n");
 
-    console.log("\n============== LTP ALL ===============");
+    console.log("\n=========== LTP ===========");
     console.log(JSON.stringify(ltpAll, null, 2));
-    console.log("=======================================\n");
+    console.log("===========================\n");
 
     const trades = await loadCapturedTrades();
 
-    // REALISED
     const realisedMap = computeRealisedFIFO(trades, positions);
-
-    // UNREALISED
     const unrealisedMap = computeUnrealised(positions, ltpAll);
 
-    // TOTALS
-    let realised = 0;
-    let unrealised = 0;
+    let realised = 0, unrealised = 0;
 
     for (const k in realisedMap) realised += realisedMap[k];
     for (const k in unrealisedMap) unrealised += unrealisedMap[k];
 
-    const total_pnl = realised + unrealised;
+    const total = realised + unrealised;
 
     await setState({
       realised,
       unrealised,
-      total_pnl,
+      total_pnl: total,
       mtm_last_update: Date.now()
     });
 
-    console.log("\n🟢 MTM FINAL:", { realised, unrealised, total_pnl });
+    console.log("\n🟢 MTM FINAL:", {
+      realised,
+      unrealised,
+      total_pnl: total
+    });
 
     return res.json({
       ok: true,
       realised,
       unrealised,
-      total_pnl,
+      total_pnl: total,
       realisedMap,
       unrealisedMap
     });
