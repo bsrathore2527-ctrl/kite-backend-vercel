@@ -1,8 +1,8 @@
-// mtm-worker.js (v4 FINAL)
+// mtm-worker.js (v5 FINAL)
 // --------------------------------------------------
 // REALISED = FIFO from ALL Zerodha getTrades()
 // UNREALISED = (LTP - Avg) * Qty using kv("ltp:all")
-// No date filtering needed (Zerodha clears tradebook daily)
+// Includes FIFO PRELOAD for overnight quantities
 // --------------------------------------------------
 
 import { kv } from "./_lib/kv.js";
@@ -78,7 +78,7 @@ function fifoBuy(book, qty, price) {
 }
 
 /* ------------------------------------------------------
-   REALISED PNL FROM ALL TRADES (NO DATE FILTER)
+   REALISED PNL WITH OVERNIGHT PRELOAD (PATCHED)
 ------------------------------------------------------ */
 
 async function computeRealised(kc) {
@@ -86,20 +86,51 @@ async function computeRealised(kc) {
 
   console.log("DEBUG TRADES:", JSON.stringify(trades, null, 2));
 
-  // Sort by actual fill timestamp
+  // Sort trades chronologically
   trades.sort((a, b) => {
-    const ta = new Date(
-      a.exchange_timestamp || a.fill_timestamp || a.order_timestamp
-    );
-    const tb = new Date(
-      b.exchange_timestamp || b.fill_timestamp || b.order_timestamp
-    );
+    const ta = new Date(a.exchange_timestamp || a.fill_timestamp || a.order_timestamp);
+    const tb = new Date(b.exchange_timestamp || b.fill_timestamp || b.order_timestamp);
     return ta - tb;
   });
 
   const books = {};
   let realised = 0;
 
+  /* ------------------------------------------------------
+     PRELOAD OVERNIGHT POSITIONS  (THIS IS THE PATCH)
+  ------------------------------------------------------ */
+  const pos = await kc.getPositions();
+  const netPos = pos.net || [];
+
+  for (const p of netPos) {
+    const sym = p.tradingsymbol;
+    const oq = Number(p.overnight_quantity || 0);
+
+    if (!oq) continue;
+    if (!books[sym]) books[sym] = [];
+
+    // Extract accurate overnight average:
+    // overnight_avg = (buy_value - day_buy_value) / overnight_quantity
+    const buyVal = Number(p.buy_value || 0);
+    const dayBuyVal = Number(p.day_buy_value || 0);
+    const overnightVal = buyVal - dayBuyVal;
+
+    const overnightAvg = oq > 0 ? overnightVal / oq : 0;
+
+    books[sym].push({
+      side: "BUY",
+      qty: oq,
+      avg: overnightAvg,
+    });
+
+    console.log(
+      `PRELOAD → ${sym}: BUY ${oq} @ ${overnightAvg} (overnight qty)`
+    );
+  }
+
+  /* ------------------------------------------------------
+     PROCESS ALL TRADES USING FIFO
+  ------------------------------------------------------ */
   for (const t of trades) {
     const sym = t.tradingsymbol;
     const qty = Number(t.quantity);
@@ -126,7 +157,7 @@ async function computeRealised(kc) {
 }
 
 /* ------------------------------------------------------
-   UNREALISED PNL USING LTP + OPEN POSITIONS
+   UNREALISED MTM
 ------------------------------------------------------ */
 
 async function computeUnrealised(kc, ltpAll) {
@@ -145,21 +176,15 @@ async function computeUnrealised(kc, ltpAll) {
     const avg = Number(p.average_price);
     const token = Number(p.instrument_token);
 
-    const ltp =
-      Number(ltpAll[token]?.last_price) ||
-      Number(p.last_price) ||
-      0;
+    const ltp = Number(ltpAll[token]?.last_price) || Number(p.last_price) || 0;
 
-    const u =
-      qty > 0
-        ? (ltp - avg) * qty
-        : (avg - ltp) * Math.abs(qty);
+    const u = qty > 0
+      ? (ltp - avg) * qty
+      : (avg - ltp) * Math.abs(qty);
 
     unrealised += u;
 
-    console.log(
-      `UNRL: ${p.tradingsymbol} qty=${qty} avg=${avg} ltp=${ltp} â†’ ${u}`
-    );
+    console.log(`UNRL: ${p.tradingsymbol} qty=${qty} avg=${avg} ltp=${ltp} → ${u}`);
   }
 
   return unrealised;
@@ -178,7 +203,6 @@ export default async function handler(req, res) {
 
     const realised = await computeRealised(kc);
     const unrealised = await computeUnrealised(kc, ltpAll);
-
     const total = realised + unrealised;
 
     await setState({
@@ -188,18 +212,9 @@ export default async function handler(req, res) {
       mtm_last_update: Date.now(),
     });
 
-    console.log("ðŸŸ¢ MTM FINAL:", {
-      realised,
-      unrealised,
-      total_pnl: total,
-    });
+    console.log("📣 MTM FINAL:", { realised, unrealised, total_pnl: total });
 
-    return res.json({
-      ok: true,
-      realised,
-      unrealised,
-      total_pnl: total,
-    });
+    return res.json({ ok: true, realised, unrealised, total_pnl: total });
 
   } catch (err) {
     console.error("MTM ERROR:", err);
