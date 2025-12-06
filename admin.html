@@ -129,19 +129,6 @@
         <div id="tradebook_output" class="tb-empty">Loading tradebook...</div>
       </div>
     </section>
-    <!-- page 2.5: Sell Book (NEW) -->
-    <section class="page card" id="page_sellbook">
-      <div style="display:flex;justify-content:space-between;align-items:center">
-        <h3 style="margin:0">Sell Book</h3>
-        <div><button id="refresh_sellbook" class="btn ghost">Refresh</button></div>
-      </div>
-      <div class="small muted" style="margin-top:8px">Every sell order stored with MTM at the moment of execution.</div>
-
-      <div id="sellbook_container" style="margin-top:12px">
-        <div id="sellbook_output" class="tb-empty">Loading sellbook...</div>
-      </div>
-    </section>
-
 
     <!-- page 3: Live overview -->
     <section class="page card" id="page_live">
@@ -306,7 +293,6 @@ const ENDPOINTS = {
 };
 
 const $ = id => document.getElementById(id);
-  $('refresh_sellbook').addEventListener('click', loadSellbook);
 function toast(msg, t=3000){ const el=$('toast'); el.textContent=msg; el.style.display='block'; clearTimeout(el._t); el._t=setTimeout(()=>el.style.display='none',t); }
 function now(){ return new Date().toLocaleTimeString('en-GB', { hour12:false, timeZone:'Asia/Kolkata' }); }
 function fmtINR(v){ if(v==null||isNaN(Number(v))) return '—'; return '₹'+Number(v).toLocaleString('en-IN',{maximumFractionDigits:0}); }
@@ -368,8 +354,7 @@ function init(){
     const txt = await r.text().catch(()=>null);
     logLine('reset_day => ' + (txt || r.status));
     toast('Day reset triggered');
-    await loadAll()
-  loadSellbook();;
+    await loadAll();
   });
 
   applyTokenUI();
@@ -529,20 +514,7 @@ async function loadState(){
     // time and statuses
     $('now').textContent = j.time || (new Date().toLocaleTimeString('en-GB',{ hour12:false, timeZone:'Asia/Kolkata' }));
     $('guardian_status').textContent = j.admin ? 'admin' : 'online';
-
-    // Decide kite status display based on presence of admin token in this browser.
-    const hasAdminToken = !!localStorage.getItem('ADMIN_TOKEN');
-    if (!hasAdminToken) {
-      // Trader mode: trader should not see real connectivity, always show connected.
-      $('kite_status').textContent = 'Kite: Connected';
-    } else {
-      // Admin mode: show actual backend kite_status.
-      if (j.kite_status === 'ok') {
-        $('kite_status').textContent = 'Kite: Connected';
-      } else {
-        $('kite_status').textContent = 'Kite: Disconnected';
-      }
-    }
+    $('kite_status').textContent = j.kite_status === 'ok' ? 'Kite: Connected' : (j.kite_status || 'not_logged_in');
 
     const s = j.state || {};
 
@@ -788,67 +760,6 @@ async function loadTradebook(){
   }
 }
 
-
-/* ---------------------------
-   SELLBOOK UI (NEW)
-   --------------------------- */
-function sellRowHtml(t){
-  const sym = t.instrument || t.tradingsymbol || '—';
-
-  let time = '—';
-  try{
-    const ts = t.time_ms || t.time;
-    const d = new Date(ts);
-    if(!isNaN(d)) time = d.toLocaleTimeString('en-GB',{hour12:false,timeZone:'Asia/Kolkata'});
-  }catch(e){}
-
-  const mtm = fmtINR(t.mtm);
-
-  const rawChg = Number(t.mtm_change ?? 0);
-  let chg = '0';
-  if (rawChg !== 0) chg = (rawChg > 0 ? '+' : '') + String(Math.trunc(rawChg));
-
-  const color = rawChg >= 0 ? '#10b981' : '#ef4444';
-
-  return `<tr>
-    <td>${sym}</td>
-    <td>${time}</td>
-    <td>${mtm}</td>
-    <td style="color:${color}">${chg}</td>
-  </tr>`;
-}
-
-async function loadSellbook(){
-  const out = $('sellbook_output');
-  out.innerHTML = `<div class="tb-empty">Loading sellbook...</div>`;
-  try{
-    const r = await fetch('/api/sellbook', { method:'GET', headers: authHeader() });
-    const txt = await r.text().catch(()=>null);
-    logLine(`GET /api/sellbook => ${txt || r.status}`);
-
-    let j = null; try{ j = txt ? JSON.parse(txt) : null }catch(e){}
-    let arr = (j && Array.isArray(j.sell_orders)) ? j.sell_orders : [];
-
-    if(!arr.length){
-      out.innerHTML = `<div class="tb-empty">No sell entries found.</div>`;
-      return;
-    }
-
-    const rows = arr.slice(0,50).map(sellRowHtml).join('');
-    const table = `<table class="tradebook">
-      <thead><tr>
-        <th>Instrument</th><th>Time</th><th>MTM</th><th>Change</th>
-      </tr></thead>
-      <tbody>${rows}</tbody>
-    </table>`;
-
-    out.innerHTML = table;
-
-  }catch(e){
-    out.innerHTML = `<div class="tb-empty">Failed to load sellbook</div>`;
-    logLine('loadSellbook err: '+(e.message||e));
-  }
-}
 /* initial loads */
 loadTradebook();
 
