@@ -1,0 +1,125 @@
+body {
+  margin: 0;
+  font-family: Inter, sans-serif;
+  background: #0d0d0d;
+  color: #eee;
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.sidebar {
+  width: 240px;
+  background: #111;
+  border-right: 1px solid #222;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.logo-circle {
+  height: 40px;
+  width: 40px;
+  background: #f97316;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  margin-right: 10px;
+}
+
+.tab-button {
+  background: none;
+  border: none;
+  color: #ccc;
+  padding: 12px;
+  margin-bottom: 5px;
+  text-align: left;
+  font-size: 15px;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.tab-button:hover,
+.tab-button.active {
+  background: #f97316;
+  color: #fff;
+}
+
+.content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+}
+
+.card {
+  background: #151515;
+  border: 1px solid #222;
+  padding: 20px;
+  border-radius: 12px;
+  margin-bottom: 20px;
+}
+
+input {
+  width: 100%;
+  padding: 10px;
+  background: #222;
+  border: none;
+  border-radius: 8px;
+  color: #eee;
+  margin-bottom: 12px;
+}
+
+.btn-orange {
+  background: #f97316;
+  color: white;
+  padding: 10px 16px;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.btn-red {
+  background: #d31f1f;
+  color: white;
+  padding: 10px 16px;
+  border-radius: 8px;
+  margin-right: 10px;
+}
+
+.btn-yellow {
+  background: #ffb800;
+  color: black;
+  padding: 10px 16px;
+  border-radius: 8px;
+}
+
+.tab {
+  display: none;
+}
+
+.tab.active {
+  display: block;
+}
+
+/* MOBILE FRIENDLY */
+@media (max-width: 800px) {
+  .sidebar {
+    display: none;
+  }
+
+  .content {
+    padding: 12px;
+  }
+
+  .card {
+    padding: 16px;
+  }
+}
