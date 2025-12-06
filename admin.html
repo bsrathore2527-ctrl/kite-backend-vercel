@@ -8,24 +8,29 @@
 <link rel="icon" href="data:;base64,iVBORw0KGgo=">
 <style>
   :root{
-    --bg1:#071024; --card:#0f1724; --muted:#9aa7b3; --accent:#3b82f6;
-    --accent2:#10b981; --danger:#ef4444; --radius:12px;
-  }
-  html,body{height:100%;margin:0;font-family:Inter,Arial,Helvetica,sans-serif;background:linear-gradient(180deg,#051025 0%, #02111b 100%);color:#e9f2ff}
+    --bg1:#ffffff;
+    --card:#f7f9fa;
+    --muted:#6b7280;
+    --accent:#ff7200;
+    --accent2:#ff7200;
+    --danger:#e11d48;
+    --radius:12px;
+}
+  html,body{height:100%;margin:0;font-family:Inter,Arial,Helvetica,sans-serif;background:#ffffff;color:#000000}
   .wrap{max-width:980px;margin:16px auto;padding:14px}
   header{display:flex;align-items:center;gap:12px;margin-bottom:12px}
   .logo{width:52px;height:52px;border-radius:10px;background:linear-gradient(135deg,#071628,#0b2130);display:grid;place-items:center;font-weight:700}
   h1{margin:0;font-size:20px}
   .status{margin-left:auto;display:flex;gap:8px;align-items:center;color:var(--muted);font-size:13px}
   .badge{padding:6px 10px;border-radius:999px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.02)}
-  .card{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));padding:12px;border-radius:12px;margin-bottom:12px;border:1px solid rgba(255,255,255,0.02)}
+  .card{background:#f7f9fa;padding:12px;border-radius:12px;margin-bottom:12px;border:1px solid rgba(255,255,255,0.02)}
   .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
   input[type=text], input[type=password], input[type=number] {padding:10px;border-radius:10px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:inherit}
   .btn{padding:8px 12px;border-radius:10px;border:none;cursor:pointer;font-weight:600}
-  .btn.primary{background:linear-gradient(90deg,var(--accent),#2b6df6);color:#fff}
+  .btn.primary{background:var(--accent);color:#fff}
   .btn.ghost{background:transparent;border:1px solid rgba(255,255,255,0.04);color:var(--muted)}
-  .btn.warn{background:linear-gradient(90deg,#ff8a65,#ff7043);color:#fff}
-  .btn.danger{background:linear-gradient(90deg,#d33,#b42323);color:#fff}
+  .btn.warn{background:var(--accent);color:#fff}
+  .btn.danger{background:#e11d48;color:#fff}
   .grid-2{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
   .value{font-weight:800;font-size:18px}
   .muted{color:var(--muted);font-size:13px}
@@ -33,7 +38,7 @@
   .pages{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;gap:14px;padding-bottom:12px;scroll-behavior:smooth}
   .page{min-width:100%;scroll-snap-align:center}
   .pager{display:flex;gap:8px;justify-content:center;margin-top:8px}
-  pre.log{white-space:pre-wrap;background:rgba(0,0,0,0.12);padding:10px;border-radius:8px;max-height:320px;overflow:auto;color:#ffdede}
+  pre.log{white-space:pre-wrap;background:#f2f3f5;padding:10px;border-radius:8px;max-height:320px;overflow:auto;color:#ffdede}
   .filters{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px}
   .status-pill {display:inline-block;padding:6px 10px;border-radius:999px;font-weight:700}
   .status-active {background:linear-gradient(90deg,#08321a,#07301b); color:#8ff0b2}
