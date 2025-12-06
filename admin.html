@@ -1,96 +1,73 @@
 <!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <title>BOHO Admin Panel</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<html lang="en" class="dark">
+color: var(--text-light);
+}
+html.dark input[type=text],
+html.dark input[type=password],
+html.dark input[type=number] {
+border-color: rgba(255,255,255,0.1);
+background: #0f172a;
+color: var(--text-dark);
+}
 
-  <!-- External BOHO Styles -->
-  <link rel="stylesheet" href="./admin.css">
 
-  <script>
-    // Login Protection
-    const ADMIN_TOKEN = localStorage.getItem("ADMIN_TOKEN");
-    if (!ADMIN_TOKEN) {
-      window.location.href = "./login.html";
-    }
-  </script>
+/* Header Logo */
+.logo {
+width: 52px;
+height: 52px;
+border-radius: 12px;
+background: linear-gradient(135deg,#fef3c7,#fdba74);
+display: grid;
+place-items: center;
+font-weight: 700;
+color: #b45309;
+}
+
+
+/* Status Pills */
+.badge {
+padding: 6px 12px;
+border-radius: 999px;
+background: rgba(0,0,0,0.05);
+}
+html.dark .badge {
+background: rgba(255,255,255,0.07);
+}
+
+
+.status-pill.status-active {
+background: rgba(16,185,129,0.15);
+color: #10b981;
+}
+
+
+.status-pill.status-tripped {
+background: rgba(239,68,68,0.2);
+color: #ef4444;
+}
+
+
+</style>
 </head>
-
 <body>
+<div class="wrap" style="max-width:980px;margin:16px auto;padding:14px">
 
-  <!-- SIDEBAR -->
-  <div class="sidebar">
-    <div class="brand">
-      <div class="logo-circle">B</div>
-      <span>BOHO Admin</span>
-    </div>
 
-    <button class="tab-button active" onclick="showTab('dashboard')">
-      Dashboard
-    </button>
+<header style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+<div class="logo">G</div>
+<div>
+<h1 style="margin:0;font-size:22px;font-weight:700">Guardian — Admin</h1>
+<div class="muted small">Risk automation & enforcement</div>
+</div>
 
-    <button class="tab-button" onclick="showTab('risk')">
-      Risk Config
-    </button>
 
-    <button class="tab-button" onclick="showTab('logs')">
-      Logs
-    </button>
-
-  </div>
-
-  <!-- MAIN CONTENT -->
-  <div class="content">
-
-    <!-- DASHBOARD TAB -->
-    <div id="dashboard" class="tab active">
-      <h1>Dashboard</h1>
-
-      <div class="card">
-        <h3>System State</h3>
-        <pre id="state_output"></pre>
-        <button onclick="refreshState()" class="btn-orange">Refresh</button>
-      </div>
-
-      <div class="card">
-        <h3>Positions</h3>
-        <pre id="positions_output"></pre>
-        <button onclick="refreshPositions()" class="btn-orange">Refresh</button>
-      </div>
-
-      <div class="card">
-        <h3>Actions</h3>
-        <button onclick="kill()" class="btn-red">Kill System</button>
-        <button onclick="cancelAll()" class="btn-yellow">Cancel All</button>
-      </div>
-
-    </div>
-
-    <!-- RISK CONFIG TAB -->
-    <div id="risk" class="tab">
-      <h1>Risk Configuration</h1>
-
-      <div class="card">
-        <label>Max Daily Loss</label>
-        <input id="maxLoss" type="number">
-        <label>Max Daily Profit</label>
-        <input id="maxProfit" type="number">
-        <label>Trailing Step</label>
-        <input id="trailStep" type="number">
-
-        <button onclick="saveConfig()" class="btn-orange">Save</button>
-      </div>
-    </div>
-
-    <!-- LOGS TAB -->
-    <div id="logs" class="tab">
-      <h1>Live Logs</h1>
-      <pre id="logs_output"></pre>
-      <button onclick="refreshLogs()" class="btn-orange">Refresh</button>
-    </div>
-
-  </div>
+<div class="status" style="margin-left:auto;display:flex;gap:8px;align-items:center;font-size:13px">
+<div id="kite_status" class="badge">Kite: —</div>
+<div id="guardian_status" class="badge">Guardian: —</div>
+<div id="day_status" class="badge status-pill">—</div>
+<div id="now" class="badge">--:--:--</div>
+</div>
+</header>
 
   <!-- ORIGINAL SCRIPT (UNTOUCHED) -->
   <script>
