@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BOHO Admin Login</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: Inter, sans-serif;
+      background: radial-gradient(circle at top, #111 0%, #000 100%);
+      color: white;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+    }
+    .login-box {
+      background: #1b1b1b;
+      border: 1px solid #2e2e2e;
+      padding: 2rem 2.5rem;
+      border-radius: 1rem;
+      width: 320px;
+      text-align: center;
+      box-shadow: 0 0 25px rgba(249,115,22,0.3);
+    }
+    .logo {
+      font-size: 2rem;
+      font-weight: bold;
+      color: #f97316;
+      margin-bottom: 1rem;
+    }
+    input {
+      width: 100%;
+      padding: 0.75rem;
+      border-radius: 0.5rem;
+      border: none;
+      margin-bottom: 1rem;
+      background: #2a2a2a;
+      color: white;
+      font-size: 1rem;
+    }
+    button {
+      width: 100%;
+      background: #f97316;
+      border: none;
+      color: white;
+      font-weight: 600;
+      padding: 0.75rem;
+      border-radius: 0.5rem;
+      cursor: pointer;
+      transition: background 0.2s ease-in;
+    }
+    button:hover { background: #fb7d26; }
+    .error {
+      color: #ff6b6b;
+      font-size: 0.9rem;
+      min-height: 1.2rem;
+      margin-top: 0.25rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="login-box">
+    <div class="logo">BOHO Admin</div>
+    <form id="loginForm">
+      <input id="username" type="text" placeholder="Login ID" required />
+      <input id="password" type="password" placeholder="Password" required />
+      <button type="submit">Login</button>
+      <div id="error" class="error"></div>
+    </form>
+  </div>
+
+  <script>
+    document.getElementById("loginForm").addEventListener("submit", function (e) {
+      e.preventDefault();
+      const username = document.getElementById("username").value.trim();
+      const password = document.getElementById("password").value.trim();
+
+      if (username !== "ZD5101") {
+        document.getElementById("error").textContent = "Invalid username.";
+        return;
+      }
+      if (!password) {
+        document.getElementById("error").textContent = "Password required.";
+        return;
+      }
+
+      // Save token locally for admin.html to use
+      localStorage.setItem("ADMIN_TOKEN", password);
+      window.location.href = "./admin.html";
+    });
+  </script>
+</body>
+</html>
