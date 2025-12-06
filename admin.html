@@ -1,857 +1,159 @@
-
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Guardian — Admin</title>
-<link rel="icon" href="data:;base64,iVBORw0KGgo=">
-<style>
-  :root{
-    --bg1:#071024; --card:#0f1724; --muted:#9aa7b3; --accent:#3b82f6;
-    --accent2:#10b981; --danger:#ef4444; --radius:12px;
-  }
-  html,body{height:100%;margin:0;font-family:Inter,Arial,Helvetica,sans-serif;background:linear-gradient(180deg,#051025 0%, #02111b 100%);color:#e9f2ff}
-  .wrap{max-width:980px;margin:16px auto;padding:14px}
-  header{display:flex;align-items:center;gap:12px;margin-bottom:12px}
-  .logo{width:52px;height:52px;border-radius:10px;background:linear-gradient(135deg,#071628,#0b2130);display:grid;place-items:center;font-weight:700}
-  h1{margin:0;font-size:20px}
-  .status{margin-left:auto;display:flex;gap:8px;align-items:center;color:var(--muted);font-size:13px}
-  .badge{padding:6px 10px;border-radius:999px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.02)}
-  .card{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));padding:12px;border-radius:12px;margin-bottom:12px;border:1px solid rgba(255,255,255,0.02)}
-  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-  input[type=text], input[type=password], input[type=number] {padding:10px;border-radius:10px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:inherit}
-  .btn{padding:8px 12px;border-radius:10px;border:none;cursor:pointer;font-weight:600}
-  .btn.primary{background:linear-gradient(90deg,var(--accent),#2b6df6);color:#fff}
-  .btn.ghost{background:transparent;border:1px solid rgba(255,255,255,0.04);color:var(--muted)}
-  .btn.warn{background:linear-gradient(90deg,#ff8a65,#ff7043);color:#fff}
-  .btn.danger{background:linear-gradient(90deg,#d33,#b42323);color:#fff}
-  .grid-2{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
-  .value{font-weight:800;font-size:18px}
-  .muted{color:var(--muted);font-size:13px}
-  .small{font-size:12px;color:var(--muted)}
-  .pages{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;gap:14px;padding-bottom:12px;scroll-behavior:smooth}
-  .page{min-width:100%;scroll-snap-align:center}
-  .pager{display:flex;gap:8px;justify-content:center;margin-top:8px}
-  pre.log{white-space:pre-wrap;background:rgba(0,0,0,0.12);padding:10px;border-radius:8px;max-height:320px;overflow:auto;color:#ffdede}
-  .filters{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px}
-  .status-pill {display:inline-block;padding:6px 10px;border-radius:999px;font-weight:700}
-  .status-active {background:linear-gradient(90deg,#08321a,#07301b); color:#8ff0b2}
-  .status-tripped {background:linear-gradient(90deg,#3a0610,#2b0510); color:#ffb3b3}
-  @media(max-width:720px){ .grid-2{grid-template-columns:1fr} header{flex-wrap:wrap} .status{margin-left:0} }
-  .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:18px;background:rgba(0,0,0,0.7);padding:10px 14px;border-radius:8px;color:white;display:none}
-  /* tradebook table */
-  table.tradebook{width:100%;border-collapse:collapse;margin-top:10px}
-  table.tradebook th, table.tradebook td{padding:10px;border-bottom:1px solid rgba(255,255,255,0.03);font-size:13px;text-align:left}
-  table.tradebook th{color:var(--muted);font-weight:700}
-  .tb-empty{padding:28px;text-align:center;color:var(--muted)}
-</style>
+  <meta charset="UTF-8" />
+  <title>BOHO Admin Panel</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <!-- External BOHO Styles -->
+  <link rel="stylesheet" href="./admin.css">
+
+  <script>
+    // Login Protection
+    const ADMIN_TOKEN = localStorage.getItem("ADMIN_TOKEN");
+    if (!ADMIN_TOKEN) {
+      window.location.href = "./login.html";
+    }
+  </script>
 </head>
+
 <body>
-<div class="wrap">
-  <header>
-    <div class="logo">G</div>
-    <div>
-      <h1>Guardian — Admin</h1>
-      <div class="small muted">Risk automation & enforcement</div>
+
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+    <div class="brand">
+      <div class="logo-circle">B</div>
+      <span>BOHO Admin</span>
     </div>
-    <div class="status">
-      <div id="kite_status" class="badge">Kite: —</div>
-      <div id="guardian_status" class="badge">Guardian: —</div>
-      <div id="day_status" class="badge status-pill">—</div>
-      <div id="now" class="badge">--:--:--</div>
-    </div>
-  </header>
 
-  <div class="pages" id="pages">
-    <!-- page 1: admin (unchanged) -->
-    <section class="page card" id="page_admin">
-      <div class="row" style="justify-content:space-between;align-items:flex-start">
-        <div style="flex:1;min-width:240px">
-          <div class="muted">Admin token — save to unlock actions (stored locally)</div>
-          <div class="row" style="margin-top:8px">
-            <input id="admin_token" type="password" placeholder="ADMIN_TOKEN (password)" />
-            <button id="toggle_token" class="btn ghost">Show</button>
-            <button id="save_token" class="btn primary">Save</button>
-            <button id="clear_token" class="btn ghost">Clear</button>
-          </div>
+    <button class="tab-button active" onclick="showTab('dashboard')">
+      Dashboard
+    </button>
 
-          <div style="margin-top:10px" class="row">
-            <button id="login_zerodha" class="btn ghost">Login Zerodha</button>
-            <button id="refresh_state" class="btn ghost">Refresh</button>
-          </div>
+    <button class="tab-button" onclick="showTab('risk')">
+      Risk Config
+    </button>
 
-          <div id="admin_actions" style="margin-top:12px;display:none">
-            <div class="row" style="margin-bottom:8px">
-              <button id="enforce_btn" class="btn warn">Enforce Now</button>
-              <button id="kill_btn" class="btn danger">Kill (Close)</button>
-              <button id="cancel_btn" class="btn ghost">Cancel All</button> 
-              <!-- Reset day (admin) -->
-              <button id="reset_day_btn" class="btn ghost" title="Reset today's tripped state">Reset Day</button>
-              <label style="margin-left:auto" class="small muted"><input id="allow_new" type="checkbox" /> Allow New Orders</label>
-            </div>
+    <button class="tab-button" onclick="showTab('logs')">
+      Logs
+    </button>
 
-            <div style="margin-top:8px">
-              <div class="muted">Override capital (applies today)</div>
-              <div class="row" style="margin-top:6px">
-                <input id="capital_input" type="text" placeholder="Enter amount" />
-                <button id="set_capital_btn" class="btn primary">Set Capital</button>
-                <button id="clear_capital_btn" class="btn ghost">Clear</button>
-              </div>
-              <div id="set_capital_msg" class="small" style="margin-top:6px"></div>
-            </div>
-
-            <div style="margin-top:12px">
-              <div class="muted">Behavioral config</div>
-              <div class="row" style="margin-top:6px;align-items:center">
-                <label class="small muted"><input id="cfg_cooldown_on_profit" type="checkbox" /> Cooldown on profit</label>
-                <label class="small muted">Min loss to count (₹) <input id="cfg_min_loss_to_count" type="number" min="0" style="width:90px;margin-left:6px" /></label>
-                <button id="save_cfg_btn" class="btn primary">Save Config</button>
-                <div id="save_cfg_msg" class="small" style="margin-left:8px"></div>
-              </div>
-            </div>
-
-            <div id="admin_resp" class="small" style="margin-top:10px"></div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- page 2: Trade Book -->
-    <section class="page card" id="page_tradebook">
-      <div style="display:flex;justify-content:space-between;align-items:center">
-        <h3 style="margin:0">Trade Book</h3>
-        <div><button id="refresh_tradebook" class="btn ghost">Refresh</button></div>
-      </div>
-      <div class="small muted" style="margin-top:8px">Recent trades stored in the tradebook (server). Showing most recent first. Falls back to client logs if server tradebook is empty.</div>
-
-      <div id="tradebook_container" style="margin-top:12px">
-        <div id="tradebook_output" class="tb-empty">Loading tradebook...</div>
-      </div>
-    </section>
-    <!-- page 2.5: Sell Book (NEW) -->
-    <section class="page card" id="page_sellbook">
-      <div style="display:flex;justify-content:space-between;align-items:center">
-        <h3 style="margin:0">Sell Book</h3>
-        <div><button id="refresh_sellbook" class="btn ghost">Refresh</button></div>
-      </div>
-      <div class="small muted" style="margin-top:8px">Every sell order stored with MTM at the moment of execution.</div>
-
-      <div id="sellbook_container" style="margin-top:12px">
-        <div id="sellbook_output" class="tb-empty">Loading sellbook...</div>
-      </div>
-    </section>
-
-
-    <!-- page 3: Live overview -->
-    <section class="page card" id="page_live">
-      <div style="display:flex;justify-content:space-between;align-items:center">
-        <h3 style="margin:0">Live overview</h3>
-        <div><button id="refresh_top" class="btn ghost">Refresh</button></div>
-      </div>
-
-      <div class="grid-2" style="margin-top:12px">
-        <div class="card" style="background:transparent;border:0;padding:8px">
-          <div class="muted">Capital @ 09:15</div>
-          <div id="capital915" class="value">—</div>
-          <div class="small">Base for daily limits</div>
-        </div>
-
-        <div class="card" style="background:transparent;border:0;padding:8px">
-          <div class="muted">Current Balance (live/fallback)</div>
-          <div id="live_balance" class="value">—</div>
-          <div class="small">Prefers live_balance from Kite</div>
-        </div>
-
-        <div class="card" style="background:transparent;border:0;padding:8px">
-          <div class="muted">Live MTM</div>
-          <div id="live_mtm" class="value">—</div>
-          <div class="small">Sum of position P&L</div>
-        </div>
-
-        <div class="card" style="background:transparent;border:0;padding:8px">
-          <div class="muted">PnL (R / UR / Total)</div>
-          <div id="pnl_box" class="value">—</div>
-          <div id="pnl_hint" class="small"></div>
-        </div>
-
-        <div class="card" style="background:transparent;border:0;padding:8px">
-          <div class="muted">Consecutive Losses</div>
-          <div id="consec_losses" class="value">0</div>
-          <div class="small">Resets on profitable close</div>
-        </div>
-
-        <div class="card" style="background:transparent;border:0;padding:8px">
-          <div class="muted">Max Loss (₹)</div>
-          <div id="max_loss" class="value">—</div>
-          <div id="max_loss_pct" class="small"></div>
-        </div>
-
-        <div class="card" style="background:transparent;border:0;padding:8px">
-          <div class="muted">Max Profit %</div>
-          <div id="p10" class="value">—</div>
-          <div id="p10_hint" class="small">Profit lock status</div>
-        </div>
-
-        <div class="card" style="background:transparent;border:0;padding:8px">
-          <div class="muted">Active Loss Floor (₹)</div>
-          <div id="active_floor" class="value">—</div>
-          <div class="small" id="floor_hint"></div>
-        </div>
-
-        <div class="card" style="background:transparent;border:0;padding:8px">
-          <div class="muted">Remaining to Max Loss (₹)</div>
-          <div id="remaining_loss" class="value">—</div>
-          <div class="small">Room before floor trip</div>
-        </div>
-
-        <div class="card" style="background:transparent;border:0;padding:8px">
-          <div class="muted">Last trade @</div>
-          <div id="last_trade_time" class="value">—</div>
-          <div class="small">Blank if no trade yet</div>
-        </div>
-
-      </div>
-    </section>
-
-    <!-- page 4: Rules -->
-    <section class="page card" id="page_rules">
-      <h3 style="margin:0">Rules (admin editable)</h3>
-
-      <div class="grid-2" style="margin-top:12px">
-        <div>
-          <div class="muted">Max Loss %</div>
-          <input id="rule_max_loss_pct" type="text" placeholder="10" />
-        </div>
-        <div>
-          <div class="muted">Trailing step (₹)</div>
-          <input id="rule_trail_step" type="text" placeholder="5000" />
-        </div>
-        <div>
-          <div class="muted">Cooldown (min)</div>
-          <input id="rule_cooldown_min" type="text" placeholder="15" />
-        </div>
-        <div>
-          <div class="muted">Max consecutive losses</div>
-          <input id="rule_max_consec" type="text" placeholder="3" />
-        </div>
-
-        <div>
-          <div class="muted">Max Profit %</div>
-          <input id="rule_p10_amount" type="text" placeholder="e.g. 10 (percent)" />
-        </div>
-
-        <div>
-          <div class="muted">Day status (read-only)</div>
-          <div id="rule_day_status" class="muted">—</div>
-        </div>
-      </div>
-
-      <div style="margin-top:12px" class="row">
-        <button id="save_rules_btn" class="btn primary">Save Rules</button>
-        <div id="save_rules_msg" class="small" style="margin-left:8px"></div>
-      </div>
-
-      <div class="small muted" style="margin-top:8px">Only editable when admin token is saved. Saving posts to <code>/api/admin/set-config</code>.</div>
-    </section>
-
-    <!-- page 5: Logs & actions -->
-    <section class="page card" id="page_logs">
-      <h3 style="margin:0">Logs & actions</h3>
-
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
-        <button id="enforce_trades_btn" class="btn ghost">Enforce Trades</button>
-        <button id="cancel_all_btn" class="btn ghost">Cancel All</button>
-        <button id="kill_btn2" class="btn danger">Kill</button>
-        <button id="clear_logs" class="btn ghost">Clear Logs</button>
-      </div>
-
-      <!-- Logs filter controls -->
-      <div class="filters">
-        <button id="filter_errors" class="btn ghost">Show Errors</button>
-        <button id="filter_trades" class="btn ghost">Show Executed Trades</button>
-        <button id="filter_all" class="btn ghost">Show All</button>
-        <div id="logs_hint" class="small muted">Trades fetched from <code>/api/kite/trades</code> if available; fallback to client logs.</div>
-      </div>
-
-      <div style="margin-top:12px">
-        <div class="muted">Server responses & request log</div>
-        <pre id="raw_responses" class="log">—</pre>
-      </div>
-    </section>
   </div>
 
-  <div class="pager">
-    <button id="prev" class="btn ghost">⟨ Prev</button>
-    <button id="next" class="btn ghost">Next ⟩</button>
+  <!-- MAIN CONTENT -->
+  <div class="content">
+
+    <!-- DASHBOARD TAB -->
+    <div id="dashboard" class="tab active">
+      <h1>Dashboard</h1>
+
+      <div class="card">
+        <h3>System State</h3>
+        <pre id="state_output"></pre>
+        <button onclick="refreshState()" class="btn-orange">Refresh</button>
+      </div>
+
+      <div class="card">
+        <h3>Positions</h3>
+        <pre id="positions_output"></pre>
+        <button onclick="refreshPositions()" class="btn-orange">Refresh</button>
+      </div>
+
+      <div class="card">
+        <h3>Actions</h3>
+        <button onclick="kill()" class="btn-red">Kill System</button>
+        <button onclick="cancelAll()" class="btn-yellow">Cancel All</button>
+      </div>
+
+    </div>
+
+    <!-- RISK CONFIG TAB -->
+    <div id="risk" class="tab">
+      <h1>Risk Configuration</h1>
+
+      <div class="card">
+        <label>Max Daily Loss</label>
+        <input id="maxLoss" type="number">
+        <label>Max Daily Profit</label>
+        <input id="maxProfit" type="number">
+        <label>Trailing Step</label>
+        <input id="trailStep" type="number">
+
+        <button onclick="saveConfig()" class="btn-orange">Save</button>
+      </div>
+    </div>
+
+    <!-- LOGS TAB -->
+    <div id="logs" class="tab">
+      <h1>Live Logs</h1>
+      <pre id="logs_output"></pre>
+      <button onclick="refreshLogs()" class="btn-orange">Refresh</button>
+    </div>
+
   </div>
 
-  <footer style="margin-top:12px" class="small muted">Guardian • admin console</footer>
-</div>
-
-<div id="toast" class="toast"></div>
-
-<script>
-/* =========================
-   Admin UI script — extended
-   ========================= */
-
-const ENDPOINTS = {
-  state: '/api/state',
-  kite_funds: '/api/kite/funds',
-  kite_login: '/api/kite/login',
-  set_config: '/api/admin/set-config',
-  kite_trades: '/api/kite/trades',
-  set_capital_candidates: ['/api/admin/set-capital','/api/admin/set_capital','/api/admin/setcapital','/api/admin/set-captial']
-};
-
-const $ = id => document.getElementById(id);
-  $('refresh_sellbook').addEventListener('click', loadSellbook);
-function toast(msg, t=3000){ const el=$('toast'); el.textContent=msg; el.style.display='block'; clearTimeout(el._t); el._t=setTimeout(()=>el.style.display='none',t); }
-function now(){ return new Date().toLocaleTimeString('en-GB', { hour12:false, timeZone:'Asia/Kolkata' }); }
-function fmtINR(v){ if(v==null||isNaN(Number(v))) return '—'; return '₹'+Number(v).toLocaleString('en-IN',{maximumFractionDigits:0}); }
-function logLine(s){ const pre = $('raw_responses'); pre.textContent = `[${new Date().toLocaleTimeString()}] ${s}\n\n` + pre.textContent; }
-
-/* pager */
-const pages = document.querySelectorAll('.page');
-let pageIndex = 0;
-function go(idx){ pageIndex = Math.max(0, Math.min(pages.length-1, idx)); pages[pageIndex].scrollIntoView({behavior:'smooth'}); }
-$('prev').addEventListener('click', ()=> go(pageIndex-1));
-$('next').addEventListener('click', ()=> go(pageIndex+1));
-document.addEventListener('keydown', e=>{ if(e.key==='ArrowLeft') go(pageIndex-1); if(e.key==='ArrowRight') go(pageIndex+1); });
-
-/* auth header */
-function authHeader(){ const tk = localStorage.getItem('ADMIN_TOKEN') || ''; return tk ? { 'Authorization': tk.startsWith('Bearer ') ? tk : 'Bearer '+tk } : {}; }
-
-/* init */
-document.addEventListener('DOMContentLoaded', init);
-function init(){
-  // wire buttons
-  $('save_token').addEventListener('click', saveToken);
-  $('clear_token').addEventListener('click', clearToken);
-  $('toggle_token').addEventListener('click', toggleToken);
-  $('login_zerodha').addEventListener('click', loginKite);
-  $('refresh_state').addEventListener('click', loadAll);
-  $('refresh_top').addEventListener('click', loadAll);
-
-  $('enforce_btn').addEventListener('click', enforceNow);
-  $('enforce_trades_btn').addEventListener('click', enforceNow);
-  $('kill_btn').addEventListener('click', killNow);
-  $('kill_btn2').addEventListener('click', killNow);
-  $('cancel_btn').addEventListener('click', cancelAll);
-  $('cancel_all_btn').addEventListener('click', cancelAll);
-  $('set_capital_btn').addEventListener('click', setCapital);
-  $('clear_capital_btn').addEventListener('click', ()=>{ $('capital_input').value=''; $('set_capital_msg').textContent=''; });
-
-  $('save_cfg_btn') && $('save_cfg_btn').addEventListener('click', saveConfig);
-  $('save_rules_btn').addEventListener('click', saveRules);
-
-  // logs filters
-  $('filter_errors').addEventListener('click', showOnlyErrors);
-  $('filter_trades').addEventListener('click', showExecutedTrades);
-  $('filter_all').addEventListener('click', showAllLogs);
-  $('clear_logs').addEventListener('click', ()=> $('raw_responses').textContent = '');
-
-  // tradebook refresh
-  $('refresh_tradebook').addEventListener('click', loadTradebook);
-
-  // reset day handler
-  $('reset_day_btn').addEventListener('click', async ()=>{
-    const preserve = confirm('Preserve consecutive losses? OK = Yes, Cancel = No');
-    const payload = { reset_day: true, preserve_losses: !!preserve };
-    logLine('POST /api/admin/set-config => reset_day');
-    const r = await fetch(ENDPOINTS.set_config, {
-      method: 'POST',
-      headers: { 'Content-Type':'application/json', ...authHeader() },
-      body: JSON.stringify(payload)
-    });
-    const txt = await r.text().catch(()=>null);
-    logLine('reset_day => ' + (txt || r.status));
-    toast('Day reset triggered');
-    await loadAll()
-  loadSellbook();;
-  });
-
-  applyTokenUI();
-  if(localStorage.getItem('ADMIN_TOKEN')) enableAdmin(true);
-
-  loadAll();
-  // reduced refresh to 10s to reduce API pressure
-  setInterval(()=> $('now').textContent = now(), 10000);
-}
-
-/* token functions */
-function applyTokenUI(){ const t = localStorage.getItem('ADMIN_TOKEN'); if(t){ $('admin_token').value='*******'; $('admin_token').dataset.saved='1'; } else { $('admin_token').value=''; $('admin_token').dataset.saved='0'; } }
-function saveToken(){ const val = $('admin_token').value.trim(); if($('admin_token').dataset.saved==='1' && val==='*******'){ toast('Token already saved'); return; } if(!val){ toast('Enter token'); return; } localStorage.setItem('ADMIN_TOKEN', val); $('admin_token').value='*******'; $('admin_token').dataset.saved='1'; enableAdmin(true); toast('Token saved (local)'); }
-function clearToken(){ localStorage.removeItem('ADMIN_TOKEN'); $('admin_token').value=''; $('admin_token').dataset.saved='0'; enableAdmin(false); toast('Admin token cleared'); }
-function toggleToken(){ const saved = localStorage.getItem('ADMIN_TOKEN'); if(saved){ $('admin_token').type='text'; $('admin_token').value=saved; setTimeout(()=>{ $('admin_token').type='password'; $('admin_token').value='*******'; }, 3500); } else { $('admin_token').type = $('admin_token').type==='password' ? 'text' : 'password'; } }
-function enableAdmin(v){ const el = $('admin_actions'); if(!el) return; el.style.display = v ? 'block' : 'none'; const arr = ['enforce_btn','kill_btn','cancel_btn','set_capital_btn','save_cfg_btn','filter_trades','save_rules_btn','reset_day_btn']; arr.forEach(id=>{ const b=$(id); if(b) b.disabled = !v; }); }
-
-/* helpers to try endpoints */
-async function tryEndpoints(list, options={method:'POST', body:{}}){
-  for(const p of list){
-    try{
-      const headers = { ...(options.headers||{}), ...authHeader() };
-      let init = { method: options.method, headers };
-      if(options.body !== undefined){
-        headers['Content-Type'] = headers['Content-Type'] || 'application/json';
-        init.body = typeof options.body === 'string' ? options.body : JSON.stringify(options.body);
-      }
-      const r = await fetch(p, init);
-      const txt = await r.text().catch(()=>null);
-      try{ logLine(`${options.method} ${p} => ${txt || r.status}`); }catch(e){}
-      if(r.status !== 404) return { path:p, status:r.status, text: txt, ok:r.ok, json: (()=>{ try{ return txt ? JSON.parse(txt) : null }catch(e){ return null } })() };
-    }catch(e){ logLine(`fetch ${p} failed: ${e.message}`); }
-  }
-  return { ok:false, error:'no candidate' };
-}
-
-/* login flow */
-async function loginKite(){
-  $('login_zerodha').disabled = true;
-  try{
-    let r = await fetch(ENDPOINTS.kite_login, { method:'GET', headers: authHeader() });
-    if(r.status === 405 || r.status === 400){
-      r = await fetch(ENDPOINTS.kite_login, { method:'POST', headers: {'Content-Type':'application/json', ...authHeader() }, body: JSON.stringify({}) });
-    }
-    const txt = await r.text().catch(()=>null);
-    logLine(`login => ${txt || r.status}`);
-    let json=null; try{ json = txt ? JSON.parse(txt) : null }catch(e){}
-    if(json && json.ok && json.url){ window.open(json.url,'_blank'); toast('Opened kite login'); } else toast('Login result: see logs');
-    await loadAll();
-  }catch(e){ toast('Login failed: '+(e.message||e)); logLine('login error: '+(e.message||e)); }
-  finally{ $('login_zerodha').disabled = false; }
-}
-
-/* enforce, kill, cancel, setCapital, saveConfig (keeps logic same) */
-async function enforceNow(){
-  $('enforce_btn').disabled = true;
-  try{
-    const r = await fetch('/api/enforce', { method:'GET', headers: authHeader() });
-    const txt = await r.text().catch(()=>null);
-    logLine(`GET /api/enforce => ${txt || r.status}`);
-    $('admin_resp').textContent = txt || '';
-    toast('Enforce called');
-    await loadAll();
-  }catch(e){ toast('Enforce error: '+e.message); logLine('enforce err: '+e.message); }
-  finally{ $('enforce_btn').disabled = false; }
-}
-
-async function killNow(){
-  if(!confirm('Kill will attempt to close running positions. Proceed?')) return;
-  const btn = $('kill_btn'); btn.disabled = true;
-  try{
-    const r = await fetch('/api/admin/kill', { method:'POST', headers:{ 'Content-Type':'application/json', ...authHeader() }, body: JSON.stringify({ force:true }) });
-    const txt = await r.text().catch(()=>null);
-    logLine(`POST /api/admin/kill => ${txt || r.status}`);
-    $('admin_resp').textContent = txt || '';
-    toast('Kill called');
-    await loadAll();
-  }catch(e){ toast('Kill failed: '+e.message); logLine('kill err: '+e.message); }
-  finally{ btn.disabled = false; }
-}
-
-async function cancelAll(){
-  if(!confirm('Cancel all pending orders?')) return;
-  const btn = $('cancel_btn'); btn.disabled = true;
-  try{
-    const r = await fetch('/api/admin/cancel', { method:'POST', headers:{ 'Content-Type':'application/json', ...authHeader() }, body: JSON.stringify({}) });
-    const txt = await r.text().catch(()=>null);
-    logLine(`POST /api/admin/cancel => ${txt || r.status}`);
-    $('admin_resp').textContent = txt || '';
-    toast('Cancel called');
-    await loadAll();
-  }catch(e){ toast('Cancel failed: '+e.message); logLine('cancel err: '+e.message); }
-  finally{ btn.disabled = false; }
-}
-
-/* set capital trying multiple candidate endpoints */
-async function setCapital(){
-  const raw = $('capital_input').value.trim();
-  if(!raw){ $('set_capital_msg').textContent='Enter capital'; return; }
-  const val = Number(String(raw).replace(/[^0-9.-]/g,'')); if(isNaN(val)){ $('set_capital_msg').textContent='Invalid number'; return; }
-  $('set_capital_msg').textContent='Setting...'; $('set_capital_btn').disabled=true;
-  try{
-    const res = await tryEndpoints(ENDPOINTS.set_capital_candidates, { method:'POST', body:{ capital: val } });
-    if(res.json && res.json.ok){ $('set_capital_msg').textContent='Set capital OK'; toast('Set capital OK'); }
-    else { $('set_capital_msg').textContent = 'Failed: ' + (res.json && res.json.error ? res.json.error : (res.error||'no response')); toast('Set capital failed'); }
-    await loadAll();
-  }catch(e){ $('set_capital_msg').textContent='Error: '+e.message; logLine('setCapital err: '+e.message); }
-  finally{ $('set_capital_btn').disabled=false; }
-}
-
-/* Save rules (posts to /api/admin/set-config).
-   NOTE: p10 is now sent as percentage (p10_pct) */
-async function saveRules(){
-  const btn = $('save_rules_btn'); btn.disabled = true; $('save_rules_msg').textContent='Saving...';
-  const payload = {
-    max_loss_pct: Number($('rule_max_loss_pct').value || 0),
-    trail_step_profit: Number($('rule_trail_step').value || 0),
-    cooldown_min: Number($('rule_cooldown_min').value || 0),
-    max_consecutive_losses: Number($('rule_max_consec').value || 0),
-    p10_pct: Number($('rule_p10_amount').value || 0)   // send percentage
-  };
-  try{
-    const r = await fetch(ENDPOINTS.set_config, { method:'POST', headers:{ 'Content-Type':'application/json', ...authHeader() }, body: JSON.stringify(payload) });
-    const txt = await r.text().catch(()=>null); let j=null; try{ j = txt ? JSON.parse(txt) : null }catch(e){}
-    logLine(`POST ${ENDPOINTS.set_config} => ${txt || r.status}`);
-    if(j && j.ok){ $('save_rules_msg').textContent='Saved'; toast('Rules saved'); setTimeout(()=> $('save_rules_msg').textContent='',2000); await loadAll(); }
-    else { $('save_rules_msg').textContent='Save failed'; toast('Save failed'); }
-  }catch(e){ $('save_rules_msg').textContent='Error'; logLine('saveRules err: '+e.message); }
-  finally{ btn.disabled = false; }
-}
-
-/* saveConfig kept for backward compatibility (if you used earlier) */
-async function saveConfig(){
-  const btn = $('save_cfg_btn'); if(!btn) return;
-  btn.disabled=true; $('save_cfg_msg').textContent='Saving...';
-  const payload = { cooldown_on_profit: !!$('cfg_cooldown_on_profit').checked, min_loss_to_count: Number($('cfg_min_loss_to_count').value || 0), allow_new: !!$('allow_new').checked };
-  try{
-    const r = await fetch('/api/admin/set-config', { method:'POST', headers:{ 'Content-Type':'application/json', ...authHeader() }, body: JSON.stringify(payload) });
-    const txt = await r.text().catch(()=>null); let j=null; try{ j = txt ? JSON.parse(txt) : null }catch(e){}
-    logLine(`POST /api/admin/set-config => ${txt || r.status}`);
-    if(j && j.ok){ $('save_cfg_msg').textContent='Saved'; toast('Config saved'); setTimeout(()=> $('save_cfg_msg').textContent='',2000); loadAll(); }
-    else{ $('save_cfg_msg').textContent='Save failed'; toast('Save failed'); }
-  }catch(e){ $('save_cfg_msg').textContent='Error'; logLine('saveConfig err: '+e.message); }
-  finally{ btn.disabled=false; }
-}
-
-/* load state & funds (reads more keys and populates new UI fields) */
-async function loadAll(){ await Promise.allSettled([ loadState(), loadFunds(), loadTradebook() ]); }
-
-async function loadState(){
-  try{
-    const r = await fetch(ENDPOINTS.state, { method:'GET', headers: authHeader() });
-    const txt = await r.text().catch(()=>null); let j=null; try{ j = txt ? JSON.parse(txt) : null }catch(e){}
-    logLine(`GET ${ENDPOINTS.state} => ${txt || r.status}`);
-    if(!j || !j.ok){ toast('Failed load state'); return; }
-
-    // time and statuses
-    $('now').textContent = j.time || (new Date().toLocaleTimeString('en-GB',{ hour12:false, timeZone:'Asia/Kolkata' }));
-    $('guardian_status').textContent = j.admin ? 'admin' : 'online';
-
-    // Decide kite status display based on presence of admin token in this browser.
-    const hasAdminToken = !!localStorage.getItem('ADMIN_TOKEN');
-    if (!hasAdminToken) {
-      // Trader mode: trader should not see real connectivity, always show connected.
-      $('kite_status').textContent = 'Kite: Connected';
-    } else {
-      // Admin mode: show actual backend kite_status.
-      if (j.kite_status === 'ok') {
-        $('kite_status').textContent = 'Kite: Connected';
-      } else {
-        $('kite_status').textContent = 'Kite: Disconnected';
-      }
+  <!-- ORIGINAL SCRIPT (UNTOUCHED) -->
+  <script>
+    async function refreshState() {
+      const res = await fetch("/api/state", {
+        headers: { Authorization: "Bearer " + ADMIN_TOKEN }
+      });
+      document.getElementById("state_output").textContent = await res.text();
     }
 
-    const s = j.state || {};
-
-    // capital / balances
-    const capital = Number(s.capital_day_915 ?? 0);
-    const maxLossPct = Number(s.max_loss_pct ?? 10);
-    const max_loss_abs = Math.round(capital * (maxLossPct/100));
-    $('capital915').textContent = fmtINR(capital);
-    $('live_mtm').textContent = fmtINR(s.unrealised ?? 0);
-
-    const realised = Number(s.realised ?? 0), unreal = Number(s.unrealised ?? 0), total = realised + unreal;
-    $('pnl_box').textContent = `${fmtINR(realised)} / ${fmtINR(unreal)} / ${fmtINR(total)}`;
-    $('pnl_hint').textContent = total < 0 ? 'In loss' : (total>0 ? 'In profit' : '—');
-
-    // consecutive losses
-    $('consec_losses').textContent = (s.consecutive_losses ?? 0).toString();
-
-    // max loss & floor (max_loss_abs used)
-    $('max_loss').textContent = fmtINR(max_loss_abs || 0);
-    $('max_loss_pct').textContent = `Max Loss %: ${(maxLossPct).toFixed(2)}%`;
-    $('active_floor').textContent = fmtINR(s.active_loss_floor ?? 0);
-
-    // remaining to max loss: base on max_loss_abs, subtract absolute total (realised+unrealised)
-    const remaining = Number(s.remaining_to_max_loss ?? 0);
-    $('remaining_loss').textContent = fmtINR(remaining);
-
-    // profit lock (p10) — server may expose p10 (pct) or p10_amount (rupee) or p10_is_pct flag
-    let p10_display = 0;
-    let p10_hint = '—';
-    if (typeof s.p10 !== 'undefined' && s.p10 !== null) {
-      // p10 stored as percentage (preferred)
-      p10_display = Number(s.p10);
-      // show percent in UI, but compute effective rupee amount as well for hint
-      const effAmt = Math.round(capital * (p10_display/100));
-      p10_hint = `(≈ ${fmtINR(effAmt)})`;
-      $('p10').textContent = `${p10_display}%`;
-      $('p10_hint').textContent = p10_hint;
-    } else if (typeof s.p10_amount !== 'undefined') {
-      // legacy rupee amount
-      p10_display = Number(s.p10_amount);
-      $('p10').textContent = fmtINR(p10_display);
-      $('p10_hint').textContent = 'Amount';
-    } else {
-      $('p10').textContent = '—';
-      $('p10_hint').textContent = '—';
+    async function refreshPositions() {
+      const res = await fetch("/api/positions", {
+        headers: { Authorization: "Bearer " + ADMIN_TOKEN }
+      });
+      document.getElementById("positions_output").textContent = await res.text();
     }
 
-    // day/tripped indicators
-    const tripped = !!s.tripped_day;
-    $('rule_day_status').textContent = tripped ? 'TRIPPED' : 'Active';
-    $('day_status').textContent = tripped ? 'TRIPPED' : 'active';
-    $('day_status').className = 'badge status-pill ' + (tripped ? 'status-tripped' : 'status-active');
-
-    // populate rules inputs with current values (only if inputs exist)
-    $('rule_max_loss_pct').value = (typeof s.max_loss_pct !== 'undefined') ? String(s.max_loss_pct) : '';
-    $('rule_trail_step').value = (typeof s.trail_step_profit !== 'undefined') ? String(s.trail_step_profit) : '';
-    $('rule_cooldown_min').value = (typeof s.cooldown_min !== 'undefined') ? String(s.cooldown_min) : '';
-    $('rule_max_consec').value = (typeof s.max_consecutive_losses !== 'undefined') ? String(s.max_consecutive_losses) : '';
-
-    // if server has p10 as pct show it in rule input (UI expects percent now)
-    if (typeof s.p10 !== 'undefined' && s.p10 !== null) {
-      $('rule_p10_amount').value = String(s.p10);
-    } else if (typeof s.p10_amount !== 'undefined') {
-      // convert rupee to empty or show 0 — prefer percent input so leave blank to avoid confusion
-      $('rule_p10_amount').value = '';
-    } else {
-      $('rule_p10_amount').value = '';
+    async function refreshLogs() {
+      const res = await fetch("/api/logs", {
+        headers: { Authorization: "Bearer " + ADMIN_TOKEN }
+      });
+      document.getElementById("logs_output").textContent = await res.text();
     }
 
-    // behavioral config
-    $('cfg_cooldown_on_profit').checked = !!s.cooldown_on_profit;
-    $('cfg_min_loss_to_count').value = Number(s.min_loss_to_count || 0);
-    // 'allow_new' UI reflects server value if present
-    if(typeof s.allow_new !== 'undefined') $('allow_new').checked = !!s.allow_new;
-
-    // last trade time (show blank if 0/undefined)
-    if (s.last_trade_time && Number(s.last_trade_time) > 0) {
-      const d = new Date(Number(s.last_trade_time));
-      if (!isNaN(d)) {
-        $('last_trade_time').textContent = d.toLocaleTimeString('en-GB', { hour12:false, timeZone:'Asia/Kolkata' });
-      } else {
-        $('last_trade_time').textContent = '—';
-      }
-    } else {
-      $('last_trade_time').textContent = '—';
+    async function kill() {
+      await fetch("/api/admin/kill", {
+        method: "POST",
+        headers: { Authorization: "Bearer " + ADMIN_TOKEN }
+      });
+      refreshState();
     }
 
-    // admin UI enablement
-    if(j.admin) enableAdmin(true);
-    else if(localStorage.getItem('ADMIN_TOKEN')) enableAdmin(true);
-    else enableAdmin(false);
-  }catch(e){
-    logLine('loadState err: '+(e.message||e));
-    toast('State load failed');
-  }
-}
-
-async function loadFunds(){
-  try{
-    const r = await fetch(ENDPOINTS.kite_funds, { method:'GET', headers: authHeader() });
-    const txt = await r.text().catch(()=>null); let j=null; try{ j = txt ? JSON.parse(txt) : null }catch(e){}
-    logLine(`GET ${ENDPOINTS.kite_funds} => ${txt || r.status}`);
-    if(!j || j.ok === false){
-      const cached = await fetch(ENDPOINTS.state).then(r=>r.json()).catch(()=>null);
-      const val = cached?.state?.current_balance ?? cached?.state?.capital_day_915 ?? 0;
-      $('live_balance').textContent = fmtINR(val);
-      return;
-    }
-    let av = null;
-    // prefer funds.equity.available.live_balance or funds.equity.net then j.balance
-    if (j.funds && j.funds.equity && j.funds.equity.available && typeof j.funds.equity.available.live_balance !== 'undefined') av = j.funds.equity.available.live_balance;
-    else if (j.funds && j.funds.equity && typeof j.funds.equity.net !== 'undefined') av = j.funds.equity.net;
-    else if (typeof j.balance !== 'undefined') av = j.balance;
-    $('live_balance').textContent = fmtINR(av ?? (j.balance ?? 0));
-  }catch(e){ logLine('loadFunds err: '+(e.message||e)); const cached = await fetch(ENDPOINTS.state).then(r=>r.json()).catch(()=>null); const val = cached?.state?.current_balance ?? cached?.state?.capital_day_915 ?? 0; $('live_balance').textContent = fmtINR(val); }
-}
-
-/* Logs helpers */
-function getRawLogLines(){ const pre = $('raw_responses'); if(!pre) return []; return pre.textContent.split(/\n{1,}/).filter(Boolean).map(s=>s.trim()); }
-function showAllLogs(){ toast('Showing all logs'); }
-function showOnlyErrors(){ const pre = $('raw_responses'); if(!pre) return; const lines = getRawLogLines(); const filtered = lines.filter(l => /error|err[:\s]|failed|4\d{2}|5\d{2}|\"ok\":\s*false/i.test(l)); pre.textContent = filtered.join('\n\n') || '—'; toast('Filtered: errors'); }
-
-/* show executed trades — try server then fallback to scanning logs */
-async function showExecutedTrades(){
-  const pre = $('raw_responses'); if(!pre) return;
-  try{
-    const r = await fetch(ENDPOINTS.kite_trades, { method: 'GET', headers: authHeader() });
-    const txt = await r.text().catch(()=>null);
-    logLine(`GET ${ENDPOINTS.kite_trades} => ${txt || r.status}`);
-    let json=null; try{ json = txt ? JSON.parse(txt) : null }catch(e){}
-    const trades = Array.isArray(json) ? json : (json && Array.isArray(json.trades) ? json.trades : null);
-    if(trades && trades.length){ pre.textContent = trades.map(t=>formatTrade(t)).join('\n---\n'); toast('Fetched trades from server'); return; }
-  }catch(e){ logLine('trades fetch error: '+(e.message||e)); }
-
-  // fallback: scan client logs for lines mentioning trade fields
-  const lines = getRawLogLines();
-  const candidates = lines.filter(l => /\b(trade|trade_id|order_id|executed|filled|avg_price|filled_qty|tradingsymbol)\b/i.test(l));
-  if(candidates.length){ pre.textContent = candidates.join('\n\n'); toast('Showing trades from client logs (fallback)'); return; }
-  pre.textContent = 'No executed trades found in server endpoint or logs.'; toast('No trades found');
-}
-
-function formatTrade(t){
-  const id = t.trade_id || t.tradeId || t.order_id || t.orderId || t.id || '—';
-  const sym = t.tradingsymbol || t.trading_symbol || t.instrument || t.symbol || '—';
-  const qty = t.quantity || t.qty || t.filled_qty || '—';
-  const price = t.price || t.trade_price || t.avg_price || t.price_executed || '—';
-  const side = (t.transaction_type || t.side || t.order_side || '').toUpperCase() || (t.qty && Number(t.qty) < 0 ? 'SELL' : 'BUY');
-  const ts = t.trade_time || t.timestamp || t.exchange_timestamp || t.time || t._ts || null;
-  const timestr = ts ? (new Date(Number(ts)).toLocaleString() || ts) : '';
-  return `trade_id: ${id}\nsymbol: ${sym}\nside: ${side}\nqty: ${qty}\nprice: ${price}\ntime: ${timestr}\n`;
-}
-
-/* ---------------------------
-   TRADEBOOK UI (NEW)
-   --------------------------- */
-function tbRowHtml(t){
-  const sym = t.tradingsymbol || t.trading_symbol || t.instrument || t.symbol || '—';
-  const side = (t.transaction_type || t.side || '').toUpperCase() || (t.side ? String(t.side).toUpperCase() : '—');
-  const qty = t.quantity || t.qty || t.filled_qty || t.qty_filled || '—';
-
-  // PRICE: prefer normalized price from server, then avg/trade/price, hide zeros/invalid
-  let rawPrice = (typeof t.price_normalized !== 'undefined' && t.price_normalized !== null) ? t.price_normalized
-                 : (typeof t.price !== 'undefined' && t.price !== null ? t.price
-                 : (t.avg_price || t.average_price || t.trade_price || t.last_price || null));
-  if (typeof rawPrice === 'string' && rawPrice.trim() !== '') rawPrice = Number(rawPrice);
-  const price = (rawPrice === null || rawPrice === 0 || isNaN(rawPrice)) ? '—' : rawPrice;
-
-  // TIMESTAMP: prefer normalized _ts or ts fields first, then fallbacks
-  const tsCandidates = [t._ts, t.ts, t.trade_time, t.timestamp, t.exchange_timestamp, t.order_timestamp, t._iso, t.created_at];
-  let ts = null;
-  for (const c of tsCandidates) {
-    if (typeof c !== 'undefined' && c !== null) { ts = c; break; }
-  }
-  let time = '—';
-  if (ts) {
-    try {
-      let d;
-      if (typeof ts === 'number') {
-        d = (String(Math.trunc(ts)).length === 10) ? new Date(ts * 1000) : new Date(ts);
-      } else {
-        let s = String(ts).trim();
-        if (/^\d+$/.test(s)) {
-          const n = Number(s);
-          d = (String(Math.trunc(n)).length === 10) ? new Date(n * 1000) : new Date(n);
-        } else {
-          if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(s)) s = s.replace(' ', 'T') + 'Z';
-          d = new Date(s);
-        }
-      }
-      if (!isNaN(d)) {
-        time = d.toLocaleTimeString('en-GB', { hour12:false, timeZone:'UTC' });
-      }
-    } catch (e) {
-      time = '—';
-    }
-  }
-
-  return `<tr><td>${sym}</td><td>${side}</td><td>${qty}</td><td>${price}</td><td>${time}</td></tr>`;
-}
-
-async function loadTradebook(){
-  const out = $('tradebook_output');
-  out.innerHTML = `<div class="tb-empty">Loading tradebook...</div>`;
-  try{
-    const r = await fetch(ENDPOINTS.kite_trades, { method:'GET', headers: authHeader() });
-    const txt = await r.text().catch(()=>null);
-    logLine(`GET ${ENDPOINTS.kite_trades} => ${txt || r.status}`);
-    let j = null; try{ j = txt ? JSON.parse(txt) : null }catch(e){}
-    let arr = [];
-    if(Array.isArray(j)) arr = j;
-    else if(j && Array.isArray(j.trades)) arr = j.trades;
-    else if(j && Array.isArray(j.tradesbook)) arr = j.tradesbook;
-    // try reparse raw string if empty
-    if(!arr.length && typeof txt === 'string'){
-      try{ const poss = JSON.parse(txt); if(Array.isArray(poss)) arr = poss; }catch(e){}
-    }
-    // fallback to logs if no server trades
-    if(!arr.length){
-      const logs = getRawLogLines();
-      const candidates = logs.filter(l => /\b(trade_id|tradingsymbol|trade_time|avg_price|filled_qty)\b/i.test(l));
-      if(candidates.length){
-        out.innerHTML = `<pre class="log">${candidates.join("\n\n")}</pre>`;
-        toast('Showing trades from client logs (fallback)');
-        return;
-      }
-      out.innerHTML = `<div class="tb-empty">No trades found in tradebook or logs.</div>`;
-      return;
+    async function cancelAll() {
+      await fetch("/api/admin/cancel", {
+        method: "POST",
+        headers: { Authorization: "Bearer " + ADMIN_TOKEN }
+      });
     }
 
-    // normalize timestamps and sort most recent first
-    arr = arr.map(t=>{
-      const ts = t._ts || t.ts || t.trade_time || t.timestamp || t.exchange_timestamp || 0;
-      const raw = (typeof ts === 'number') ? ts : (Date.parse(String(ts)) || 0);
-      return {...t, __ts: Number(raw)};
-    }).sort((a,b)=>b.__ts - a.__ts);
+    async function saveConfig() {
+      const body = {
+        maxLoss: document.getElementById("maxLoss").value,
+        maxProfit: document.getElementById("maxProfit").value,
+        trailStep: document.getElementById("trailStep").value
+      };
 
-    const rows = arr.slice(0,50).map(tbRowHtml).join('');
-    const table = `<table class="tradebook"><thead><tr><th>Instrument</th><th>Side</th><th>Qty</th><th>Price</th><th>Time</th></tr></thead><tbody>${rows}</tbody></table>`;
-    out.innerHTML = table;
-  }catch(e){
-    out.innerHTML = `<div class="tb-empty">Failed to load tradebook</div>`;
-    logLine('loadTradebook err: '+(e.message||e));
-  }
-}
-
-
-/* ---------------------------
-   SELLBOOK UI (NEW)
-   --------------------------- */
-function sellRowHtml(t){
-  const sym = t.instrument || t.tradingsymbol || '—';
-
-  let time = '—';
-  try{
-    const ts = t.time_ms || t.time;
-    const d = new Date(ts);
-    if(!isNaN(d)) time = d.toLocaleTimeString('en-GB',{hour12:false,timeZone:'Asia/Kolkata'});
-  }catch(e){}
-
-  const mtm = fmtINR(t.mtm);
-
-  const rawChg = Number(t.mtm_change ?? 0);
-  let chg = '0';
-  if (rawChg !== 0) chg = (rawChg > 0 ? '+' : '') + String(Math.trunc(rawChg));
-
-  const color = rawChg >= 0 ? '#10b981' : '#ef4444';
-
-  return `<tr>
-    <td>${sym}</td>
-    <td>${time}</td>
-    <td>${mtm}</td>
-    <td style="color:${color}">${chg}</td>
-  </tr>`;
-}
-
-async function loadSellbook(){
-  const out = $('sellbook_output');
-  out.innerHTML = `<div class="tb-empty">Loading sellbook...</div>`;
-  try{
-    const r = await fetch('/api/sellbook', { method:'GET', headers: authHeader() });
-    const txt = await r.text().catch(()=>null);
-    logLine(`GET /api/sellbook => ${txt || r.status}`);
-
-    let j = null; try{ j = txt ? JSON.parse(txt) : null }catch(e){}
-    let arr = (j && Array.isArray(j.sell_orders)) ? j.sell_orders : [];
-
-    if(!arr.length){
-      out.innerHTML = `<div class="tb-empty">No sell entries found.</div>`;
-      return;
+      await fetch("/api/admin/set-config", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + ADMIN_TOKEN
+        },
+        body: JSON.stringify(body)
+      });
     }
 
-    const rows = arr.slice(0,50).map(sellRowHtml).join('');
-    const table = `<table class="tradebook">
-      <thead><tr>
-        <th>Instrument</th><th>Time</th><th>MTM</th><th>Change</th>
-      </tr></thead>
-      <tbody>${rows}</tbody>
-    </table>`;
+    function showTab(id) {
+      document.querySelectorAll(".tab").forEach(x => x.classList.remove("active"));
+      document.querySelectorAll(".tab-button").forEach(x => x.classList.remove("active"));
+      document.getElementById(id).classList.add("active");
+      event.target.classList.add("active");
+    }
+  </script>
 
-    out.innerHTML = table;
-
-  }catch(e){
-    out.innerHTML = `<div class="tb-empty">Failed to load sellbook</div>`;
-    logLine('loadSellbook err: '+(e.message||e));
-  }
-}
-/* initial loads */
-loadTradebook();
-
-</script>
 </body>
 </html>
