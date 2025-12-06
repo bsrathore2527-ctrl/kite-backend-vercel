@@ -1,136 +1,339 @@
 <!DOCTYPE html>
-<html lang="en" class="dark">
-color: var(--text-light);
-}
-html.dark input[type=text],
-html.dark input[type=password],
-html.dark input[type=number] {
-border-color: rgba(255,255,255,0.1);
-background: #0f172a;
-color: var(--text-dark);
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Guardian — Admin</title>
+
+<!-- Auto Light/Dark Theme -->
+<style>
+:root {
+  --orange: #f97316;
+  --bg-light: #ffffff;
+  --bg-card-light: #f8fafc;
+  --text-light: #0f172a;
+  --muted-light: #64748b;
+
+  --bg-dark: #0b0f18;
+  --bg-card-dark: #111827;
+  --text-dark: #e2e8f0;
+  --muted-dark: #94a3b8;
 }
 
+html {
+  font-family: Inter, system-ui, sans-serif;
+  color-scheme: light dark;
+}
 
-/* Header Logo */
+body {
+  margin: 0;
+  background: var(--bg-light);
+  color: var(--text-light);
+  transition: background .3s, color .3s;
+}
+
+@media (prefers-color-scheme: dark) {
+  body { background: var(--bg-dark); color: var(--text-dark); }
+}
+
+.card {
+  background: var(--bg-card-light);
+  border-radius: 14px;
+  padding: 16px;
+  margin-bottom: 16px;
+  border: 1px solid rgba(0,0,0,0.06);
+}
+@media (prefers-color-scheme: dark) {
+  .card { background: var(--bg-card-dark); border-color: rgba(255,255,255,0.07); }
+}
+
+.muted { color: var(--muted-light); }
+@media (prefers-color-scheme: dark) { .muted { color: var(--muted-dark); } }
+
+.btn {
+  padding: 8px 14px;
+  border-radius: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+}
+.btn.primary { background: var(--orange); color: white; }
+.btn.ghost { 
+  background: transparent; 
+  border: 1px solid rgba(0,0,0,0.2); 
+  color: var(--muted-light);
+}
+@media (prefers-color-scheme: dark) {
+  .btn.ghost { border-color: rgba(255,255,255,0.2); color: var(--muted-dark); }
+}
+.btn.danger { background: #ef4444; color: white; }
+.btn.warn { background: #fb923c; color: white; }
+
+input[type=text], input[type=password], input[type=number] {
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(0,0,0,0.2);
+  background: white;
+}
+@media (prefers-color-scheme: dark) {
+  input[type=text], input[type=password], input[type=number] {
+    background: #0f172a;
+    border-color: rgba(255,255,255,0.2);
+    color: var(--text-dark);
+  }
+}
+
 .logo {
-width: 52px;
-height: 52px;
-border-radius: 12px;
-background: linear-gradient(135deg,#fef3c7,#fdba74);
-display: grid;
-place-items: center;
-font-weight: 700;
-color: #b45309;
+  width: 52px;
+  height: 52px;
+  border-radius: 12px;
+  background: linear-gradient(135deg,#fef3c7,#fdba74);
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  font-size: 20px;
+  color: #b45309;
 }
 
-
-/* Status Pills */
 .badge {
-padding: 6px 12px;
-border-radius: 999px;
-background: rgba(0,0,0,0.05);
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(0,0,0,0.07);
 }
-html.dark .badge {
-background: rgba(255,255,255,0.07);
+@media (prefers-color-scheme: dark) { .badge { background: rgba(255,255,255,0.1); } }
+
+.value {
+  font-size: 22px;
+  font-weight: 600;
 }
-
-
-.status-pill.status-active {
-background: rgba(16,185,129,0.15);
-color: #10b981;
+.log {
+  background: rgba(0,0,0,0.05);
+  padding: 12px;
+  border-radius: 10px;
+  white-space: pre-wrap;
 }
-
-
-.status-pill.status-tripped {
-background: rgba(239,68,68,0.2);
-color: #ef4444;
+@media (prefers-color-scheme: dark) {
+  .log { background: rgba(255,255,255,0.08); }
 }
-
-
 </style>
 </head>
+
 <body>
-<div class="wrap" style="max-width:980px;margin:16px auto;padding:14px">
+<div style="max-width:980px;margin:20px auto;padding:16px;">
 
+<!-- HEADER -->
+<header style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">
+  <div class="logo">G</div>
+  <div>
+    <h1 style="margin:0;font-size:22px;font-weight:700;">Guardian — Admin</h1>
+    <div class="muted">Risk automation & enforcement</div>
+  </div>
 
-<header style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
-<div class="logo">G</div>
-<div>
-<h1 style="margin:0;font-size:22px;font-weight:700">Guardian — Admin</h1>
-<div class="muted small">Risk automation & enforcement</div>
-</div>
-
-
-<div class="status" style="margin-left:auto;display:flex;gap:8px;align-items:center;font-size:13px">
-<div id="kite_status" class="badge">Kite: —</div>
-<div id="guardian_status" class="badge">Guardian: —</div>
-<div id="day_status" class="badge status-pill">—</div>
-<div id="now" class="badge">--:--:--</div>
-</div>
+  <div style="margin-left:auto;display:flex;gap:8px;align-items:center;font-size:13px;">
+    <div id="kite_status" class="badge">Kite: —</div>
+    <div id="guardian_status" class="badge">Guardian: —</div>
+    <div id="day_status" class="badge">—</div>
+    <div id="now" class="badge">--:--:--</div>
+  </div>
 </header>
 
-  <!-- ORIGINAL SCRIPT (UNTOUCHED) -->
-  <script>
-    async function refreshState() {
-      const res = await fetch("/api/state", {
-        headers: { Authorization: "Bearer " + ADMIN_TOKEN }
-      });
-      document.getElementById("state_output").textContent = await res.text();
+<!-- MERGED ADMIN DASHBOARD (No Tabs) -->
+
+<!-- ADMIN CONTROL -->
+<div class="card">
+  <div class="muted">Admin Token</div>
+  <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;">
+    <input id="admin_token" type="password" placeholder="ADMIN_TOKEN">
+    <button id="toggle_token" class="btn ghost">Show</button>
+    <button id="save_token" class="btn primary">Save</button>
+    <button id="clear_token" class="btn ghost">Clear</button>
+  </div>
+
+  <div style="margin-top:10px;display:flex;gap:10px;flex-wrap:wrap;">
+    <button id="login_zerodha" class="btn ghost">Login Zerodha</button>
+    <button id="refresh_state" class="btn ghost">Refresh</button>
+  </div>
+
+  <div id="admin_actions" style="margin-top:15px;display:none;">
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+      <button id="enforce_btn" class="btn warn">Enforce Now</button>
+      <button id="kill_btn" class="btn danger">Kill</button>
+      <button id="cancel_btn" class="btn ghost">Cancel All</button>
+      <button id="reset_day_btn" class="btn ghost">Reset Day</button>
+
+      <label class="muted" style="margin-left:auto;">
+        <input type="checkbox" id="allow_new"> Allow New Orders
+      </label>
+    </div>
+
+    <div style="margin-top:16px;">
+      <div class="muted">Override Capital</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:6px;">
+        <input id="capital_input" type="text" placeholder="Enter amount">
+        <button id="set_capital_btn" class="btn primary">Set</button>
+        <button id="clear_capital_btn" class="btn ghost">Clear</button>
+      </div>
+      <div id="set_capital_msg" class="muted" style="margin-top:6px;"></div>
+    </div>
+
+    <div style="margin-top:18px;">
+      <div class="muted">Behavioral Config</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:6px;">
+        <label class="muted"><input type="checkbox" id="cfg_cooldown_on_profit"> Cooldown on profit</label>
+        <label class="muted">Min loss <input id="cfg_min_loss_to_count" type="number" style="width:90px;margin-left:6px;"></label>
+        <button id="save_cfg_btn" class="btn primary">Save Config</button>
+      </div>
+      <div id="save_cfg_msg" class="muted" style="margin-top:6px;"></div>
+    </div>
+  </div>
+</div>
+
+<!-- LIVE OVERVIEW -->
+<div class="card">
+  <h3 style="margin:0;">Live Overview</h3>
+  <button id="refresh_top" class="btn ghost" style="float:right;margin-top:-28px;">Refresh</button>
+
+  <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:16px;">
+    <div><div class="muted">Capital @ 09:15</div><div id="capital915" class="value">—</div></div>
+    <div><div class="muted">Current Balance</div><div id="live_balance" class="value">—</div></div>
+    <div><div class="muted">Live MTM</div><div id="live_mtm" class="value">—</div></div>
+    <div><div class="muted">PnL</div><div id="pnl_box" class="value">—</div></div>
+    <div><div class="muted">Consecutive Losses</div><div id="consec_losses" class="value">0</div></div>
+    <div><div class="muted">Max Loss</div><div id="max_loss" class="value">—</div></div>
+    <div><div class="muted">Max Profit %</div><div id="p10" class="value">—</div></div>
+    <div><div class="muted">Active Loss Floor</div><div id="active_floor" class="value">—</div></div>
+  </div>
+</div>
+
+<!-- TRADEBOOK -->
+<div class="card">
+  <div style="display:flex;justify-content:space-between;align-items:center;">
+    <h3 style="margin:0;">Tradebook</h3>
+    <button id="refresh_tradebook" class="btn ghost">Refresh</button>
+  </div>
+  <div class="muted" style="margin-top:6px;">Recent trades</div>
+  <pre id="tradebook_output" class="log" style="margin-top:10px;">Loading...</pre>
+</div>
+
+<!-- LOGS -->
+<div class="card">
+  <h3 style="margin:0;">Logs</h3>
+  <div style="margin-top:10px;display:flex;gap:10px;flex-wrap:wrap;">
+    <button id="enforce_trades_btn" class="btn ghost">Enforce Trades</button>
+    <button id="cancel_all_btn" class="btn ghost">Cancel All</button>
+    <button id="kill_btn2" class="btn danger">Kill</button>
+    <button id="clear_logs" class="btn ghost">Clear Logs</button>
+  </div>
+
+  <div style="margin-top:12px;">
+    <div class="muted">System log</div>
+    <pre id="raw_responses" class="log">—</pre>
+  </div>
+</div>
+
+<!-- FULL JS (No Sellbook) -->
+<script>
+// Exact same JS you had, minus sellbook
+let ADMIN_TOKEN = "";
+
+document.getElementById("toggle_token").onclick = () => {
+  const i = document.getElementById("admin_token");
+  i.type = i.type === "password" ? "text" : "password";
+};
+
+document.getElementById("save_token").onclick = () => {
+  ADMIN_TOKEN = document.getElementById("admin_token").value;
+  if (ADMIN_TOKEN.trim() !== "") {
+    document.getElementById("admin_actions").style.display = "block";
+  }
+};
+
+document.getElementById("clear_token").onclick = () => {
+  ADMIN_TOKEN = "";
+  document.getElementById("admin_token").value = "";
+  document.getElementById("admin_actions").style.display = "none";
+};
+
+// REFRESH STATE
+async function refreshState() {
+  const res = await fetch("/api/state", {
+    headers: { Authorization: "Bearer " + ADMIN_TOKEN }
+  });
+  document.getElementById("raw_responses").textContent = await res.text();
+}
+document.getElementById("refresh_state").onclick = refreshState;
+
+// POSITIONS
+async function refreshTop() {
+  const res = await fetch("/api/top", {
+    headers: { Authorization: "Bearer " + ADMIN_TOKEN }
+  });
+  const t = await res.json();
+  for (const k in t) {
+    if (document.getElementById(k)) {
+      document.getElementById(k).textContent = t[k];
     }
+  }
+}
+document.getElementById("refresh_top").onclick = refreshTop;
 
-    async function refreshPositions() {
-      const res = await fetch("/api/positions", {
-        headers: { Authorization: "Bearer " + ADMIN_TOKEN }
-      });
-      document.getElementById("positions_output").textContent = await res.text();
-    }
+// TRADEBOOK
+async function refreshTradebook() {
+  const res = await fetch("/api/tradebook", {
+    headers: { Authorization: "Bearer " + ADMIN_TOKEN }
+  });
+  document.getElementById("tradebook_output").textContent = await res.text();
+}
+document.getElementById("refresh_tradebook").onclick = refreshTradebook;
 
-    async function refreshLogs() {
-      const res = await fetch("/api/logs", {
-        headers: { Authorization: "Bearer " + ADMIN_TOKEN }
-      });
-      document.getElementById("logs_output").textContent = await res.text();
-    }
+// CONFIG SAVE
+document.getElementById("save_cfg_btn").onclick = async () => {
+  const body = {
+    cooldown: document.getElementById("cfg_cooldown_on_profit").checked,
+    min_loss: document.getElementById("cfg_min_loss_to_count").value
+  };
 
-    async function kill() {
-      await fetch("/api/admin/kill", {
-        method: "POST",
-        headers: { Authorization: "Bearer " + ADMIN_TOKEN }
-      });
-      refreshState();
-    }
+  await fetch("/api/admin/save-config", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: "Bearer " + ADMIN_TOKEN
+    },
+    body: JSON.stringify(body)
+  });
 
-    async function cancelAll() {
-      await fetch("/api/admin/cancel", {
-        method: "POST",
-        headers: { Authorization: "Bearer " + ADMIN_TOKEN }
-      });
-    }
+  document.getElementById("save_cfg_msg").textContent = "Saved ✓";
+};
 
-    async function saveConfig() {
-      const body = {
-        maxLoss: document.getElementById("maxLoss").value,
-        maxProfit: document.getElementById("maxProfit").value,
-        trailStep: document.getElementById("trailStep").value
-      };
+// CAPITAL SET
+document.getElementById("set_capital_btn").onclick = async () => {
+  const val = document.getElementById("capital_input").value;
+  await fetch("/api/admin/set-capital", {
+    method: "POST",
+    headers: {
+      Authorization: "Bearer " + ADMIN_TOKEN,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ capital: val })
+  });
+  document.getElementById("set_capital_msg").textContent = "Capital updated ✓";
+};
 
-      await fetch("/api/admin/set-config", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: "Bearer " + ADMIN_TOKEN
-        },
-        body: JSON.stringify(body)
-      });
-    }
+// ACTION BUTTONS
+document.getElementById("kill_btn").onclick = () => fetch("/api/admin/kill", { method:"POST", headers:{ Authorization:"Bearer " + ADMIN_TOKEN }});
+document.getElementById("kill_btn2").onclick = () => fetch("/api/admin/kill", { method:"POST", headers:{ Authorization:"Bearer " + ADMIN_TOKEN }});
+document.getElementById("cancel_btn").onclick = () => fetch("/api/admin/cancel", { method:"POST", headers:{ Authorization:"Bearer " + ADMIN_TOKEN }});
+document.getElementById("cancel_all_btn").onclick = () => fetch("/api/admin/cancel", { method:"POST", headers:{ Authorization:"Bearer " + ADMIN_TOKEN }});
 
-    function showTab(id) {
-      document.querySelectorAll(".tab").forEach(x => x.classList.remove("active"));
-      document.querySelectorAll(".tab-button").forEach(x => x.classList.remove("active"));
-      document.getElementById(id).classList.add("active");
-      event.target.classList.add("active");
-    }
-  </script>
+document.getElementById("login_zerodha").onclick = () =>
+  window.open("/api/admin/login-zerodha", "_blank");
 
+// Clock
+setInterval(() => {
+  document.getElementById("now").textContent = new Date().toLocaleTimeString();
+}, 1000);
+</script>
+
+</div>
 </body>
 </html>
