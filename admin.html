@@ -133,10 +133,10 @@ pre.log, #raw_responses {
 <body>
 <div class="wrap">
   <header>
-    <div class="logo">G</div>
+    <div class="logo" style="background:#ff7200;color:#ffffff;font-weight:800;border-radius:12px;font-size:42px;display:flex;align-items:center;justify-content:center">B</div>
     <div>
       <h1>BOHO — Admin</h1>
-      <div class="small muted">Risk automation & enforcement</div>
+      <div class="small muted">Take control of your risk with BOHO</div>
     </div>
     <div class="status">
       <div id="kite_status" class="badge">Kite: —</div>
@@ -398,15 +398,9 @@ function init(){
   $('clear_token').addEventListener('click', clearToken);
   $('toggle_token').addEventListener('click', toggleToken);
   $('login_zerodha').addEventListener('click', loginKite);
-  $('refresh_state').addEventListener('click', loadAll);
-  $('refresh_top').addEventListener('click', loadAll);
-
   $('enforce_btn').addEventListener('click', enforceNow);
-  $('enforce_trades_btn').addEventListener('click', enforceNow);
   $('kill_btn').addEventListener('click', killNow);
-  $('kill_btn2').addEventListener('click', killNow);
   $('cancel_btn').addEventListener('click', cancelAll);
-  $('cancel_all_btn').addEventListener('click', cancelAll);
   $('set_capital_btn').addEventListener('click', setCapital);
   $('clear_capital_btn').addEventListener('click', ()=>{ $('capital_input').value=''; $('set_capital_msg').textContent=''; });
 
@@ -420,8 +414,6 @@ function init(){
   $('clear_logs').addEventListener('click', ()=> $('raw_responses').textContent = '');
 
   // tradebook refresh
-  $('refresh_tradebook').addEventListener('click', loadTradebook);
-
   // reset day handler
   $('reset_day_btn').addEventListener('click', async ()=>{
     const preserve = confirm('Preserve consecutive losses? OK = Yes, Cancel = No');
