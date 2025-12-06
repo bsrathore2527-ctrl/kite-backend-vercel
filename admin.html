@@ -328,25 +328,25 @@ pre.log, #raw_responses {
       <div class="small muted" style="margin-top:8px">Only editable when admin token is saved. Saving posts to <code>/api/admin/set-config</code>.</div>
     </section>
 
-    <!-- page 5: Logs & actions -->
-    <section class="page card" id="page_logs">
-      <h3 style="margin:0">Logs & actions</h3>
+    
+<!-- page 5: Logs & actions -->
+<section class="page card" id="page_logs">
+  <h3 style="margin:0">Logs & actions</h3>
 
-      <div style="display:flex;gap:8px;flex-wrap:nowrap;margin-top:10px"><button id="clear_logs" class="btn ghost">Clear Logs</button></div>
+  <!-- ALL BUTTONS IN ONE ROW -->
+  <div style="display:flex;gap:8px;flex-wrap:nowrap;margin-top:10px;align-items:center">
+    <button id="clear_logs" class="btn ghost">Clear Logs</button>
+    <button id="filter_errors" class="btn ghost">Show Errors</button>
+    <button id="filter_trades" class="btn ghost">Show Executed Trades</button>
+    <button id="filter_all" class="btn ghost">Show All</button>
+  </div>
 
-      <!-- Logs filter controls -->
-      <div class="filters">
-        <button id="filter_errors" class="btn ghost">Show Errors</button>
-        <button id="filter_trades" class="btn ghost">Show Executed Trades</button>
-        <button id="filter_all" class="btn ghost">Show All</button>
-        <div id="logs_hint" class="small muted">Trades fetched from <code>/api/kite/trades</code> if available; fallback to client logs.</div>
-      </div>
+  <div style="margin-top:12px">
+    <div class="muted">Server responses & request log</div>
+    <pre id="raw_responses" class="log">—</pre>
+  </div>
+</section>
 
-      <div style="margin-top:12px">
-        <div class="muted">Server responses & request log</div>
-        <pre id="raw_responses" class="log">—</pre>
-      </div>
-    </section>
   </div>
 
   <div class="pager">
