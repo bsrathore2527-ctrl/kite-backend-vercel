@@ -8,69 +8,32 @@
 <link rel="icon" href="data:;base64,iVBORw0KGgo=">
 <style>
   :root{
-    --bg1:#ffffff;
-    --card:#f7f9fa;
-    --muted:#6b7280;
-    --accent:#ff7200;
-    --accent2:#ff7200;
-    --danger:#e11d48;
-    --radius:12px;
-}
-  html,body{height:100%;margin:0;font-family:Inter,Arial,Helvetica,sans-serif;background:#ffffff;color:#000000}
-  .wrap{max-width:980px;margin:16px auto;padding:14px}
+    --bg1:#071024; --card:#0f1724; --muted:#9aa7b3; --accent:#3b82f6;
+    --accent2:#10b981; --danger:#ef4444; --radius:12px;
+  }
+  html,body{height:100%;margin:0;font-family:Inter,Arial,Helvetica,sans-serif;color:#000000;margin:16px auto;padding:14px}
   header{display:flex;align-items:center;gap:12px;margin-bottom:12px}
-  .logo{width:52px;height:52px;border-radius:10px;background:linear-gradient(135deg,#071628,#0b2130);display:grid;place-items:center;font-weight:700}
+  .logo{width:52px;height:52px;border-radius:10px;display:grid;place-items:center;font-weight:700}
   h1{margin:0;font-size:20px}
-  .status{margin-left:auto;display:flex;gap:8px;align-items:center;color:var(--muted);font-size:13px}
-  .badge{padding:6px 10px;border-radius:999px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.02)}
-  .card{background:#f7f9fa;padding:12px;border-radius:12px;margin-bottom:12px;border:1px solid rgba(255,255,255,0.02)}
+  .status{margin-left:auto;display:flex;gap:8px;align-items:center;color:#000000;font-size:13px}
+  .badge{padding:6px 10px;border-radius:999px;background:#ffffff;border:1px solid rgba(255,255,255,0.02)}
+  \.card{background:#ffffff;border:1px solid #e5e7eb;padding:12px;border-radius:12px;margin-bottom:12px;}
   .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-  input[type=text], input[type=password], input[type=number] {padding:10px;border-radius:10px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:inherit}
-  .btn{padding:8px 12px;border-radius:10px;border:none;cursor:pointer;font-weight:600}
-  .btn.primary{background:var(--accent);color:#fff}
-  .btn.ghost{background:transparent;border:1px solid rgba(255,255,255,0.04);color:var(--muted)}
-  .btn.warn{background:var(--accent);color:#fff}
-  .btn.danger{background:#e11d48;color:#fff}
-  .grid-2{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+  input[type=text], input[type=password], input[type=number] {padding:10px;border-radius:10px;border:1px solid rgba(255,255,255,0.04);background:#ffffff;color:#000000;border-radius:10px;border:none;cursor:pointer;font-weight:600}
+  \.btn.primary{background:#ff7200;color:#ffffff;border:none;}
   .value{font-weight:800;font-size:18px}
-  .muted{color:var(--muted);font-size:13px}
-  .small{font-size:12px;color:var(--muted)}
-  .pages{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;gap:14px;padding-bottom:12px;scroll-behavior:smooth}
+  .muted{color:#000000;font-size:13px}
+  .small{font-size:12px;color:#000000;overflow-x:auto;scroll-snap-type:x mandatory;gap:14px;padding-bottom:12px;scroll-behavior:smooth}
   .page{min-width:100%;scroll-snap-align:center}
   .pager{display:flex;gap:8px;justify-content:center;margin-top:8px}
-  pre.log{white-space:pre-wrap;background:#f2f3f5;padding:10px;border-radius:8px;max-height:320px;overflow:auto;color:#ffdede}
-  .filters{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px}
+  pre.log{white-space:pre-wrap;background:#ffffff;padding:10px;border-radius:8px;max-height:320px;overflow:auto;color:#000000;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px}
   .status-pill {display:inline-block;padding:6px 10px;border-radius:999px;font-weight:700}
-  .status-active {background:linear-gradient(90deg,#08321a,#07301b); color:#8ff0b2}
-  .status-tripped {background:linear-gradient(90deg,#3a0610,#2b0510); color:#ffb3b3}
-  @media(max-width:720px){ .grid-2{grid-template-columns:1fr} header{flex-wrap:wrap} .status{margin-left:0} }
-  .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:18px;background:rgba(0,0,0,0.7);padding:10px 14px;border-radius:8px;color:white;display:none}
+  .status-active { color:#000000;left:50%;transform:translateX(-50%);bottom:18px;background:#ffffff;padding:10px 14px;border-radius:8px;color:#000000;display:none}
   /* tradebook table */
   table.tradebook{width:100%;border-collapse:collapse;margin-top:10px}
   table.tradebook th, table.tradebook td{padding:10px;border-bottom:1px solid rgba(255,255,255,0.03);font-size:13px;text-align:left}
-  table.tradebook th{color:var(--muted);font-weight:700}
-  .tb-empty{padding:28px;text-align:center;color:var(--muted)}
-</style>
-</head>
-<body>
-<div class="wrap">
-  <header>
-    <div class="logo">G</div>
-    <div>
-      <h1>BOHO — Admin</h1>
-      <div class="small muted">Risk automation & enforcement</div>
-    </div>
-    <div class="status">
-      <div id="kite_status" class="badge">Kite: —</div>
-      <div id="day_status" class="badge status-pill">—</div>
-      <div id="now" class="badge">--:--:--</div>
-    </div>
-  </header>
-
-  <div class="pages" id="pages">
-    <!-- page 1: admin (unchanged) -->
-    <section class="page card" id="page_admin">
-      <div class="row" style="justify-content:space-between;align-items:flex-start">
+  table.tradebook th{color:#000000;font-weight:700}
+  .tb-empty{padding:28px;text-align:center;color:#000000;align-items:flex-start">
         <div style="flex:1;min-width:240px">
           <div class="muted">Admin token — save to unlock actions (stored locally)</div>
           <div class="row" style="margin-top:8px">
@@ -142,61 +105,61 @@
       </div>
 
       <div class="grid-2" style="margin-top:12px">
-        <div class="card" style="background:transparent;border:0;padding:8px">
+        <div class="card" style="background:#ffffff;border:0;padding:8px">
           <div class="muted">Capital @ 09:15</div>
           <div id="capital915" class="value">—</div>
           <div class="small">Base for daily limits</div>
         </div>
 
-        <div class="card" style="background:transparent;border:0;padding:8px">
+        <div class="card" style="background:#ffffff;border:0;padding:8px">
           <div class="muted">Current Balance (live/fallback)</div>
           <div id="live_balance" class="value">—</div>
           <div class="small">Prefers live_balance from Kite</div>
         </div>
 
-        <div class="card" style="background:transparent;border:0;padding:8px">
+        <div class="card" style="background:#ffffff;border:0;padding:8px">
           <div class="muted">Live MTM</div>
           <div id="live_mtm" class="value">—</div>
           <div class="small">Sum of position P&L</div>
         </div>
 
-        <div class="card" style="background:transparent;border:0;padding:8px">
+        <div class="card" style="background:#ffffff;border:0;padding:8px">
           <div class="muted">PnL (R / UR / Total)</div>
           <div id="pnl_box" class="value">—</div>
           <div id="pnl_hint" class="small"></div>
         </div>
 
-        <div class="card" style="background:transparent;border:0;padding:8px">
+        <div class="card" style="background:#ffffff;border:0;padding:8px">
           <div class="muted">Consecutive Losses</div>
           <div id="consec_losses" class="value">0</div>
           <div class="small">Resets on profitable close</div>
         </div>
 
-        <div class="card" style="background:transparent;border:0;padding:8px">
+        <div class="card" style="background:#ffffff;border:0;padding:8px">
           <div class="muted">Max Loss (₹)</div>
           <div id="max_loss" class="value">—</div>
           <div id="max_loss_pct" class="small"></div>
         </div>
 
-        <div class="card" style="background:transparent;border:0;padding:8px">
+        <div class="card" style="background:#ffffff;border:0;padding:8px">
           <div class="muted">Max Profit %</div>
           <div id="p10" class="value">—</div>
           <div id="p10_hint" class="small">Profit lock status</div>
         </div>
 
-        <div class="card" style="background:transparent;border:0;padding:8px">
+        <div class="card" style="background:#ffffff;border:0;padding:8px">
           <div class="muted">Active Loss Floor (₹)</div>
           <div id="active_floor" class="value">—</div>
           <div class="small" id="floor_hint"></div>
         </div>
 
-        <div class="card" style="background:transparent;border:0;padding:8px">
+        <div class="card" style="background:#ffffff;border:0;padding:8px">
           <div class="muted">Remaining to Max Loss (₹)</div>
           <div id="remaining_loss" class="value">—</div>
           <div class="small">Room before floor trip</div>
         </div>
 
-        <div class="card" style="background:transparent;border:0;padding:8px">
+        <div class="card" style="background:#ffffff;border:0;padding:8px">
           <div class="muted">Last trade @</div>
           <div id="last_trade_time" class="value">—</div>
           <div class="small">Blank if no trade yet</div>
