@@ -50,17 +50,12 @@
    FIX: restore visible layout
    ------------------------------ */
 
-html, body {
-  background: #ffffff !important;
-  color: #000000 !important;
-}
+
 .card {
   background: #ffffff !important;
   border: 1px solid #e5e7eb !important;
 }
-.page {
-  background: #ffffff !important;
-}
+
 .muted, .small {
   color: #6b7280 !important;
 }
@@ -127,6 +122,62 @@ pre.log, #raw_responses {
   background: #f2f3f5 !important;
 }
 
+
+
+/* DARK THEME */
+html[data-theme="dark"] {
+  --bg1:#0d1117;
+  --card:#161b22;
+  --text:#e6edf3;
+  --muted:#8b949e;
+  --accent:#ff7200;
+  --danger:#e11d48;
+}
+html[data-theme="dark"] body {
+  background: var(--bg1) !important;
+  color: var(--text) !important;
+}
+html[data-theme="dark"] .card,
+html[data-theme="dark"] .page {
+  background: var(--card) !important;
+  border-color:#30363d !important;
+}
+html[data-theme="dark"] .muted,
+html[data-theme="dark"] .small,
+html[data-theme="dark"] table.tradebook td,
+html[data-theme="dark"] table.tradebook th {
+  color: var(--muted) !important;
+}
+html[data-theme="dark"] .btn,
+html[data-theme="dark"] .btn.ghost {
+  background: var(--accent) !important;
+  color:#ffffff !important;
+}
+html[data-theme="dark"] .btn.danger {
+  background: var(--danger) !important;
+}
+
+
+/* LIGHT THEME FIX */
+html:not([data-theme="dark"]) body {
+  background:#ffffff !important;
+  color:#000000 !important;
+}
+html:not([data-theme="dark"]) .page,
+html:not([data-theme="dark"]) .card {
+  background:#ffffff !important;
+  border-color:#e5e7eb !important;
+}
+html:not([data-theme="dark"]) table.tradebook th,
+html:not([data-theme="dark"]) table.tradebook td {
+  color:#000000 !important;
+}
+
+
+html[data-theme="dark"] body,
+html[data-theme="dark"] * {
+  color: var(--text) !important;
+}
 
 </style>
 </head>
