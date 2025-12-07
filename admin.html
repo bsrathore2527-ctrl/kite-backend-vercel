@@ -637,11 +637,12 @@ async function loadState(){
 
     // time and statuses
     $('now').textContent = j.time || (new Date().toLocaleTimeString('en-GB',{ hour12:false, timeZone:'Asia/Kolkata' }));
-   // KITE STATUS — read from j.state.kite_status
-let ks = j.state && typeof j.state.kite_status !== 'undefined'
-  ? j.state.kite_status
-  : null;
-
+   let ks = null;
+if (typeof j.kite_status !== 'undefined' && j.kite_status !== null) {
+    ks = j.kite_status;
+} else if (j.state && typeof j.state.kite_status !== 'undefined') {
+    ks = j.state.kite_status;
+}
 $('kite_status').textContent = 'Kite: ' + (ks ?? '—');
 
 
