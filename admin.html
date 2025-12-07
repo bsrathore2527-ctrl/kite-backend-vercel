@@ -665,25 +665,16 @@ async function loadState(){
     $('remaining_loss').textContent = fmtINR(remaining);
 
     // profit lock (p10) — server may expose p10 (pct) or p10_amount (rupee) or p10_is_pct flag
-    let p10_display = 0;
-    let p10_hint = '—';
-    if (typeof s.p10 !== 'undefined' && s.p10 !== null) {
-      // p10 stored as percentage (preferred)
-      p10_display = Number(s.p10);
-      // show percent in UI, but compute effective rupee amount as well for hint
-      const effAmt = Math.round(capital * (p10_display/100));
-      p10_hint = `(≈ ${fmtINR(effAmt)})`;
-      $('p10').textContent = `${p10_display}%`;
-      $('p10_hint').textContent = p10_hint;
-    } else if (typeof s.p10_amount !== 'undefined') {
-      // legacy rupee amount
-      p10_display = Number(s.p10_amount);
-      $('p10').textContent = fmtINR(p10_display);
-      $('p10_hint').textContent = 'Amount';
-    } else {
-      $('p10').textContent = '—';
-      $('p10_hint').textContent = '—';
-    }
+    // Max Profit display (uses backend auto-converted values)
+const maxProfitPct = Number(s.max_profit_pct ?? 0);
+const maxProfitAbs = Number(s.max_profit_abs ?? 0);
+
+// Show % (like "10%")
+$('p10').textContent = `${maxProfitPct}%`;
+
+// Show the rupee equivalent (like "(₹1000)")
+$('p10_hint').textContent = `(${fmtINR(maxProfitAbs)})`;
+
 
     // day/tripped indicators
     const tripped = !!s.tripped_day;
