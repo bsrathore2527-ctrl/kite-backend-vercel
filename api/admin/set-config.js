@@ -152,6 +152,38 @@ export default async function handler(req, res) {
       patch.reset_logs = resetLogs;
     }
 
+    // AUTO-CONVERT % → ABS (profit & loss)
+    {
+      const capital =
+        (patch.capital_day_915 !== undefined
+          ? patch.capital_day_915
+          : s.capital_day_915) || 0;
+
+      if (patch.max_profit_pct !== undefined) {
+        const pct = Number(patch.max_profit_pct) || 0;
+        patch.max_profit_abs = Math.round((capital * pct) / 100);
+      }
+
+      if (patch.max_loss_pct !== undefined) {
+        const pct = Number(patch.max_loss_pct) || 0;
+        patch.max_loss_abs = Math.round((capital * pct) / 100);
+      }
+
+      if (
+        patch.max_loss_abs !== undefined ||
+        patch.max_loss_pct !== undefined ||
+        patch.capital_day_915 !== undefined
+      ) {
+        const maxLossAbs =
+          patch.max_loss_abs !== undefined
+            ? patch.max_loss_abs
+            : s.max_loss_abs || 0;
+
+        patch.active_loss_floor = -Math.abs(maxLossAbs);
+        patch.remaining_to_max_loss = Math.abs(maxLossAbs);
+      }
+    }
+
     // LOG CONFIG CHANGES
     const confLog = Array.isArray(s.config_logs) ? [...s.config_logs] : [];
     confLog.push({ time: now, patch: body });
