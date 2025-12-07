@@ -637,7 +637,13 @@ async function loadState(){
 
     // time and statuses
     $('now').textContent = j.time || (new Date().toLocaleTimeString('en-GB',{ hour12:false, timeZone:'Asia/Kolkata' }));
-    $('kite_status').textContent = j.kite_status === 'ok' ? 'Kite: Connected' : (j.kite_status || 'not_logged_in');
+   // KITE STATUS — read directly from /api/state with no fallback
+if (typeof j.kite_status !== 'undefined' && j.kite_status !== null) {
+    $('kite_status').textContent = 'Kite: ' + j.kite_status;
+} else {
+    $('kite_status').textContent = 'Kite: —';
+}
+
 
     const s = j.state || {};
 
