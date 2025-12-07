@@ -7,20 +7,9 @@
   "crons": [
     
     {
-      "path": "/api/mtm-worker",
+      "path": "/api/risk-engine",
       "schedule": "*/1 * * * *"
     },
-    {
-      "path": "/api/enforce-trades",
-      "schedule": "*/1 * * * *"
-    },
-    {
-      "path": "/api/enforce",
-      "schedule": "*/1 * * * *"
-    },
-    {
-      "path": "/api/guardian",
-      "schedule": "*/1 * * * *"
-    }
+  
   ]
 }
