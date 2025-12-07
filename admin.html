@@ -598,7 +598,7 @@ async function saveRules(){
     trail_step_profit: Number($('rule_trail_step').value || 0),
     cooldown_min: Number($('rule_cooldown_min').value || 0),
     max_consecutive_losses: Number($('rule_max_consec').value || 0),
-    p10_pct: Number($('rule_p10_amount').value || 0)   // send percentage
+    max_profit_pct: Number($('rule_p10_amount').value || 0)   // send percentage
   };
   try{
     const r = await fetch(ENDPOINTS.set_config, { method:'POST', headers:{ 'Content-Type':'application/json', ...authHeader() }, body: JSON.stringify(payload) });
