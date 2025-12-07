@@ -403,7 +403,20 @@ export default async function handler(req, res) {
 
         if (dQty !== 0) {
           await squareOffDelta(kc, sym, dQty);
-          // you can later extend: store detailed cooldown violation logs in state
+          
+    // ALLOW_NEW LOGIC ADDED
+    const allowNew = s.allow_new !== undefined ? !!s.allow_new : true;
+    if (!trippedDay && !cooldownActive && !allowNew) {
+      for (const sym of Object.keys(currentNetMap)) {
+        const oldQty = safeNum(lastNetPositions[sym] || 0);
+        const newQty = safeNum(currentNetMap[sym] || 0);
+        const dQty = newQty - oldQty;
+        if (dQty > 0) {
+          await squareOffDelta(kc, sym, dQty);
+        }
+      }
+    }
+// you can later extend: store detailed cooldown violation logs in state
         }
       }
     }
@@ -455,6 +468,19 @@ export default async function handler(req, res) {
       blockNew = true;
       tripReason = "max_loss_floor_total_pnl";
     }
+    // MAX PROFIT TARGET ADDED
+    let maxProfitAbs = safeNum(s.max_profit_abs || 0);
+    if (!maxProfitAbs) {
+      const cap = safeNum(s.capital_day_915 || 0);
+      const pct = safeNum(s.max_profit_pct || 0);
+      maxProfitAbs = (cap * pct) / 100;
+    }
+    if (maxProfitAbs > 0 && total >= maxProfitAbs) {
+      trippedDay = true;
+      blockNew = true;
+      tripReason = "max_profit_target";
+    }
+
 
     patch.tripped_day = trippedDay;
     patch.block_new_orders = blockNew;
@@ -496,44 +522,3 @@ export default async function handler(req, res) {
     return res.status(500).json({ ok: false, error: String(err) });
   }
 }
-
-
-// === PATCHES ADDED ===
-
-// MAX PROFIT TARGET
-async function __applyMaxProfit__(s, total) {
-  let maxProfitAbs = Number(s.max_profit_abs || 0);
-  if (!maxProfitAbs) {
-    maxProfitAbs = (Number(s.capital_day_915||0) * Number(s.max_profit_pct||0)) / 100;
-  }
-  return (maxProfitAbs > 0 && total >= maxProfitAbs);
-}
-
-// ALLOW NEW LOGIC
-async function __applyAllowNewLogic__(kc, allowNew, cooldownActive, curr, old) {
-  if (!allowNew && !cooldownActive) {
-    for (const sym of Object.keys(curr)) {
-      const d = Number(curr[sym]||0) - Number(old[sym]||0);
-      if (d > 0) {
-        try {
-          await kc.placeOrder("regular", {
-            exchange: "NFO",
-            tradingsymbol: sym,
-            transaction_type: "SELL",
-            quantity: d,
-            order_type: "MARKET",
-            product: "MIS",
-            validity: "DAY"
-          });
-        } catch(e){}
-      }
-    }
-  }
-}
-
-// COOLDOWN ON PROFIT FLAG EXAMPLE STUB
-function __cooldownOnProfitAllowed__(delta, flag){
-  if (delta > 0 && !flag) return false;
-  return true;
-}
-
