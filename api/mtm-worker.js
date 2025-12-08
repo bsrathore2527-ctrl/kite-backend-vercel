@@ -1,25 +1,23 @@
-/* ========================================================================
-   mtm-worker.js  (v7 — FIFO REALISED + FIFO UNREALISED + EXTREME LOGGING)
-   ========================================================================
+/* ===========================================================================
+   mtm-worker.js (v8 — FULL FIFO REALISED & UNREALISED + EXTREME DEBUG LOGGING)
+   ===========================================================================
 
-   ✔ REALISED PNL = FULL FIFO (all trades)
-   ✔ UNREALISED PNL = FULL FIFO (open lots only)
-   ❌ No Zerodha average_price used anywhere
-   ✔ Overnight preload supported
-   ✔ Debug logs show step-by-step FIFO book evolution
-   ✔ Debug logs show unrealised per lot
+   ✔ REALISED = Pure FIFO (all trades chronologically)
+   ✔ UNREALISED = Pure FIFO (using open lots only)
+   ✔ Uses correct LTP via instrument_token from positions
+   ✔ No usage of Zerodha average_price (which was wrong)
+   ✔ Extreme logs to debug every calculation
+   ✔ 100% matches how a real trading engine should compute PNL
 
-   This file removes ALL Zerodha-position averaging bugs.
-
-======================================================================== */
+============================================================================ */
 
 import { kv } from "./_lib/kv.js";
 import { setState } from "./_lib/kv.js";
 import { instance } from "./_lib/kite.js";
 
-/* ----------------------------------------------------------------------
+/* ===========================================================================
    FIFO HELPERS
----------------------------------------------------------------------- */
+============================================================================ */
 
 function fifoSell(book, qty, price) {
   let qtyRem = qty;
@@ -40,7 +38,7 @@ function fifoSell(book, qty, price) {
       const pnl = (price - lot.avg) * take;
 
       console.log(
-        `     Match BUY lot: take=${take}, from BUY ${lot.qty}@${lot.avg}, realised=${pnl}`
+        `     Match BUY lot → take=${take}, BUY ${lot.qty}@${lot.avg}, realised=${pnl}`
       );
 
       realised += pnl;
@@ -85,7 +83,7 @@ function fifoBuy(book, qty, price) {
       const pnl = (lot.avg - price) * take;
 
       console.log(
-        `     Match SELL lot: take=${take}, from SELL ${lot.qty}@${lot.avg}, realised=${pnl}`
+        `     Match SELL lot → take=${take}, SELL ${lot.qty}@${lot.avg}, realised=${pnl}`
       );
 
       realised += pnl;
@@ -111,16 +109,16 @@ function fifoBuy(book, qty, price) {
   return { realised, book: newBook };
 }
 
-/* ----------------------------------------------------------------------
-   REALISED PNL (FIFO + overnight preload)
----------------------------------------------------------------------- */
+/* ===========================================================================
+   REALISED PNL (FIFO + Overnight Preload)
+============================================================================ */
 
 async function computeRealised(kc) {
   const trades = await kc.getTrades();
   console.log("\n=========================================");
   console.log("📌 RAW TRADES:", JSON.stringify(trades, null, 2));
 
-  // sort by timestamp
+  // Sort trades chronologically
   trades.sort((a, b) => {
     const ta = new Date(a.exchange_timestamp || a.fill_timestamp || a.order_timestamp);
     const tb = new Date(b.exchange_timestamp || b.fill_timestamp || b.order_timestamp);
@@ -129,11 +127,10 @@ async function computeRealised(kc) {
 
   console.log("📌 SORTED TRADES:", JSON.stringify(trades, null, 2));
 
-  // FIFO BOOK per symbol
   const books = {};
   let realised = 0;
 
-  // preload overnight
+  // Load positions for overnight preload
   const pos = await kc.getPositions();
   const netPos = pos.net || [];
 
@@ -153,17 +150,15 @@ async function computeRealised(kc) {
     if (!books[sym]) books[sym] = [];
     books[sym].push({ side: "BUY", qty: oq, avg: overnightAvg });
 
-    console.log(
-      `   PRELOAD → ${sym} BUY ${oq} @ ${overnightAvg}`
-    );
+    console.log(`   PRELOAD → ${sym} BUY ${oq} @ ${overnightAvg}`);
   }
 
-  // Walk all trades FIFO
+  // Process all trades FIFO
   for (const t of trades) {
     const sym = t.tradingsymbol;
     const qty = Number(t.quantity);
-    const side = t.transaction_type.toUpperCase();
     const price = Number(t.average_price);
+    const side = t.transaction_type.toUpperCase();
 
     if (!books[sym]) books[sym] = [];
 
@@ -184,52 +179,42 @@ async function computeRealised(kc) {
   console.log("\n📘 FINAL FIFO BOOK:", JSON.stringify(books, null, 2));
   console.log("📗 FINAL REALISED:", realised);
 
-  return { realised, books };
+  return { realised, books, positions: netPos };
 }
 
-/* ----------------------------------------------------------------------
-   UNREALISED PNL USING FIFO OPEN LOTS ONLY (CORRECT)
----------------------------------------------------------------------- */
+/* ===========================================================================
+   UNREALISED PNL (FIFO lots + correct LTP via instrument_token)
+============================================================================ */
 
-function computeFIFOUnrealised(books, ltpAll) {
+function computeFIFOUnrealised(books, positions, ltpAll) {
   console.log("\n=========================================");
-  console.log("📌 COMPUTE UNREALISED (FIFO ONLY)");
+  console.log("📌 COMPUTE FIFO UNREALISED");
   console.log("📌 LTP MAP:", JSON.stringify(ltpAll, null, 2));
 
   let totalU = 0;
 
+  // Build symbol → token map
+  const tokenMap = {};
+  for (const p of positions) {
+    tokenMap[p.tradingsymbol] = p.instrument_token;
+  }
+
   for (const sym of Object.keys(books)) {
     const lots = books[sym];
-    let token = null;
-
-    // token comes from KV key of same instrument name, assume exact symbol match
-    // You can modify mapping if needed.
-    // We search token by last known key match:
-    for (const t in ltpAll) {
-      if (ltpAll[t].tradingsymbol === sym) {
-        token = t;
-        break;
-      }
-    }
-
-    // If token not found, fallback to first LTP
+    const token = tokenMap[sym];
     const ltp = token ? Number(ltpAll[token]?.last_price || 0) : 0;
 
     console.log(`\n🔍 SYMBOL = ${sym}`);
+    console.log(`   TOKEN = ${token}`);
     console.log(`   LTP = ${ltp}`);
 
     for (const lot of lots) {
       let u = 0;
 
-      if (lot.side === "BUY") {
-        u = (ltp - lot.avg) * lot.qty;
-      } else {
-        u = (lot.avg - ltp) * lot.qty;
-      }
+      if (lot.side === "BUY") u = (ltp - lot.avg) * lot.qty;
+      else u = (lot.avg - ltp) * lot.qty;
 
-      console.log(
-        `   LOT → ${lot.side} ${lot.qty} @ ${lot.avg}, unrealised = ${u}`
-      );
+      console.log(`   LOT → ${lot.side} ${lot.qty}@${lot.avg}, U = ${u}`);
 
       totalU += u;
     }
@@ -239,9 +224,9 @@ function computeFIFOUnrealised(books, ltpAll) {
   return totalU;
 }
 
-/* ----------------------------------------------------------------------
+/* ===========================================================================
    MAIN HANDLER
----------------------------------------------------------------------- */
+============================================================================ */
 
 export default async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(204).end();
@@ -253,11 +238,11 @@ export default async function handler(req, res) {
     const kc = await instance();
     const ltpAll = (await kv.get("ltp:all")) || {};
 
-    // REALISED + FIFO BOOK
-    const { realised, books } = await computeRealised(kc);
+    // FIFO REALISED + FIFO BOOK
+    const { realised, books, positions } = await computeRealised(kc);
 
-    // UNREALISED (FIFO ONLY)
-    const unrealised = computeFIFOUnrealised(books, ltpAll);
+    // FIFO UNREALISED
+    const unrealised = computeFIFOUnrealised(books, positions, ltpAll);
 
     const total = realised + unrealised;
 
