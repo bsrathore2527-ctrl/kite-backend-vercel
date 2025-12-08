@@ -87,7 +87,11 @@ async function computeRealised(kc, netPos) {
     books[sym] = r.book;
   }
 
-  return realised;
+  return {
+  realised,
+  books,
+  positions: netPos
+};
 }
 
 // ---------------------------------------------------
