@@ -1,57 +1,20 @@
-// api/risk-engine.js
-// ------------------------------------------------------
-// Unified engine that replaces:
-// - mtm-worker.js MTM logic (copied, not reinvented)
-// - enforce-trades.js risk + enforcement logic (rewritten per new spec)
-// - guardian-ish connectivity status
-//
-// Uses:
-//   - Redis via ./_lib/kv.js  (kv, getState, setState, todayKey)
-//   - Zerodha via ./_lib/kite.js (instance)
-//
-// KEY DESIGN:
-//   - Canonical live state via getState/setState (backwards compatible)
-//   - Daily snapshot in kv under: risk:${todayKey()}
-//   - LTP strictly from kv key "ltp:all"
-//   - MTM FIFO logic directly copied from your mtm-worker.js
-// ------------------------------------------------------
-
 import { kv, getState, setState, todayKey } from "./_lib/kv.js";
 import { instance } from "./_lib/kite.js";
-
-/* ------------------------------------------------------
-   FIFO ENGINE (copied from mtm-worker.js)
------------------------------------------------------- */
 
 function fifoSell(book, qty, price) {
   let qtyRem = qty;
   let realised = 0;
   let newLots = [];
-
   for (const lot of book) {
-    if (qtyRem <= 0) {
-      newLots.push(lot);
-      continue;
-    }
-
+    if (qtyRem <= 0) { newLots.push(lot); continue; }
     if (lot.side === "BUY") {
       const take = Math.min(qtyRem, lot.qty);
       realised += (price - lot.avg) * take;
-
-      if (lot.qty > take) {
-        newLots.push({ ...lot, qty: lot.qty - take });
-      }
-
+      if (lot.qty > take) newLots.push({ ...lot, qty: lot.qty - take });
       qtyRem -= take;
-    } else {
-      newLots.push(lot);
-    }
+    } else newLots.push(lot);
   }
-
-  if (qtyRem > 0) {
-    newLots.push({ side: "SELL", qty: qtyRem, avg: price });
-  }
-
+  if (qtyRem > 0) newLots.push({ side: "SELL", qty: qtyRem, avg: price });
   return { realised, book: newLots };
 }
 
@@ -59,347 +22,192 @@ function fifoBuy(book, qty, price) {
   let qtyRem = qty;
   let realised = 0;
   let newLots = [];
-
   for (const lot of book) {
-    if (qtyRem <= 0) {
-      newLots.push(lot);
-      continue;
-    }
-
+    if (qtyRem <= 0) { newLots.push(lot); continue; }
     if (lot.side === "SELL") {
       const take = Math.min(qtyRem, lot.qty);
       realised += (lot.avg - price) * take;
-
-      if (lot.qty > take) {
-        newLots.push({ ...lot, qty: lot.qty - take });
-      }
-
+      if (lot.qty > take) newLots.push({ ...lot, qty: lot.qty - take });
       qtyRem -= take;
-    } else {
-      newLots.push(lot);
-    }
+    } else newLots.push(lot);
   }
-
-  if (qtyRem > 0) {
-    newLots.push({ side: "BUY", qty: qtyRem, avg: price });
-  }
-
+  if (qtyRem > 0) newLots.push({ side: "BUY", qty: qtyRem, avg: price });
   return { realised, book: newLots };
 }
 
-/* ------------------------------------------------------
-   REALISED PNL WITH OVERNIGHT PRELOAD (copied & adapted)
------------------------------------------------------- */
-
 async function computeRealised(kc) {
   const trades = await kc.getTrades();
-
-  // Sort trades chronologically
-  trades.sort((a, b) => {
-    const ta = new Date(a.exchange_timestamp || a.fill_timestamp || a.order_timestamp);
-    const tb = new Date(b.exchange_timestamp || b.fill_timestamp || b.order_timestamp);
-    return ta - tb;
-  });
-
+  trades.sort((a,b)=> new Date(a.exchange_timestamp||a.fill_timestamp||a.order_timestamp) - new Date(b.exchange_timestamp||b.fill_timestamp||b.order_timestamp));
   const books = {};
   let realised = 0;
 
-  // PRELOAD OVERNIGHT POSITIONS  (from mtm-worker)
   const pos = await kc.getPositions();
   const netPos = pos.net || [];
-
   for (const p of netPos) {
-    const sym = p.tradingsymbol;
     const oq = Number(p.overnight_quantity || 0);
-
     if (!oq) continue;
+    const sym = p.tradingsymbol;
     if (!books[sym]) books[sym] = [];
-
-    const buyVal = Number(p.buy_value || 0);
-    const dayBuyVal = Number(p.day_buy_value || 0);
+    const buyVal = Number(p.buy_value||0);
+    const dayBuyVal = Number(p.day_buy_value||0);
     const overnightVal = buyVal - dayBuyVal;
-
-    const overnightAvg = oq > 0 ? overnightVal / oq : 0;
-
-    books[sym].push({
-      side: "BUY",
-      qty: oq,
-      avg: overnightAvg,
-    });
+    const avg = oq > 0 ? overnightVal / oq : 0;
+    books[sym].push({ side:"BUY", qty:oq, avg });
   }
 
-  // PROCESS ALL TRADES USING FIFO
   for (const t of trades) {
     const sym = t.tradingsymbol;
+    const side = (t.transaction_type||"").toUpperCase();
     const qty = Number(t.quantity);
-    const side = (t.transaction_type || "").toUpperCase();
     const price = Number(t.average_price);
-
     if (!books[sym]) books[sym] = [];
-
-    const result =
-      side === "BUY"
-        ? fifoBuy(books[sym], qty, price)
-        : fifoSell(books[sym], qty, price);
-
-    realised += result.realised;
-    books[sym] = result.book;
+    const r = side==="BUY" ? fifoBuy(books[sym],qty,price) : fifoSell(books[sym],qty,price);
+    realised += r.realised;
+    books[sym] = r.book;
   }
-
   return realised;
 }
-async function computeFIFOUnrealisedSafe(kc, ltpAll) {
+
+async function computeUnrealisedFIFO(kc,ltpAll){
   const pos = await kc.getPositions();
-  const net = pos.net || [];
-
-  let unreal = 0;
-
-  for (const p of net) {
+  const net = pos.net||[];
+  let unreal=0;
+  for(const p of net){
     const qty = Number(p.quantity);
-    if (!qty) continue;
-
+    if(!qty) continue;
     const token = Number(p.instrument_token);
-    const hasLtp = token && ltpAll[token]?.last_price != null;
-
-    // if no LTP, skip (important)
-    if (!hasLtp) continue;
-
-    const ltp = Number(ltpAll[token].last_price);
+    const ltp = ltpAll[token]?.last_price;
+    if(ltp == null) continue;
     const avg = Number(p.average_price);
-
-    if (qty > 0) unreal += (ltp - avg) * qty;
-    else unreal += (avg - ltp) * Math.abs(qty);
+    unreal += qty>0 ? (ltp-avg)*qty : (avg-ltp)*Math.abs(qty);
   }
-
   return unreal;
-       }
-/* ------------------------------------------------------
-   UNREALISED MTM + NET POSITIONS (adapted)
-   - still uses kv("ltp:all")
------------------------------------------------------- */
-
-async function computeUnrealisedAndNet(kc, ltpAll) {
-  const pos = await kc.getPositions();
-  const net = pos.net || [];
-
-  let unrealised = 0;
-
-  for (const p of net) {
-    const qty = Number(p.quantity);
-    if (!qty) continue;
-
-    const avg = Number(p.average_price);
-    const token = Number(p.instrument_token);
-
-    const ltp = Number(ltpAll[token]?.last_price) || Number(p.last_price) || 0;
-
-    const u = qty > 0
-      ? (ltp - avg) * qty
-      : (avg - ltp) * Math.abs(qty);
-
-    unrealised += u;
-  }
-
-  return { unrealised, net };
 }
 
-/* ------------------------------------------------------
-   ENFORCEMENT HELPERS (from enforce-trades/enforce)
------------------------------------------------------- */
+function safeNum(v,f=0){ const n=Number(v); return Number.isFinite(n)?n:f; }
 
-async function cancelPending(kc) {
-  try {
+async function cancelPending(kc){
+  try{
     const orders = await kc.getOrders();
-    const pending = (orders || []).filter(o => {
-      const s = (o.status || "").toUpperCase();
-      return s === "OPEN" || s.includes("TRIGGER") || s === "PENDING";
+    const pending = (orders||[]).filter(o=>{
+      const s=(o.status||"").toUpperCase();
+      return s==="OPEN"||s.includes("TRIGGER")||s==="PENDING";
     });
-
-    let cancelled = 0;
-    for (const o of pending) {
-      try {
-        await kc.cancelOrder(o.variety || "regular", o.order_id);
-        cancelled++;
-      } catch {}
+    let c=0;
+    for(const o of pending){
+      try{ await kc.cancelOrder(o.variety||"regular",o.order_id); c++; }catch{}
     }
-    return cancelled;
-  } catch {
-    return 0;
-  }
+    return c;
+  }catch{return 0;}
 }
 
-async function squareOffAll(kc) {
-  try {
+async function squareOffAll(kc){
+  try{
     const pos = await kc.getPositions();
-    const net = pos?.net || [];
-    let squared = 0;
-
-    for (const p of net) {
-      const qty = Number(p.net_quantity ?? p.quantity ?? 0);
-      if (!qty) continue;
-
-      const side = qty > 0 ? "SELL" : "BUY";
-
-      try {
-        await kc.placeOrder("regular", {
-          exchange: p.exchange || "NSE",
-          tradingsymbol: p.tradingsymbol || p.trading_symbol,
-          transaction_type: side,
-          quantity: Math.abs(qty),
-          order_type: "MARKET",
-          product: p.product || "MIS",
-          validity: "DAY"
+    const net = pos.net||[];
+    let s=0;
+    for(const p of net){
+      const qty = Number(p.quantity||p.net_quantity||0);
+      if(!qty) continue;
+      const side = qty>0?"SELL":"BUY";
+      try{
+        await kc.placeOrder("regular",{
+          exchange:p.exchange||"NFO",
+          tradingsymbol:p.tradingsymbol,
+          transaction_type:side,
+          quantity:Math.abs(qty),
+          order_type:"MARKET",
+          product:"MIS",
+          validity:"DAY"
         });
-        squared++;
-      } catch {}
+        s++;
+      }catch{}
     }
-
-    return squared;
-  } catch {
-    return 0;
-  }
+    return s;
+  }catch{return 0;}
 }
 
-// close ONLY newly added qty during cooldown
-async function squareOffDelta(kc, sym, deltaQty) {
-  try {
-    const side = deltaQty > 0 ? "SELL" : "BUY";
-    await kc.placeOrder("regular", {
-      exchange: "NFO",           // same assumption as before
-      tradingsymbol: sym,
-      transaction_type: side,
-      quantity: Math.abs(deltaQty),
-      order_type: "MARKET",
-      product: "MIS",
-      validity: "DAY"
+async function squareOffDelta(kc,sym,dQty){
+  try{
+    const side = dQty>0?"SELL":"BUY";
+    await kc.placeOrder("regular",{
+      exchange:"NFO",
+      tradingsymbol:sym,
+      transaction_type:side,
+      quantity:Math.abs(dQty),
+      order_type:"MARKET",
+      product:"MIS",
+      validity:"DAY"
     });
     return true;
-  } catch {
-    return false;
-  }
+  }catch{return false;}
 }
 
-/* ------------------------------------------------------
-   MAIN HANDLER
------------------------------------------------------- */
+export default async function handler(req,res){
+  if(req.method==="OPTIONS") return res.status(204).end();
+  if(req.method!=="GET") return res.status(405).json({ok:false,error:"Method not allowed"});
 
-function safeNum(v, fallback = 0) {
-  if (v === null || v === undefined || v === "") return fallback;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : fallback;
-}
-
-export default async function handler(req, res) {
-  if (req.method === "OPTIONS") return res.status(204).end();
-  if (req.method !== "GET") {
-    return res.status(405).json({ ok: false, error: "Method not allowed" });
-  }
-
-  try {
-    // 1) Load current state (backwards-compatible)
-    const s = (await getState()) || {};
-    let freezeMode = s.freeze_mode || null;
-let allowedPositions = s.allowed_positions || null;
-    // 2) Daily snapshot key (same as set-config)
+  try{
+    const s = (await getState())||{};
     const dayKey = `risk:${todayKey()}`;
 
-    // 3) Connect to Kite
     let kc;
-    try {
-      kc = await instance();
-    } catch (e) {
-      const patch = {
-        kite_status: "error",
-        kite_error_message: String(e),
-      };
-
-      const next = await setState(patch);
-      await kv.set(dayKey, next);
-
-      return res.json({
-        ok: false,
-        error: "kite_connect_failed",
-        kite_status: "error"
-      });
+    try{ kc = await instance(); }
+    catch(e){
+      const patch={kite_status:"error",kite_error_message:String(e)};
+      const next=await setState(patch);
+      await kv.set(dayKey,next);
+      return res.json({ok:false,error:"kite_connect_failed",kite_status:"error"});
     }
 
-    // 4) If day already tripped → enforce directly
-    if (s.tripped_day) {
-      const cancelled = await cancelPending(kc);
-      const squared = await squareOffAll(kc);
-
-      const next = await setState({
-        admin_last_enforce_result: {
-          cancelled,
-          squared,
-          at: Date.now(),
-          reason: "already_tripped_enforce"
-        }
-      });
-
-      await kv.set(dayKey, next);
-
-      return res.json({
-        ok: true,
-        enforced: true,
-        reason: "already_tripped"
-      });
+    if(s.tripped_day){
+      const c=await cancelPending(kc);
+      const q=await squareOffAll(kc);
+      const next=await setState({admin_last_enforce_result:{cancelled:c,squared:q,at:Date.now(),reason:"already_tripped"}});
+      await kv.set(dayKey,next);
+      return res.json({ok:true,enforced:true,reason:"already_tripped"});
     }
 
-    // 5) LTP from KV
-    const ltpAll = (await kv.get("ltp:all")) || {};
+    const ltpAll = (await kv.get("ltp:all"))||{};
+    const realised = await computeRealised(kc);
+     const unrealised = await computeUnrealisedFIFO(kc,ltpAll);
+    const total = realised + unrealised;
 
-    // 6) MTM calc (mtm-worker logic)
-    const { net } = await computeUnrealisedAndNet(kc, ltpAll); // keep net calculation
-const unrealised = await computeFIFOUnrealisedSafe(kc, ltpAll);
-const total = realised + unrealised;
+    const now = Date.now();
+    const minLossToCount = safeNum(s.min_loss_to_count||0);
+    const cooldownMin = safeNum(s.cooldown_min||0);
+    const maxConsec = safeNum(s.max_consecutive_losses||0);
 
-    // 7) Risk logic (new model)
-    const nowTs = Date.now();
-    const minLossToCount = safeNum(s.min_loss_to_count || 0);
-    const cooldownMin = safeNum(s.cooldown_min || 0);
-    const maxConsec = safeNum(s.max_consecutive_losses || 0);
-
-    const hist = Array.isArray(s.realised_history) ? [...s.realised_history] : [];
-    const prevReal = hist.length ? safeNum(hist[hist.length - 1]) : safeNum(s.realised || 0);
+    let hist = Array.isArray(s.realised_history)?[...s.realised_history]:[];
+    const prevReal = hist.length ? safeNum(hist[hist.length-1]) : safeNum(s.realised||0);
     const delta = realised - prevReal;
 
     let patch = {
       realised,
       unrealised,
       total_pnl: total,
-      mtm_last_update: nowTs,
+      mtm_last_update: now,
       kite_status: "ok",
       kite_error_message: null
     };
 
     let realisedHistory = hist;
-    let consecutiveLosses = safeNum(s.consecutive_losses || 0);
+    let consecutiveLosses = safeNum(s.consecutive_losses||0);
     let cooldownActive = !!s.cooldown_active;
-    let cooldownUntil = safeNum(s.cooldown_until || 0);
-    let lastNetPositions = s.last_net_positions || {};
-    let tripReason = s.trip_reason || null;
+    let cooldownUntil = safeNum(s.cooldown_until||0);
+    let lastNet = s.last_net_positions||{};
     let trippedDay = !!s.tripped_day;
+    let tripReason = s.trip_reason||null;
     let blockNew = !!s.block_new_orders;
 
-    // 7.a) Trade close detection (realised changed)
-    if (delta !== 0) {
+    if(delta !== 0){
       realisedHistory.push(realised);
-      if (realisedHistory.length > 200) realisedHistory = realisedHistory.slice(-200);
-
-      // cooldown
+      if(realisedHistory.length>200) realisedHistory = realisedHistory.slice(-200);
       cooldownActive = true;
-      cooldownUntil = nowTs + cooldownMin * 60000;
-
-      // last trade time
-      patch.last_trade_time = nowTs;
-
-      // consecutive losses
-      if (delta < 0 && Math.abs(delta) >= minLossToCount) {
-        consecutiveLosses += 1;
-      } else if (delta > 0) {
-        consecutiveLosses = 0;
-      }
+      cooldownUntil = now + cooldownMin*60000;
+      patch.last_trade_time = now;
+      if(delta<0 && Math.abs(delta)>=minLossToCount) consecutiveLosses++;
+      else if(delta>0) consecutiveLosses = 0;
     }
 
     patch.realised_history = realisedHistory;
@@ -407,79 +215,56 @@ const total = realised + unrealised;
     patch.cooldown_until = cooldownUntil;
     patch.consecutive_losses = consecutiveLosses;
 
-    // 7.b) Max consecutive loss trip
-    if (maxConsec > 0 && consecutiveLosses >= maxConsec) {
+    if(maxConsec>0 && consecutiveLosses>=maxConsec){
       trippedDay = true;
       blockNew = true;
       tripReason = "max_consecutive_losses";
     }
 
-    // 7.c) New positions detection during cooldown
-    const currentNetMap = {};
-    for (const p of net) {
-      currentNetMap[p.tradingsymbol] = safeNum(p.net_quantity);
-    }
-
-    if (cooldownActive && nowTs < cooldownUntil) {
-      for (const sym of Object.keys(currentNetMap)) {
-        const oldQty = safeNum(lastNetPositions[sym] || 0);
-        const newQty = safeNum(currentNetMap[sym] || 0);
-        const dQty = newQty - oldQty;
-
-        if (dQty !== 0) {
-          await squareOffDelta(kc, sym, dQty);
-          
-    // ALLOW_NEW LOGIC ADDED
-    const allowNew = s.allow_new !== undefined ? !!s.allow_new : true;
-    if (!trippedDay && !cooldownActive && !allowNew) {
-      for (const sym of Object.keys(currentNetMap)) {
-        const oldQty = safeNum(lastNetPositions[sym] || 0);
-        const newQty = safeNum(currentNetMap[sym] || 0);
-        const dQty = newQty - oldQty;
-        if (dQty > 0) {
-          await squareOffDelta(kc, sym, dQty);
-        }
-      }
-    }
-// you can later extend: store detailed cooldown violation logs in state
+    const pos = await kc.getPositions();
+    const net = pos.net||[];
+    const currentNet = {};
+    for(const p of net) currentNet[p.tradingsymbol] = safeNum(p.net_quantity||p.quantity||0);
+     if(cooldownActive && now < cooldownUntil){
+      for(const sym of Object.keys(currentNet)){
+        const oldQty = safeNum(lastNet[sym]||0);
+        const newQty = safeNum(currentNet[sym]||0);
+        const d = newQty - oldQty;
+        if(d !== 0){
+          await squareOffDelta(kc,sym,d);
         }
       }
     }
 
-    patch.last_net_positions = currentNetMap;
+    patch.last_net_positions = currentNet;
 
-    // 7.d) Loss-floor logic (adapted from enforce-trades)
-    let maxLossAbs = safeNum(s.max_loss_abs || 0);
-    if (!maxLossAbs) {
-      const capital = safeNum(s.capital_day_915 || 0);
-      const pct = safeNum(s.max_loss_pct || 0);
-      if (capital > 0 && pct > 0) {
-        maxLossAbs = Math.round(capital * pct / 100);
-      }
+    let maxLossAbs = safeNum(s.max_loss_abs||0);
+    if(!maxLossAbs){
+      const capital = safeNum(s.capital_day_915||0);
+      const pct = safeNum(s.max_loss_pct||0);
+      if(capital>0 && pct>0) maxLossAbs = Math.round(capital*pct/100);
     }
 
-    const trailStep = safeNum(s.trail_step_profit || 0);
-
+    const trailStep = safeNum(s.trail_step_profit||0);
     const currentFloor = Number.isFinite(Number(s.active_loss_floor))
       ? safeNum(s.active_loss_floor)
       : (maxLossAbs ? -maxLossAbs : 0);
 
-    const currentPeak = safeNum(s.peak_profit || 0);
-
+    const currentPeak = safeNum(s.peak_profit||0);
     let nextPeak = currentPeak;
-    if (total > currentPeak) nextPeak = total;
+    if(total>currentPeak) nextPeak = total;
 
     let trailLevel = 0;
-    if (trailStep && nextPeak > 0) {
-      trailLevel = Math.floor(nextPeak / trailStep) * trailStep;
+    if(trailStep && nextPeak>0){
+      trailLevel = Math.floor(nextPeak/trailStep)*trailStep;
     }
 
-    let newFloorCandidate = (trailLevel > 0 && maxLossAbs > 0)
+    let newFloorCandidate = (trailLevel>0 && maxLossAbs>0)
       ? trailLevel - maxLossAbs
       : -maxLossAbs;
 
     let nextFloor = currentFloor;
-    if (newFloorCandidate > nextFloor) nextFloor = newFloorCandidate;
+    if(newFloorCandidate > nextFloor) nextFloor = newFloorCandidate;
 
     const remaining = total - nextFloor;
 
@@ -488,141 +273,128 @@ const total = realised + unrealised;
     patch.active_loss_floor = nextFloor;
     patch.remaining_to_max_loss = remaining;
 
-    if (maxLossAbs > 0 && remaining <= 0) {
+    if(maxLossAbs>0 && remaining<=0){
       trippedDay = true;
       blockNew = true;
       tripReason = "max_loss_floor_total_pnl";
     }
-    // MAX PROFIT TARGET ADDED
-    let maxProfitAbs = safeNum(s.max_profit_abs || 0);
-    if (!maxProfitAbs) {
-      const cap = safeNum(s.capital_day_915 || 0);
-      const pct = safeNum(s.max_profit_pct || 0);
-      maxProfitAbs = (cap * pct) / 100;
-    }
-    if (maxProfitAbs > 0 && total >= maxProfitAbs) {
-  trippedDay = true;
-  blockNew = true;
-  tripReason = "max_profit_target";
 
-  // NEW: freeze mode stays for the rest of day
-  patch.freeze_mode = "maxprofit";
-
-  // Record allowed positions at this moment
-  const allowed = {};
-  for (const p of net) {
-    const q = Number(p.quantity);
-    if (q !== 0) allowed[p.tradingsymbol] = q;
-  }
-
-  patch.allowed_positions = allowed;
+    let maxProfitAbs = safeNum(s.max_profit_abs||0);
+    if(!maxProfitAbs){
+      const cap = safeNum(s.capital_day_915||0);
+      const pct = safeNum(s.max_profit_pct||0);
+      if(cap>0 && pct>0) maxProfitAbs = (cap*pct)/100;
     }
 
+    if(maxProfitAbs>0 && total>=maxProfitAbs){
+      trippedDay = true;
+      blockNew = true;
+      tripReason = "max_profit_target";
+      patch.freeze_mode = "maxprofit";
+      const allowed={};
+      for(const p of net){
+        const q = Number(p.quantity||p.net_quantity||0);
+        if(q!==0) allowed[p.tradingsymbol]=q;
+      }
+      patch.allowed_positions = allowed;
+    }
 
     patch.tripped_day = trippedDay;
     patch.block_new_orders = blockNew;
     patch.trip_reason = tripReason;
 
-    // 8) If tripped now → enforce
-    if (trippedDay) {
-      const cancelled = await cancelPending(kc);
-      const squared = await squareOffAll(kc);
-
+   if(trippedDay){
+      const c = await cancelPending(kc);
+      const q = await squareOffAll(kc);
       patch.admin_last_enforce_result = {
-        cancelled,
-        squared,
-        at: nowTs,
+        cancelled:c,
+        squared:q,
+        at:now,
         reason: tripReason || "day_tripped_enforce"
       };
     }
 
-    // 9) Persist via setState (canonical) + daily snapshot
     const nextState = await setState(patch);
-    await kv.set(dayKey, nextState);
-   // =======================================================
-// UNIFIED FREEZE ENFORCEMENT (maxprofit / cooldown)
-// =======================================================
-const freezeMode = nextState.freeze_mode || null;
-let allowedPositions = nextState.allowed_positions || null;
+    await kv.set(dayKey,nextState);
 
-if (freezeMode === "maxprofit" && allowedPositions) {
-  const fresh = await kc.getPositions();
-  const live = fresh.net || [];
+    const freezeMode = nextState.freeze_mode||null;
+    let allowed = nextState.allowed_positions||null;
 
-  let updated = { ...allowedPositions };
+    if(freezeMode==="maxprofit" && allowed){
+      const fresh = await kc.getPositions();
+      const live = fresh.net||[];
 
-  for (const p of live) {
-    const sym = p.tradingsymbol;
-    const qty = Number(p.quantity);
+      let updated = {...allowed};
 
-    // not allowed at all
-    if (!(sym in updated)) {
-      if (qty !== 0) {
-        const side = qty > 0 ? "SELL" : "BUY";
-        await kc.placeOrder("regular", {
-          exchange: p.exchange || "NFO",
-          tradingsymbol: sym,
-          transaction_type: side,
-          quantity: Math.abs(qty),
-          order_type: "MARKET",
-          product: "MIS",
-          validity: "DAY"
-        });
+      for(const p of live){
+        const sym = p.tradingsymbol;
+        const qty = Number(p.quantity||p.net_quantity||0);
+
+        if(!(sym in updated)){
+          if(qty!==0){
+            const side = qty>0?"SELL":"BUY";
+            await kc.placeOrder("regular",{
+              exchange:p.exchange||"NFO",
+              tradingsymbol:sym,
+              transaction_type:side,
+              quantity:Math.abs(qty),
+              order_type:"MARKET",
+              product:"MIS",
+              validity:"DAY"
+            });
+          }
+          continue;
+        }
+
+        const allowedQty = updated[sym];
+
+        if(allowedQty===0 && qty!==0){
+          const side = qty>0?"SELL":"BUY";
+          await kc.placeOrder("regular",{
+            exchange:p.exchange||"NFO",
+            tradingsymbol:sym,
+            transaction_type:side,
+            quantity:Math.abs(qty),
+            order_type:"MARKET",
+            product:"MIS",
+            validity:"DAY"
+          });
+          continue;
+        }
+
+        if(qty > allowedQty){
+          const extra = qty - allowedQty;
+          const side = extra>0?"SELL":"BUY";
+          await kc.placeOrder("regular",{
+            exchange:p.exchange||"NFO",
+            tradingsymbol:sym,
+            transaction_type:side,
+            quantity:Math.abs(extra),
+            order_type:"MARKET",
+            product:"MIS",
+            validity:"DAY"
+          });
+          continue;
+        }
+
+        if(qty < allowedQty){
+          updated[sym] = qty;
+        }
       }
-      continue;
-    }
 
-    const allowed = updated[sym];
+      patch.allowed_positions = updated;
+      patch.freeze_mode = "maxprofit";
+      const ns2 = await setState(patch);
+      await kv.set(dayKey,ns2);
 
-    // allowed zero → square entire
-    if (allowed === 0 && qty !== 0) {
-      const side = qty > 0 ? "SELL" : "BUY";
-      await kc.placeOrder("regular", {
-        exchange: p.exchange || "NFO",
-        tradingsymbol: sym,
-        transaction_type: side,
-        quantity: Math.abs(qty),
-        order_type: "MARKET",
-        product: "MIS",
-        validity: "DAY"
+      return res.json({
+        ok:true,
+        freeze_mode:"maxprofit",
+        allowed_positions:updated
       });
-      continue;
     }
-
-    // qty > allowed → square off delta
-    if (qty > allowed) {
-      const extra = qty - allowed;
-      const side = extra > 0 ? "SELL" : "BUY";
-      await kc.placeOrder("regular", {
-        exchange: p.exchange || "NFO",
-        tradingsymbol: sym,
-        transaction_type: side,
-        quantity: Math.abs(extra),
-        order_type: "MARKET",
-        product: "MIS",
-        validity: "DAY"
-      });
-      continue;
-    }
-
-    // qty < allowed → shrink allowed book
-    if (qty < allowed) updated[sym] = qty;
-  }
-
-  // rewrite allowed positions in state
-  patch.allowed_positions = updated;
-  patch.freeze_mode = "maxprofit";
-  const ns2 = await setState(patch);
-  await kv.set(dayKey, ns2);
-
-  return res.json({
-    ok: true,
-    freeze_mode: "maxprofit",
-    allowed_positions: updated
-  });
-}
-    return res.json({
-      ok: true,
+     return res.json({
+      ok:true,
       realised,
       unrealised,
       total_pnl: total,
@@ -634,9 +406,9 @@ if (freezeMode === "maxprofit" && allowedPositions) {
   } catch (err) {
     console.error("risk-engine ERROR:", err);
     await setState({
-      kite_status: "error",
-      kite_error_message: String(err)
+      kite_status:"error",
+      kite_error_message:String(err)
     });
-    return res.status(500).json({ ok: false, error: String(err) });
+    return res.status(500).json({ok:false,error:String(err)});
   }
 }
