@@ -148,7 +148,31 @@ async function computeRealised(kc) {
 
   return realised;
 }
+async function computeFIFOUnrealisedSafe(kc, ltpAll) {
+  const pos = await kc.getPositions();
+  const net = pos.net || [];
 
+  let unreal = 0;
+
+  for (const p of net) {
+    const qty = Number(p.quantity);
+    if (!qty) continue;
+
+    const token = Number(p.instrument_token);
+    const hasLtp = token && ltpAll[token]?.last_price != null;
+
+    // if no LTP, skip (important)
+    if (!hasLtp) continue;
+
+    const ltp = Number(ltpAll[token].last_price);
+    const avg = Number(p.average_price);
+
+    if (qty > 0) unreal += (ltp - avg) * qty;
+    else unreal += (avg - ltp) * Math.abs(qty);
+  }
+
+  return unreal;
+       }
 /* ------------------------------------------------------
    UNREALISED MTM + NET POSITIONS (adapted)
    - still uses kv("ltp:all")
@@ -274,7 +298,8 @@ export default async function handler(req, res) {
   try {
     // 1) Load current state (backwards-compatible)
     const s = (await getState()) || {};
-
+    let freezeMode = s.freeze_mode || null;
+let allowedPositions = s.allowed_positions || null;
     // 2) Daily snapshot key (same as set-config)
     const dayKey = `risk:${todayKey()}`;
 
@@ -325,9 +350,9 @@ export default async function handler(req, res) {
     const ltpAll = (await kv.get("ltp:all")) || {};
 
     // 6) MTM calc (mtm-worker logic)
-    const realised = await computeRealised(kc);
-    const { unrealised, net } = await computeUnrealisedAndNet(kc, ltpAll);
-    const total = realised + unrealised;
+    const { net } = await computeUnrealisedAndNet(kc, ltpAll); // keep net calculation
+const unrealised = await computeFIFOUnrealisedSafe(kc, ltpAll);
+const total = realised + unrealised;
 
     // 7) Risk logic (new model)
     const nowTs = Date.now();
@@ -476,9 +501,21 @@ export default async function handler(req, res) {
       maxProfitAbs = (cap * pct) / 100;
     }
     if (maxProfitAbs > 0 && total >= maxProfitAbs) {
-      trippedDay = true;
-      blockNew = true;
-      tripReason = "max_profit_target";
+  trippedDay = true;
+  blockNew = true;
+  tripReason = "max_profit_target";
+
+  // NEW: freeze mode stays for the rest of day
+  patch.freeze_mode = "maxprofit";
+
+  // Record allowed positions at this moment
+  const allowed = {};
+  for (const p of net) {
+    const q = Number(p.quantity);
+    if (q !== 0) allowed[p.tradingsymbol] = q;
+  }
+
+  patch.allowed_positions = allowed;
     }
 
 
@@ -502,7 +539,88 @@ export default async function handler(req, res) {
     // 9) Persist via setState (canonical) + daily snapshot
     const nextState = await setState(patch);
     await kv.set(dayKey, nextState);
+   // =======================================================
+// UNIFIED FREEZE ENFORCEMENT (maxprofit / cooldown)
+// =======================================================
+const freezeMode = nextState.freeze_mode || null;
+let allowedPositions = nextState.allowed_positions || null;
 
+if (freezeMode === "maxprofit" && allowedPositions) {
+  const fresh = await kc.getPositions();
+  const live = fresh.net || [];
+
+  let updated = { ...allowedPositions };
+
+  for (const p of live) {
+    const sym = p.tradingsymbol;
+    const qty = Number(p.quantity);
+
+    // not allowed at all
+    if (!(sym in updated)) {
+      if (qty !== 0) {
+        const side = qty > 0 ? "SELL" : "BUY";
+        await kc.placeOrder("regular", {
+          exchange: p.exchange || "NFO",
+          tradingsymbol: sym,
+          transaction_type: side,
+          quantity: Math.abs(qty),
+          order_type: "MARKET",
+          product: "MIS",
+          validity: "DAY"
+        });
+      }
+      continue;
+    }
+
+    const allowed = updated[sym];
+
+    // allowed zero → square entire
+    if (allowed === 0 && qty !== 0) {
+      const side = qty > 0 ? "SELL" : "BUY";
+      await kc.placeOrder("regular", {
+        exchange: p.exchange || "NFO",
+        tradingsymbol: sym,
+        transaction_type: side,
+        quantity: Math.abs(qty),
+        order_type: "MARKET",
+        product: "MIS",
+        validity: "DAY"
+      });
+      continue;
+    }
+
+    // qty > allowed → square off delta
+    if (qty > allowed) {
+      const extra = qty - allowed;
+      const side = extra > 0 ? "SELL" : "BUY";
+      await kc.placeOrder("regular", {
+        exchange: p.exchange || "NFO",
+        tradingsymbol: sym,
+        transaction_type: side,
+        quantity: Math.abs(extra),
+        order_type: "MARKET",
+        product: "MIS",
+        validity: "DAY"
+      });
+      continue;
+    }
+
+    // qty < allowed → shrink allowed book
+    if (qty < allowed) updated[sym] = qty;
+  }
+
+  // rewrite allowed positions in state
+  patch.allowed_positions = updated;
+  patch.freeze_mode = "maxprofit";
+  const ns2 = await setState(patch);
+  await kv.set(dayKey, ns2);
+
+  return res.json({
+    ok: true,
+    freeze_mode: "maxprofit",
+    allowed_positions: updated
+  });
+}
     return res.json({
       ok: true,
       realised,
