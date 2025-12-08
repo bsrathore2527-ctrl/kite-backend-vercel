@@ -7,7 +7,7 @@
   "crons": [
     
     {
-      "path": "/api/risk-engine",
+      "path": "/api/mtm-worker",
       "schedule": "*/1 * * * *"
     }
   
