@@ -429,18 +429,18 @@ const total = realised + unrealised;
     }
 
     if (maxProfitAbs > 0 && total >= maxProfitAbs) {
-      trippedDay = true;
-      blockNew = true;
-      tripReason = "max_profit_target";
+  // Do NOT trip the day — only freeze new orders
+  patch.freeze_mode = "maxprofit";
+  patch.trip_reason = "max_profit_target";
+  blockNew = true;     // block only NEW positions
+  trippedDay = false;  // day NOT tripped
 
-      patch.freeze_mode = "maxprofit";
-
-      const allowed = {};
-      for (const p of net) {
-        const q = Number(p.quantity || p.net_quantity || 0);
-        if (q !== 0) allowed[p.tradingsymbol] = q;
-      }
-      patch.allowed_positions = allowed;
+  const allowed = {};
+  for (const p of net) {
+    const q = Number(p.quantity || p.net_quantity || 0);
+    if (q !== 0) allowed[p.tradingsymbol] = q;
+  }
+  patch.allowed_positions = allowed;
     }
 
     patch.tripped_day = trippedDay;
