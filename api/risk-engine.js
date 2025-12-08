@@ -93,20 +93,40 @@ async function computeRealised(kc, netPos) {
 // ---------------------------------------------------
 // OPTIMIZED UNREALISED (pure function)
 // ---------------------------------------------------
-function computeUnrealisedFIFO(net, ltpAll) {
-  let unreal = 0;
-  for (const p of net) {
-    const qty = Number(p.quantity || 0);
-    if (!qty) continue;
+// FIFO unrealised — identical to mtm-worker
+function computeUnrealisedFIFOFromBooks(books, positions, ltpAll) {
+  let unrealised = 0;
 
-    const token = Number(p.instrument_token);
-    const ltp = ltpAll[token]?.last_price;
-    if (ltp == null) continue;
-
-    const avg = Number(p.average_price);
-    unreal += qty > 0 ? (ltp - avg) * qty : (avg - ltp) * Math.abs(qty);
+  // Map symbol → instrument_token
+  const tokenMap = {};
+  for (const p of positions) {
+    tokenMap[p.tradingsymbol] = p.instrument_token;
   }
-  return unreal;
+
+  for (const sym of Object.keys(books)) {
+    const lots = books[sym];
+    const token = tokenMap[sym];
+
+    if (!token) continue;
+
+    const ltpObj = ltpAll[token];
+    if (!ltpObj || typeof ltpObj.last_price !== "number") continue;
+
+    const ltp = Number(ltpObj.last_price);
+
+    for (const lot of lots) {
+      const q = lot.qty;
+      if (!q) continue;
+
+      if (lot.side === "BUY") {
+        unrealised += (ltp - lot.avg) * q;
+      } else {
+        unrealised += (lot.avg - ltp) * q;
+      }
+    }
+  }
+
+  return unrealised;
 }
 
 function safeNum(v, f = 0) {
@@ -239,9 +259,13 @@ export default async function handler(req, res) {
     const pos = await kc.getPositions();        // ONE CALL ONLY
     const net = pos.net || [];
 
-    const realised = await computeRealised(kc, net);
-    const unrealised = computeUnrealisedFIFO(net, ltpAll);
-    const total = realised + unrealised;
+    // FIFO realised + FIFO books + positions (from mtm-worker)
+const { realised, books, positions } = await computeRealised(kc, net);
+
+// FIFO unrealised from FIFO books (mtm-worker exact)
+const unrealised = computeUnrealisedFIFOFromBooks(books, positions, ltpAll);
+
+const total = realised + unrealised;
 
     // MTM logging
     console.log("🟢 FINAL MTM:", {
