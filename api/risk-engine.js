@@ -468,8 +468,6 @@ if (cooldownActive && now < cooldownUntil) {
       };
     }
 
-    const nextState = await setState(patch);
-    await kv.set(dayKey, nextState);
 
     // ---------------------------------------------------
     // FREEZE MODE ENFORCEMENT (with fixed product)
