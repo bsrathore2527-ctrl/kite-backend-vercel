@@ -376,8 +376,6 @@ const lastNet = s.last_net_positions || {};
 //--------------------------------------------------
 patch.last_net_positions = currentNet;
 
-const nextState = await setState(patch);
-await kv.set(dayKey, nextState);
 
 //--------------------------------------------------
 // COOLDOWN ENFORCEMENT — CLEAN & CORRECT
@@ -541,15 +539,21 @@ if (cooldownActive && now < cooldownUntil) {
 
     }
 
-    return res.json({
-      ok: true,
-      realised,
-      unrealised,
-      total_pnl: total,
-      tripped_day: nextState.tripped_day,
-      block_new_orders: nextState.block_new_orders,
-      trip_reason: nextState.trip_reason || null
-    });
+    //--------------------------------------------------
+// FINAL DB WRITE — MUST EXIST ONLY ONCE
+//--------------------------------------------------
+const finalState = await setState(patch);
+await kv.set(dayKey, finalState);
+
+return res.json({
+  ok: true,
+  realised,
+  unrealised,
+  total_pnl: total_pnl,
+  tripped_day: finalState.tripped_day,
+  block_new_orders: finalState.block_new_orders,
+  trip_reason: finalState.trip_reason || null
+});
 
   } catch (err) {
     console.error("risk-engine ERROR:", err);
