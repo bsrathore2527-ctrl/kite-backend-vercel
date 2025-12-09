@@ -364,7 +364,8 @@ if (!realisedChanged) {
     for (const p of net) {
       currentNet[p.tradingsymbol] = safeNum(p.net_quantity || p.quantity || 0);
     }
-
+    patch.last_net_positions = currentNet;
+    
     if (cooldownActive && now < cooldownUntil) {
       for (const sym of Object.keys(currentNet)) {
         const oldQty = safeNum(lastNet[sym] || 0);
@@ -376,8 +377,6 @@ if (!realisedChanged) {
         }
       }
     }
-
-    patch.last_net_positions = currentNet;
 
     let maxLossAbs = safeNum(s.max_loss_abs || 0);
     if (!maxLossAbs) {
