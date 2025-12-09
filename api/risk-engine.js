@@ -539,14 +539,6 @@ if (cooldownActive && now < cooldownUntil) {
       patch.allowed_positions = updated;
       patch.freeze_mode = "maxprofit";
 
-      const ns2 = await setState(patch);
-      await kv.set(dayKey, ns2);
-
-      return res.json({
-        ok: true,
-        freeze_mode: "maxprofit",
-        allowed_positions: updated
-      });
     }
 
     return res.json({
