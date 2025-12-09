@@ -358,37 +358,44 @@ if (!realisedChanged) {
       blockNew = true;
       tripReason = "max_consecutive_losses";
     }
-   const currentNet = {};
+   //--------------------------------------------------
+// BUILD currentNet (live actual Zerodha positions)
+//--------------------------------------------------
+const currentNet = {};
 for (const p of net) {
   currentNet[p.tradingsymbol] = safeNum(p.net_quantity || p.quantity || 0);
 }
 
-// ---------------------------------------------
-// FIX: read old lastNet BEFORE overriding it
-// ---------------------------------------------
+//--------------------------------------------------
+// READ old lastNet from DB BEFORE writing new data
+//--------------------------------------------------
 const lastNet = s.last_net_positions || {};
 
-// ---------------------------------------------
-// FIX: save the new currentNet BEFORE cooldown logic
-// ---------------------------------------------
+//--------------------------------------------------
+// SAVE new lastNet + all MTM patch BEFORE cooldown
+//--------------------------------------------------
 patch.last_net_positions = currentNet;
+
 const nextState = await setState(patch);
 await kv.set(dayKey, nextState);
 
-// ---------------------------------------------
-// cooldown delta enforcement (now correct)
-// ---------------------------------------------
+//--------------------------------------------------
+// COOLDOWN ENFORCEMENT — CLEAN & CORRECT
+//--------------------------------------------------
 if (cooldownActive && now < cooldownUntil) {
   for (const sym of Object.keys(currentNet)) {
     const oldQty = safeNum(lastNet[sym] || 0);
     const newQty = safeNum(currentNet[sym] || 0);
     const d = newQty - oldQty;
 
+    console.log("⚠️ COOL-DOWN DELTA CHECK:", { sym, oldQty, newQty, d });
+
     if (d !== 0) {
+      console.log("➡️ COOL-DOWN FIX:", sym, "delta:", d);
       await squareOffDelta(kc, sym, d);
     }
   }
-} 
+}
 
     let maxLossAbs = safeNum(s.max_loss_abs || 0);
     if (!maxLossAbs) {
