@@ -329,7 +329,6 @@ if (!realisedChanged) {
     let consecutiveLosses = safeNum(s.consecutive_losses || 0);
     let cooldownActive = !!s.cooldown_active;
     let cooldownUntil = safeNum(s.cooldown_until || 0);
-    let lastNet = s.last_net_positions || {};
     let trippedDay = !!s.tripped_day;
     let tripReason = s.trip_reason || null;
     let blockNew = !!s.block_new_orders;
