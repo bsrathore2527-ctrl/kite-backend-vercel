@@ -315,6 +315,19 @@ export default async function handler(req, res) {
       kite_error_message: null,
       mtm_log: mtmLog
     };
+    // ---------------------------------------------------
+// WRITE MTM ONLY IF REALISED CHANGED
+// ---------------------------------------------------
+const prevRealised = safeNum(s.realised || 0);
+const realisedChanged = realised !== prevRealised;
+
+if (!realisedChanged) {
+  // Avoid rewriting MTM to DB when nothing changed
+  delete patch.realised;
+  delete patch.unrealised;
+  delete patch.total_pnl;
+  delete patch.mtm_log;
+}
 
     let realisedHistory = hist;
     let consecutiveLosses = safeNum(s.consecutive_losses || 0);
