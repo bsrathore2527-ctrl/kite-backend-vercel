@@ -322,10 +322,6 @@ const prevRealised = safeNum(s.realised || 0);
 const realisedChanged = realised !== prevRealised;
 
 if (!realisedChanged) {
-  // Avoid rewriting MTM to DB when nothing changed
-  delete patch.realised;
-  delete patch.unrealised;
-  delete patch.total_pnl;
   delete patch.mtm_log;
 }
 
