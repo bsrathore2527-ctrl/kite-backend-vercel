@@ -8,7 +8,7 @@
     
     {
       "path": "/api/risk-engine",
-      "schedule": "*/1 * * * *"
+      "schedule": "*/5 * * * *"
     }
   
   ]
