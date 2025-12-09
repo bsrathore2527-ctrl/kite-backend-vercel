@@ -477,8 +477,8 @@ if (cooldownActive && now < cooldownUntil) {
     // ---------------------------------------------------
     // FREEZE MODE ENFORCEMENT (with fixed product)
     // ---------------------------------------------------
-    const freezeMode = finalState.freeze_mode || null;
-    let allowed = finalState.allowed_positions || null;
+    const freezeMode = patch.freeze_mode || null;
+    let allowed = patch.allowed_positions || null;
 
     if (freezeMode === "maxprofit" && allowed) {
       const fresh = await kc.getPositions();
