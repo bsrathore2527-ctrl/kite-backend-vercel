@@ -359,24 +359,35 @@ if (!realisedChanged) {
       blockNew = true;
       tripReason = "max_consecutive_losses";
     }
+   const currentNet = {};
+for (const p of net) {
+  currentNet[p.tradingsymbol] = safeNum(p.net_quantity || p.quantity || 0);
+}
 
-    const currentNet = {};
-    for (const p of net) {
-      currentNet[p.tradingsymbol] = safeNum(p.net_quantity || p.quantity || 0);
-    }
-    patch.last_net_positions = currentNet;
-    
-    if (cooldownActive && now < cooldownUntil) {
-      for (const sym of Object.keys(currentNet)) {
-        const oldQty = safeNum(lastNet[sym] || 0);
-        const newQty = safeNum(currentNet[sym] || 0);
-        const d = newQty - oldQty;
+// ---------------------------------------------
+// FIX: read old lastNet BEFORE overriding it
+// ---------------------------------------------
+const lastNet = s.last_net_positions || {};
 
-        if (d !== 0) {
-          await squareOffDelta(kc, sym, d);
-        }
-      }
+// ---------------------------------------------
+// FIX: save the new currentNet BEFORE cooldown logic
+// ---------------------------------------------
+patch.last_net_positions = currentNet;
+
+// ---------------------------------------------
+// cooldown delta enforcement (now correct)
+// ---------------------------------------------
+if (cooldownActive && now < cooldownUntil) {
+  for (const sym of Object.keys(currentNet)) {
+    const oldQty = safeNum(lastNet[sym] || 0);
+    const newQty = safeNum(currentNet[sym] || 0);
+    const d = newQty - oldQty;
+
+    if (d !== 0) {
+      await squareOffDelta(kc, sym, d);
     }
+  }
+} 
 
     let maxLossAbs = safeNum(s.max_loss_abs || 0);
     if (!maxLossAbs) {
