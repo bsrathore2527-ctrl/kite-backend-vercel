@@ -119,9 +119,14 @@ export default async function handler(req, res) {
     if (body.allow_new !== undefined) {
       patch.allow_new = !!body.allow_new;
     }
-    if (body.cooldown_on_profit !== undefined) {
-      patch.cooldown_on_profit = !!body.cooldown_on_profit;
-    }
+    // BEHAVIOR SWITCHES
+// Admin "Allow New Orders" MASTER SWITCH
+if (body.allow_new !== undefined) {
+    const allow = !!body.allow_new;
+
+    patch.allow_new = allow;
+    patch.block_new_orders = !allow;   // <-- DIRECT CONTROL
+}
 
     // RESET DAY (optional)
     if (body.reset_day) {
