@@ -540,7 +540,8 @@ if (cooldownActive && now < cooldownUntil) {
     }
 
     //--------------------------------------------------
-// FINAL DB WRITE — MUST EXIST ONLY ONCE
+//--------------------------------------------------
+// FINAL DB WRITE — MUST EXIST ONLY ONCE PER RUN
 //--------------------------------------------------
 const finalState = await setState(patch);
 await kv.set(dayKey, finalState);
@@ -549,7 +550,7 @@ return res.json({
   ok: true,
   realised,
   unrealised,
-  total_pnl: total_pnl,
+  total_pnl: total,
   tripped_day: finalState.tripped_day,
   block_new_orders: finalState.block_new_orders,
   trip_reason: finalState.trip_reason || null
