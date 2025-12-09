@@ -372,6 +372,8 @@ const lastNet = s.last_net_positions || {};
 // FIX: save the new currentNet BEFORE cooldown logic
 // ---------------------------------------------
 patch.last_net_positions = currentNet;
+const nextState = await setState(patch);
+await kv.set(dayKey, nextState);
 
 // ---------------------------------------------
 // cooldown delta enforcement (now correct)
