@@ -363,7 +363,7 @@ else if (delta > 0) {
 
   // cooldown on profit only if enabled
   if (cooldown_on_profit) {
-    console.log("cooldown_on_profit = true → cooldown start");
+    console.log("cooldownOnProfit = true → cooldown start");
 
     cooldownActive = true;
     cooldownUntil = lastTradeTime + cooldownMin * 60000;
