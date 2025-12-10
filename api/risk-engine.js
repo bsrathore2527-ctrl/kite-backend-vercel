@@ -358,7 +358,7 @@ if (!realisedChanged) {
       blockNew = true;
       tripReason = "max_consecutive_losses";
     }
-   //--------------------------------------------------
+  //--------------------------------------------------
 // BUILD currentNet (live actual Zerodha positions)
 //--------------------------------------------------
 const currentNet = {};
@@ -367,33 +367,48 @@ for (const p of net) {
 }
 
 //--------------------------------------------------
-// READ old lastNet from DB BEFORE writing new data
+// READ old lastNet BEFORE any enforcement
 //--------------------------------------------------
 const lastNet = s.last_net_positions || {};
 
 //--------------------------------------------------
-// SAVE new lastNet + all MTM patch BEFORE cooldown
+// DURING COOLDOWN → ALWAYS BLOCK NEW TRADES
 //--------------------------------------------------
-patch.last_net_positions = currentNet;
+if (cooldownActive && now < cooldownUntil) {
+    blockNew = true;
+}
 
+//--------------------------------------------------
+// COOLDOWN ENFORCEMENT — RUN ONLY WHEN blockNew = true
+//--------------------------------------------------
+if (blockNew && cooldownActive && now < cooldownUntil) {
 
-//--------------------------------------------------
-// COOLDOWN ENFORCEMENT — CLEAN & CORRECT
-//--------------------------------------------------
-if (!blockNew && cooldownActive && now < cooldownUntil) {
   for (const sym of Object.keys(currentNet)) {
+
     const oldQty = safeNum(lastNet[sym] || 0);
     const newQty = safeNum(currentNet[sym] || 0);
     const d = newQty - oldQty;
 
-    console.log("⚠️ COOL-DOWN DELTA CHECK:", { sym, oldQty, newQty, d });
+    console.log("⚠️ COOLDOWN CHECK:", { sym, oldQty, newQty, d });
 
+    // ALLOW EXITS — quantity reduced
+    if (newQty < oldQty) {
+      console.log("✔ exit allowed:", sym);
+      continue;
+    }
+
+    // BLOCK NEW ENTRIES — quantity increased
     if (d !== 0) {
-      console.log("➡️ COOL-DOWN FIX:", sym, "delta:", d);
+      console.log("❌ illegal entry detected → reversing", sym, d);
       await squareOffDelta(kc, sym, d);
     }
   }
 }
+
+//--------------------------------------------------
+// SAVE last_net_positions ONLY AFTER ENFORCEMENT
+//--------------------------------------------------
+patch.last_net_positions = currentNet;
 
     let maxLossAbs = safeNum(s.max_loss_abs || 0);
     if (!maxLossAbs) {
