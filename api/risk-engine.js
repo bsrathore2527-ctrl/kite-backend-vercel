@@ -362,8 +362,8 @@ else if (delta > 0) {
   patch.consecutive_losses = 0;
 
   // cooldown on profit only if enabled
-  if (cooldown_on_profit) {
-    console.log("cooldownOnProfit = true → cooldown start");
+  if (cooldownOnProfit) {
+    console.log("cooldown_on_profit = true → cooldown start");
 
     cooldownActive = true;
     cooldownUntil = lastTradeTime + cooldownMin * 60000;
