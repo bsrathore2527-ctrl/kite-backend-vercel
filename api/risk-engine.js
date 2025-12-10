@@ -380,7 +380,7 @@ patch.last_net_positions = currentNet;
 //--------------------------------------------------
 // COOLDOWN ENFORCEMENT — CLEAN & CORRECT
 //--------------------------------------------------
-if (cooldownActive && now < cooldownUntil) {
+if (!blockNew && cooldownActive && now < cooldownUntil) {
   for (const sym of Object.keys(currentNet)) {
     const oldQty = safeNum(lastNet[sym] || 0);
     const newQty = safeNum(currentNet[sym] || 0);
