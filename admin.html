@@ -220,7 +220,7 @@ html[data-theme="dark"] * {
 
           <div id="admin_actions" style="margin-top:12px;display:none">
             <div class="row" style="margin-bottom:8px">
-              <button id="enforce_btn" class="btn warn">Enforce Now</button>
+            
               <button id="kill_btn" class="btn danger">Kill (Close)</button>
               <button id="cancel_btn" class="btn ghost">Cancel All</button> 
               <!-- Reset day (admin) -->
@@ -449,7 +449,6 @@ function init(){
   $('clear_token').addEventListener('click', clearToken);
   $('toggle_token').addEventListener('click', toggleToken);
   $('login_zerodha').addEventListener('click', loginKite);
-  $('enforce_btn').addEventListener('click', enforceNow);
   $('kill_btn').addEventListener('click', killNow);
   $('cancel_btn').addEventListener('click', cancelAll);
   $('set_capital_btn').addEventListener('click', setCapital);
