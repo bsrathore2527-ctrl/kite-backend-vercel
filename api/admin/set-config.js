@@ -129,33 +129,50 @@ if (body.allow_new !== undefined) {
 }
 
     // RESET DAY (optional)
-    if (body.reset_day) {
-      patch.realised = 0;
-      patch.unrealised = 0;
-      patch.total_pnl = 0;
-      patch.realised_history = [];
-      patch.last_net_positions = {};
-      patch.last_trade_time = 0;
-      patch.consecutive_losses = 0;
-      patch.cooldown_active = false;
-      patch.cooldown_until = 0;
-      patch.tripped_day = false;
-      patch.block_new_orders = false;
-      patch.trip_reason = null;
-      patch.peak_profit = 0;
+if (body.reset_day) {
 
-      // Recompute loss floor / remaining loss
-      const maxLossAbs =
-        (patch.max_loss_abs !== undefined
-          ? patch.max_loss_abs
-          : s.max_loss_abs) || 0;
-      patch.active_loss_floor = -maxLossAbs;
-      patch.remaining_to_max_loss = maxLossAbs;
+  // Reset P&L + history
+  patch.realised = 0;
+  patch.unrealised = 0;
+  patch.total_pnl = 0;
+  patch.realised_history = [];
 
-      const resetLogs = Array.isArray(s.reset_logs) ? [...s.reset_logs] : [];
-      resetLogs.push({ time: now, reason: "manual_reset" });
-      patch.reset_logs = resetLogs;
-    }
+  // Reset net positions
+  patch.last_net_positions = {};
+
+  // Reset trade + cooldown state
+  patch.last_trade_time = 0;
+  patch.consecutive_losses = 0;
+
+  // IMPORTANT: CLEAR COOLDOWN STATE
+  patch.cooldown_active = false;
+  patch.cooldown_until = 0;
+
+  // IMPORTANT: NEW TRADING SHOULD BE ALLOWED AFTER RESET
+  patch.block_new_orders = false;
+
+  // Clear day-trip and profit target logics
+  patch.tripped_day = false;
+  patch.trip_reason = null;
+  patch.freeze_mode = null;
+  patch.allowed_positions = null;
+
+  // Reset profit peak + loss floor
+  patch.peak_profit = 0;
+
+  const maxLossAbs =
+    (patch.max_loss_abs !== undefined
+      ? patch.max_loss_abs
+      : s.max_loss_abs) || 0;
+
+  patch.active_loss_floor = -maxLossAbs;
+  patch.remaining_to_max_loss = maxLossAbs;
+
+  // Log reset
+  const resetLogs = Array.isArray(s.reset_logs) ? [...s.reset_logs] : [];
+  resetLogs.push({ time: now, reason: "manual_reset" });
+  patch.reset_logs = resetLogs;
+}
 
     // AUTO-CONVERT % → ABS (profit & loss)
     {
