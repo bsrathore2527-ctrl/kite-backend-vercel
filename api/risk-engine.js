@@ -352,6 +352,20 @@ if (!realisedChanged) {
     patch.cooldown_active = cooldownActive;
     patch.cooldown_until = cooldownUntil;
     patch.consecutive_losses = consecutiveLosses;
+    //--------------------------------------------------
+// AUTO-CLEAR COOLDOWN WHEN TIME IS OVER
+//--------------------------------------------------
+if (cooldownActive && now >= cooldownUntil) {
+  console.log("⏱️ Cooldown expired → unblocking new orders");
+
+  cooldownActive = false;
+  cooldownUntil = 0;
+  blockNew = false;
+
+  patch.cooldown_active = false;
+  patch.cooldown_until = 0;
+  patch.block_new_orders = false;
+}
 
     if (maxConsec > 0 && consecutiveLosses >= maxConsec) {
       trippedDay = true;
