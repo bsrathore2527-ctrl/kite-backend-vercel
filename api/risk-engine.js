@@ -360,7 +360,7 @@ else if (delta > 0) {
   patch.consecutive_losses = 0;
 
   // cooldown on profit only if enabled
-  if (cooldownOnProfit) {
+  if (cooldown_On_Profit) {
     console.log("cooldown_on_profit = true → cooldown start");
 
     cooldownActive = true;
