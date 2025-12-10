@@ -333,20 +333,49 @@ if (!realisedChanged) {
     let tripReason = s.trip_reason || null;
     let blockNew = !!s.block_new_orders;
 
-    if (delta !== 0) {
-      realisedHistory.push(realised);
-      if (realisedHistory.length > 200) realisedHistory = realisedHistory.slice(-200);
+    //------------------------------------------------------------
+// NEW PROFIT/LOSS CLOSE LOGIC USING DELTA
+//------------------------------------------------------------
+if (delta < 0) {
+  console.log("🔥 LOSS CLOSE detected → cooldown start");
 
-      cooldownActive = true;
-      cooldownUntil = now + cooldownMin * 60000;
-      patch.last_trade_time = now;
+  // start cooldown for loss
+  cooldownActive = true;
+  cooldownUntil = lastTradeTime + cooldownMin * 60000;
+  blockNew = true;
 
-      if (delta < 0 && Math.abs(delta) >= minLossToCount) {
-        consecutiveLosses++;
-      } else if (delta > 0) {
-        consecutiveLosses = 0;
-      }
-    }
+  // update patch state
+  consecutiveLosses++;
+  patch.consecutive_losses = consecutiveLosses;
+  patch.cooldown_active = true;
+  patch.cooldown_until = cooldownUntil;
+  patch.block_new_orders = true;
+}
+
+else if (delta > 0) {
+  console.log("💰 PROFIT CLOSE detected");
+
+  // reset consecutive losses
+  consecutiveLosses = 0;
+  patch.consecutive_losses = 0;
+
+  // cooldown on profit only if enabled
+  if (cooldownOnProfit) {
+    console.log("cooldown_on_profit = true → cooldown start");
+
+    cooldownActive = true;
+    cooldownUntil = lastTradeTime + cooldownMin * 60000;
+    blockNew = true;
+
+    patch.cooldown_active = true;
+    patch.cooldown_until = cooldownUntil;
+    patch.block_new_orders = true;
+  }
+}
+
+else {
+  console.log("No new realised change – no close detected");
+}
 
     patch.realised_history = realisedHistory;
     patch.cooldown_active = cooldownActive;
