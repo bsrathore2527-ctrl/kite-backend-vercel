@@ -331,6 +331,8 @@ if (!realisedChanged) {
     let cooldownUntil = safeNum(s.cooldown_until || 0);
     let trippedDay = !!s.tripped_day;
     let tripReason = s.trip_reason || null;
+    // ADD THIS
+const cooldownOnProfit = !!s.cooldown_on_profit;
     let blockNew = !!s.block_new_orders;
 
     //------------------------------------------------------------
