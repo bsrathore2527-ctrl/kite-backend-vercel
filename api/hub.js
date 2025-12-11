@@ -75,7 +75,7 @@ async function readJsonBody(req) {
     req.on("end", () => {
       try {
         resolve(JSON.parse(body || "{}"));
-      } catch {
+      } catch (err) {
         resolve({});
       }
     });
