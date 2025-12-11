@@ -124,6 +124,21 @@ async function handleGetRiskStatus(req, res) {
   res.setHeader("Content-Type", "application/json");
   res.end(JSON.stringify({ ok: true, state: live }));
 }
+async function handleGetLogs(req, res) {
+  const daily = await loadDaily();
+
+  const limit = Number(
+    new URL(req.url, "http://localhost").searchParams.get("limit") || "50"
+  );
+
+  const logs = daily.mtm_log || [];
+
+  const trimmed = logs.slice(-limit);
+
+  res.setHeader("Content-Type", "application/json");
+  res.end(JSON.stringify({ ok: true, logs: trimmed }));
+}
+
 
 async function handleGetRiskConfig(req, res) {
   // Try today's snapshot first
@@ -454,6 +469,10 @@ export default async function handler(req, res) {
   if (method === "POST" && url.startsWith("/api/sync-kv-state")) {
     return await handlePostSyncKvState(req, res);
   }
+  if (method === "GET" && url.startsWith("/api/logs")) {
+  return await handleGetLogs(req, res);
+}
+
 
 // If no route matched, return 404
 res.statusCode = 404;
