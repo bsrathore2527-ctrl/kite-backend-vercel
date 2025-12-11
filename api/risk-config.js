@@ -5,13 +5,13 @@ const redis = new Redis({
   token: process.env.UPSTASH_REDIS_REST_TOKEN,
 });
 
-// Allowed frontend domains
+// Allowed UI origins
 const allowed = [
   "https://boho.trading",
   "https://www.boho.trading",
   "https://bohoapp.com",
   "https://www.bohoapp.com",
-  "http://localhost:3000" // optional for dev
+  "http://localhost:3000", // dev
 ];
 
 export default async function handler(req, res) {
@@ -24,52 +24,74 @@ export default async function handler(req, res) {
 
   if (req.method === "OPTIONS") return res.status(200).end();
 
-  try {
-    // --- Load KV state (synced or from risk:DATE) ---
-    let state = await redis.get("latest_kv_state");
+  // -------------------------------------------------------
+  // GET — Load config for UI
+  // -------------------------------------------------------
+  if (req.method === "GET") {
+    try {
+      // Pipeline: latest_kv_state only
+      const pipeline = redis.pipeline();
+      pipeline.get("latest_kv_state");
 
-    if (!state) {
-      const date = new Date().toLocaleDateString("en-CA", {
-        timeZone: "Asia/Kolkata",
-      });
-      state = await redis.get(`risk:${date}`) || {};
-    }
+      const [state] = await pipeline.exec();
 
-    // ----------------------------------------------------------
-    // GET → Return RiskConfig object for UI
-    // ----------------------------------------------------------
-    if (req.method === "GET") {
-      const capital = state.capital_day_915 ?? 3000;
+      let configState = state;
 
-      const config = {
+      // fallback: risk:DATE
+      if (!configState) {
+        const istrDate = new Date().toLocaleDateString("en-CA", {
+          timeZone: "Asia/Kolkata",
+        });
+        configState = await redis.get(`risk:${istrDate}`) || {};
+      }
+
+      if (!configState) {
+        return res.status(200).json({
+          id: "current_config",
+          daily_max_loss: 0,
+          daily_max_profit: 0,
+          consecutive_loss_limit: 0,
+          cooldown_after_loss: 0,
+          trailing_profit_enabled: false,
+          trailing_profit_step: 0,
+          min_loss_to_count: 0,
+          allow_new: true,
+          updated_at: new Date().toISOString(),
+        });
+      }
+
+      // Build UI config
+      const resp = {
         id: "current_config",
 
-        // Required by UI
-        daily_max_loss: state.max_loss_abs ?? (capital * (state.max_loss_pct ?? 10) / 100),
-        daily_max_profit: state.max_profit_abs ?? (capital * (state.max_profit_pct ?? 10) / 100),
-        consecutive_loss_limit: state.max_consecutive_losses ?? 3,
-        cooldown_after_loss: state.cooldown_min ?? 15,
-        trailing_profit_enabled: (state.trail_step_profit ?? 0) > 0,
-        trailing_profit_step: state.trail_step_profit ?? 0,
+        daily_max_loss: configState.max_loss_abs ?? 0,
+        daily_max_profit: configState.max_profit_abs ?? 0,
+        consecutive_loss_limit: configState.max_consecutive_losses ?? 0,
+        cooldown_after_loss: configState.cooldown_min ?? 0,
 
-        // Optional extras the UI ignores safely
-        min_loss_to_count: state.min_loss_to_count ?? 0,
-        allow_new: state.allow_new ?? true,
-        side_lock: state.side_lock ?? null,
+        trailing_profit_enabled: (configState.trail_step_profit ?? 0) > 0,
+        trailing_profit_step: configState.trail_step_profit ?? 0,
+
+        // extras
+        min_loss_to_count: configState.min_loss_to_count ?? 0,
+        allow_new: configState.allow_new ?? true,
 
         updated_at: new Date().toISOString(),
       };
 
-      return res.status(200).json(config);
+      return res.status(200).json(resp);
+    } catch (err) {
+      console.error("risk-config GET error:", err);
+      return res.status(500).json({ detail: err.message });
     }
+  }
 
-    // ----------------------------------------------------------
-    // PUT → Update config inside KV
-    // The UI sends fields: daily_max_loss, daily_max_profit, ...
-    // ----------------------------------------------------------
-    if (req.method === "PUT") {
+  // -------------------------------------------------------
+  // PUT — Update UI config into KV
+  // -------------------------------------------------------
+  if (req.method === "PUT") {
+    try {
       let body = "";
-
       await new Promise((resolve) => {
         req.on("data", (chunk) => (body += chunk));
         req.on("end", resolve);
@@ -82,9 +104,26 @@ export default async function handler(req, res) {
         return res.status(400).json({ detail: "Invalid JSON" });
       }
 
-      // Build updated state
+      // Pipeline GET
+      const pipeline = redis.pipeline();
+      pipeline.get("latest_kv_state");
+
+      const [state] = await pipeline.exec();
+
+      let configState = state;
+
+      if (!configState) {
+        const istrDate = new Date().toLocaleDateString("en-CA", {
+          timeZone: "Asia/Kolkata",
+        });
+        configState = await redis.get(`risk:${istrDate}`) || {};
+      }
+
+      if (!configState) configState = {};
+
+      // Update allowed fields
       const updated = {
-        ...state,
+        ...configState,
 
         max_loss_abs: data.daily_max_loss,
         max_profit_abs: data.daily_max_profit,
@@ -92,28 +131,26 @@ export default async function handler(req, res) {
         cooldown_min: data.cooldown_after_loss,
         trail_step_profit: data.trailing_profit_step,
 
-        // optional
-        min_loss_to_count: data.min_loss_to_count ?? state.min_loss_to_count,
-        allow_new: data.allow_new ?? state.allow_new,
+        // extras
+        min_loss_to_count: data.min_loss_to_count ?? configState.min_loss_to_count,
+        allow_new: data.allow_new ?? configState.allow_new,
       };
 
-      // Persist changes
+      // Save updated config
       await redis.set("latest_kv_state", updated);
 
-      // Return updated config in UI format
-      const response = {
+      // Send updated response
+      return res.status(200).json({
         id: "current_config",
         ...data,
         updated_at: new Date().toISOString(),
-      };
+      });
 
-      return res.status(200).json(response);
+    } catch (err) {
+      console.error("risk-config PUT error:", err);
+      return res.status(500).json({ detail: err.message });
     }
-
-    return res.status(405).json({ detail: "Method not allowed" });
-
-  } catch (err) {
-    console.error("risk-config error:", err);
-    return res.status(500).json({ detail: err.message });
   }
+
+  return res.status(405).json({ detail: "Method not allowed" });
 }
