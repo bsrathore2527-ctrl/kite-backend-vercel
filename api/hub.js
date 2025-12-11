@@ -158,19 +158,7 @@ async function handleGetRiskConfig(req, res) {
   res.end(JSON.stringify({ ok: true, config }));
 }
 
-async function handleGetLogs(req, res) {
-  const daily = await loadDaily();
-  const logs = daily?.mtm_log || [];
 
-  const limit = Number(
-    new URL(req.url, "http://localhost").searchParams.get("limit") || "100"
-  );
-
-  const trimmed = logs.slice(-limit);
-
-  res.setHeader("Content-Type", "application/json");
-  res.end(JSON.stringify({ ok: true, logs: trimmed }));
-}
 
 async function handleGetTrades(req, res) {
   const tradebook = (await kv.get("guardian:tradebook")) || [];
@@ -438,9 +426,6 @@ export default async function handler(req, res) {
     return await handleGetRiskConfig(req, res);
   }
 
-  if (method === "GET" && url.startsWith("/api/logs")) {
-    return await handleGetLogs(req, res);
-  }
 
   if (method === "GET" && url.startsWith("/api/trades")) {
     return await handleGetTrades(req, res);
