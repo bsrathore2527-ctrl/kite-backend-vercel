@@ -587,6 +587,34 @@ if (req.pathname === "/api/sync-kv-state" && req.method === "POST") {
     return send(res, 500, { ok: false, error: err.message });
   }
 }
+  if (req.pathname === "/api/logs" && req.method === "GET") {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  const limit = Number(req.query.limit || 100);
+
+  try {
+    const today = todayKey();
+    const state = await kvGetState(today);
+
+    const combined = [
+      ...(state?.mtm_log || []),
+      ...(state?.reset_logs || []),
+      ...(state?.config_logs || []),
+      ...(state?.enforce_logs || []),
+      ...(state?.connection_logs || []),
+    ];
+
+    combined.sort((a, b) => (a.ts || a.time) - (b.ts || b.time));
+
+    return send(res, 200, {
+      ok: true,
+      logs: combined.slice(-limit),
+    });
+
+  } catch (err) {
+    return send(res, 500, { ok: false, error: err.message });
+  }
+}
+
 
   res.statusCode = 404;
   res.setHeader("Content-Type", "application/json");
