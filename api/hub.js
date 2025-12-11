@@ -131,9 +131,15 @@ async function handleGetLogs(req, res) {
     new URL(req.url, "http://localhost").searchParams.get("limit") || "50"
   );
 
-  const logs = daily.mtm_log || [];
+  const mtm = daily.mtm_log || [];
 
-  const trimmed = logs.slice(-limit);
+  const normalized = mtm.map(m => ({
+    time: m.ts,
+    type: "MTM",
+    value: m.total ?? 0
+  }));
+
+  const trimmed = normalized.slice(-limit);
 
   res.setHeader("Content-Type", "application/json");
   res.end(JSON.stringify({ ok: true, logs: trimmed }));
