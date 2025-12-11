@@ -29,7 +29,25 @@ function isAdmin(req) {
 }
 
 export default async function handler(req, res) {
-  try {
+  // --- CORS SETUP ---
+res.setHeader("Access-Control-Allow-Origin", "*");
+res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+res.setHeader("Access-Control-Allow-Headers", "Content-Type, x-admin-key");
+
+// Handle preflight
+if (req.method === "OPTIONS") {
+  return res.status(200).end();
+}
+
+// --- ADMIN SECURITY CHECK ---
+const ADMIN_KEY = process.env.ADMIN_SECRET;
+if (!req.headers["x-admin-key"] || req.headers["x-admin-key"] !== ADMIN_KEY) {
+  return res.status(401).json({
+    ok: false,
+    detail: "Unauthorized: invalid admin key",
+  });
+}
+
     if (req.method !== "POST") {
       res.statusCode = 405;
       res.setHeader("Content-Type", "application/json");
