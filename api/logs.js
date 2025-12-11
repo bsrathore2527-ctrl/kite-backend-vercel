@@ -11,7 +11,7 @@ const allowed = [
   "https://www.boho.trading",
   "https://bohoapp.com",
   "https://www.bohoapp.com",
-  "http://localhost:3000" // dev
+  "http://localhost:3000", // dev
 ];
 
 export default async function handler(req, res) {
@@ -23,63 +23,57 @@ export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
   if (req.method === "OPTIONS") return res.status(200).end();
-
   if (req.method !== "GET")
     return res.status(405).json({ detail: "Method not allowed" });
 
   try {
     // -------------------------------------------------------
-    // 1️⃣ Load KV State
+    // 1️⃣ Pipeline fetch: latest_kv_state + tradebook
     // -------------------------------------------------------
-    let state = await redis.get("latest_kv_state");
+    const pipeline = redis.pipeline();
 
-    if (!state) {
-      const date = new Date().toLocaleDateString("en-CA", {
+    pipeline.get("latest_kv_state");
+    pipeline.get("guardian:tradebook");
+
+    const [state, tradebookRaw] = await pipeline.exec();
+
+    // Fallback tradebook
+    const tradebook = Array.isArray(tradebookRaw) ? tradebookRaw : [];
+
+    // Fallback state -> risk:DATE
+    let finalState = state;
+
+    if (!finalState) {
+      const istrDate = new Date().toLocaleDateString("en-CA", {
         timeZone: "Asia/Kolkata",
       });
-      state = await redis.get(`risk:${date}`) || {};
+
+      finalState = await redis.get(`risk:${istrDate}`) || {};
+    }
+
+    if (!finalState) {
+      return res.status(200).json({
+        id: "logs",
+        count: 0,
+        logs: [],
+        updated_at: new Date().toISOString(),
+      });
     }
 
     // -------------------------------------------------------
-    // 2️⃣ Individual Logs (ensure arrays exist)
+    // 2️⃣ Extract logs safely (ensure arrays)
     // -------------------------------------------------------
-    const mtmLog = state.mtm_log || [];
-    const configLogs = state.config_logs || [];
-    const resetLogs = state.reset_logs || [];
-    const enforceLogs = state.enforce_logs || [];
-    const connectionLogs = state.connection_logs || [];
-
-    // admin_last_enforce_result → convert to log if present
-    const adminEnforce = state.admin_last_enforce_result
-      ? [{
-          ts: state.admin_last_enforce_result.at,
-          type: "admin_enforce",
-          detail: state.admin_last_enforce_result
-        }]
-      : [];
+    const mtmLog = finalState.mtm_log || [];
+    const configLogs = finalState.config_logs || [];
+    const resetLogs = finalState.reset_logs || [];
+    const enforceLogs = finalState.enforce_logs || [];
+    const connectionLogs = finalState.connection_logs || [];
+    const adminResult = finalState.admin_last_enforce_result || null;
 
     // -------------------------------------------------------
-    // 3️⃣ Load tradebook logs from guardian:tradebook
+    // 3️⃣ Convert MTM logs → UI format
     // -------------------------------------------------------
-    const tradebook = (await redis.get("guardian:tradebook")) || [];
-
-    // Convert each trade entry into UI log format
-    const tradeLogs = tradebook.map(t => ({
-      ts: t.ts,
-      type: "trade",
-      detail: {
-        symbol: t.tradingsymbol,
-        side: t.side,
-        qty: t.qty,
-        price: t.raw?.average_price ?? 0,
-        exchange_timestamp: t.raw?.exchange_timestamp || null,
-      }
-    }));
-
-    // -------------------------------------------------------
-    // 4️⃣ Convert mtm_log to UI log format
-    // -------------------------------------------------------
-    const mtmLogsUI = mtmLog.map(m => ({
+    const mtmUI = mtmLog.map((m) => ({
       ts: m.ts,
       type: "mtm",
       detail: {
@@ -90,9 +84,27 @@ export default async function handler(req, res) {
     }));
 
     // -------------------------------------------------------
-    // 5️⃣ Convert config_logs → UI
+    // 4️⃣ Convert tradebook → UI logs
     // -------------------------------------------------------
-    const configLogsUI = configLogs.map(c => ({
+    const tradeUI = tradebook.map((t) => ({
+      ts: t.ts,
+      type: "trade",
+      detail: {
+        symbol: t.tradingsymbol,
+        side: t.side,
+        qty: t.qty,
+        price: t.raw?.average_price ?? 0,
+        order_id: t.raw?.order_id ?? null,
+        exchange_order_id: t.raw?.exchange_order_id ?? null,
+        exchange: t.raw?.exchange ?? null,
+        product: t.raw?.product ?? null,
+      },
+    }));
+
+    // -------------------------------------------------------
+    // 5️⃣ Config logs → UI
+    // -------------------------------------------------------
+    const configUI = configLogs.map((c) => ({
       ts: c.time,
       type: "config_change",
       detail: c.patch,
@@ -101,7 +113,7 @@ export default async function handler(req, res) {
     // -------------------------------------------------------
     // 6️⃣ Reset logs → UI
     // -------------------------------------------------------
-    const resetLogsUI = resetLogs.map(r => ({
+    const resetUI = resetLogs.map((r) => ({
       ts: r.time,
       type: "reset_day",
       detail: { reason: r.reason },
@@ -110,7 +122,7 @@ export default async function handler(req, res) {
     // -------------------------------------------------------
     // 7️⃣ Connection logs → UI
     // -------------------------------------------------------
-    const connectionLogsUI = connectionLogs.map(c => ({
+    const connectionUI = connectionLogs.map((c) => ({
       ts: c.time,
       type: "connection_event",
       detail: c,
@@ -119,32 +131,43 @@ export default async function handler(req, res) {
     // -------------------------------------------------------
     // 8️⃣ Enforcement logs → UI
     // -------------------------------------------------------
-    const enforceLogsUI = enforceLogs.map(e => ({
+    const enforceUI = enforceLogs.map((e) => ({
       ts: e.time,
       type: "enforce_event",
       detail: e,
     }));
 
     // -------------------------------------------------------
-    // 9️⃣ Combine all logs
+    // 9️⃣ Admin enforce summary → UI
+    // -------------------------------------------------------
+    const adminEnforceUI = adminResult
+      ? [{
+          ts: adminResult.at,
+          type: "admin_enforce",
+          detail: adminResult,
+        }]
+      : [];
+
+    // -------------------------------------------------------
+    // 🔟 Combine logs
     // -------------------------------------------------------
     const allLogs = [
-      ...mtmLogsUI,
-      ...tradeLogs,
-      ...configLogsUI,
-      ...resetLogsUI,
-      ...connectionLogsUI,
-      ...enforceLogsUI,
-      ...adminEnforce
+      ...mtmUI,
+      ...tradeUI,
+      ...configUI,
+      ...resetUI,
+      ...connectionUI,
+      ...enforceUI,
+      ...adminEnforceUI,
     ];
 
     // -------------------------------------------------------
-    // 🔟 Sort newest → oldest
+    // 11️⃣ Sort newest → oldest
     // -------------------------------------------------------
     allLogs.sort((a, b) => b.ts - a.ts);
 
     // -------------------------------------------------------
-    // 11️⃣ Return final output
+    // 12️⃣ Final response
     // -------------------------------------------------------
     return res.status(200).json({
       id: "logs",
@@ -154,7 +177,7 @@ export default async function handler(req, res) {
     });
 
   } catch (err) {
-    console.error("logs error:", err);
+    console.error("logs pipeline error:", err);
     return res.status(500).json({ detail: err.message });
   }
 }
