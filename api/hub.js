@@ -515,18 +515,27 @@ if (req.pathname === "/api/logs" && req.method === "GET") {
     const today = todayKey();
     const state = await kvGetState(today);
 
+    const combined = [
+      ...(state?.mtm_log || []),
+      ...(state?.reset_logs || []),
+      ...(state?.config_logs || []),
+      ...(state?.enforce_logs || []),
+      ...(state?.connection_logs || []),
+    ];
+
+    // sort by timestamp (optional)
+    combined.sort((a, b) => (a.ts || a.time) - (b.ts || b.time));
+
     return send(res, 200, {
       ok: true,
-      mtm_log: (state?.mtm_log || []).slice(-limit),
-      reset_logs: (state?.reset_logs || []).slice(-limit),
-      config_logs: (state?.config_logs || []).slice(-limit),
-      enforce_logs: (state?.enforce_logs || []).slice(-limit),
-      connection_logs: (state?.connection_logs || []).slice(-limit),
+      logs: combined.slice(-limit),
     });
+
   } catch (err) {
     return send(res, 500, { ok: false, error: err.message });
   }
 }
+
 
 // -----------------------------
 // GET /api/trades
