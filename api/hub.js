@@ -470,7 +470,32 @@ export default async function handler(req, res) {
     return await handlePostSyncKvState(req, res);
   }
 
-// === /api/kite/* endpoints (public + admin actions) ===
+// === /api/login -> redirect to Zerodha login page ===
+    if (path === "/api/login") {
+      if (method !== "GET") return nope(res);
+      try {
+        const u = loginUrl();
+        // prefer redirect to open in browser; UI might also use fetch to get URL.
+        res.writeHead(302, { Location: u });
+        return res.end();
+      } catch (e) {
+        return send(res, 500, { ok: false, error: e.message || String(e) });
+      }
+    }
+
+    // === /api/state -> returns stored state (from kv) ===
+    if (path === "/api/state") {
+      if (method !== "GET") return nope(res);
+      try {
+        const key = `risk:${todayKey()}`;
+        const state = (await kv.get(key)) || {};
+        return ok(res, { state, time: new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour12: false }), admin: isAdmin(req), kite_status: "unknown" });
+      } catch (e) {
+        return send(res, 500, { ok: false, error: e.message || String(e) });
+      }
+    }
+
+    // === /api/kite/* endpoints (public + admin actions) ===
     if (path.startsWith("/api/kite")) {
       const seg = path.replace(/^\/api\/kite\/?/, "").replace(/\/$/, "");
       // /api/kite/login - return login URL when called via GET, or POST allowed too
@@ -597,18 +622,6 @@ export default async function handler(req, res) {
           return send(res, 500, { ok: false, error: e.message || String(e) });
         }
       }
-
-      // unknown admin endpoint
-      return send(res, 404, { ok: false, error: "Admin endpoint not found" });
-    }
-
-    // nothing matched
-    return send(res, 404, { ok: false, error: "Not found" });
-  } catch (err) {
-    console.error("hub error:", err);
-    return send(res, 500, { ok: false, error: err.message || String(err) });
-  }
-}
 
   res.statusCode = 404;
   res.setHeader("Content-Type", "application/json");
