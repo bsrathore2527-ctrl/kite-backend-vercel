@@ -331,6 +331,10 @@ if (!realisedChanged) {
     let cooldownUntil = safeNum(s.cooldown_until || 0);
     let trippedDay = !!s.tripped_day;
     let tripReason = s.trip_reason || null;
+    // ---------------------------------------------------
+// LOAD lastTradeTime FROM SAME STATE OBJECT
+// ---------------------------------------------------
+let lastTradeTime = Number(s.lastTradeTime || 0);
     // ADD THIS
 const cooldownOnProfit = !!s.cooldown_on_profit;
     let blockNew = !!s.block_new_orders;
