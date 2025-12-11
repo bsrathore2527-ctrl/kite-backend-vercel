@@ -344,6 +344,8 @@ const cooldownOnProfit = !!s.cooldown_on_profit;
 //------------------------------------------------------------
 if (delta < 0) {
   console.log("🔥 LOSS CLOSE detected → cooldown start");
+  lastTradeTime = now;                      // <- update local
+  patch.lastTradeTime = lastTradeTime;      // <- save to state
 
   // start cooldown for loss
   cooldownActive = true;
@@ -360,6 +362,8 @@ if (delta < 0) {
 
 else if (delta > 0) {
   console.log("💰 PROFIT CLOSE detected");
+  lastTradeTime = now;                      // <- update local
+  patch.lastTradeTime = lastTradeTime;      // <- save to state
 
   // reset consecutive losses
   consecutiveLosses = 0;
