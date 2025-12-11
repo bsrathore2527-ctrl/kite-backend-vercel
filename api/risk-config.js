@@ -20,7 +20,7 @@ export default async function handler(req, res) {
     res.setHeader("Access-Control-Allow-Origin", origin);
   }
   res.setHeader("Access-Control-Allow-Methods", "GET, PUT, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type", x-admin-key");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, x-admin-key");
   // ADMIN SECURITY CHECK
 const ADMIN_KEY = process.env.ADMIN_SECRET;
 if (!req.headers["x-admin-key"] || req.headers["x-admin-key"] !== ADMIN_KEY) {
