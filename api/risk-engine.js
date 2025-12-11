@@ -606,7 +606,7 @@ patch.last_net_positions = currentNet;
       patch.freeze_mode = "maxprofit";
 
     }
-
+patch.lastTradeTime = lastTradeTime;
     //--------------------------------------------------
 //--------------------------------------------------
 // FINAL DB WRITE — MUST EXIST ONLY ONCE PER RUN
