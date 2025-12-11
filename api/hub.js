@@ -470,158 +470,129 @@ export default async function handler(req, res) {
     return await handlePostSyncKvState(req, res);
   }
 
-// === /api/login -> redirect to Zerodha login page ===
-    if (path === "/api/login") {
-      if (method !== "GET") return nope(res);
-      try {
-        const u = loginUrl();
-        // prefer redirect to open in browser; UI might also use fetch to get URL.
-        res.writeHead(302, { Location: u });
-        return res.end();
-      } catch (e) {
-        return send(res, 500, { ok: false, error: e.message || String(e) });
-      }
-    }
+// ------------------------------------------------------
+// PUBLIC ENDPOINTS (NO ADMIN KEY REQUIRED FOR GET)
+// ------------------------------------------------------
 
-    // === /api/state -> returns stored state (from kv) ===
-    if (path === "/api/state") {
-      if (method !== "GET") return nope(res);
-      try {
-        const key = `risk:${todayKey()}`;
-        const state = (await kv.get(key)) || {};
-        return ok(res, { state, time: new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour12: false }), admin: isAdmin(req), kite_status: "unknown" });
-      } catch (e) {
-        return send(res, 500, { ok: false, error: e.message || String(e) });
-      }
-    }
+// -----------------------------
+// GET /api/risk-status
+// -----------------------------
+if (req.pathname === "/api/risk-status" && req.method === "GET") {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  try {
+    const today = todayKey();
+    const state = await kvGetState(today);
 
-    // === /api/kite/* endpoints (public + admin actions) ===
-    if (path.startsWith("/api/kite")) {
-      const seg = path.replace(/^\/api\/kite\/?/, "").replace(/\/$/, "");
-      // /api/kite/login - return login URL when called via GET, or POST allowed too
-      if (seg === "login" || path === "/api/kite/login") {
-        if (method === "GET") {
-          try {
-            const u = loginUrl();
-            return ok(res, { url: u });
-          } catch (e) { return send(res, 500, { ok:false, error: String(e) }); }
-        }
-        // if UI POSTs, allow it as well and return url
-        if (method === "POST") {
-          try {
-            const u = loginUrl();
-            return ok(res, { url: u });
-          } catch (e) { return send(res, 500, { ok:false, error: String(e) }); }
-        }
-        return nope(res);
-      }
+    if (!state) return send(res, 200, { ok: true, state: {} });
 
-      // /api/kite/funds - try to get funds via kite instance (GET)
-      if (seg === "funds" || path === "/api/kite/funds") {
-        if (method !== "GET") return nope(res);
-        try {
-          const kc = await safeInstance();
-          const funds = await kc.getFunds();
-          return ok(res, { funds });
-        } catch (e) {
-          return send(res, 200, { ok: false, error: "Kite not connected", message: e.message || String(e) });
-        }
-      }
+    return send(res, 200, { ok: true, state });
+  } catch (err) {
+    return send(res, 500, { ok: false, error: err.message });
+  }
+}
 
-      // /api/kite/positions
-      if (seg === "positions" || path === "/api/kite/positions") {
-        if (method !== "GET") return nope(res);
-        try {
-          const kc = await safeInstance();
-          const positions = await kc.getPositions();
-          return ok(res, { positions });
-        } catch (e) {
-          return send(res, 200, { ok: false, error: "Kite not connected", message: e.message || String(e) });
-        }
-      }
+// -----------------------------
+// GET /api/risk-config
+// -----------------------------
+if (req.pathname === "/api/risk-config" && req.method === "GET") {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  try {
+    const cfg = await kv.get("risk:config:global");
+    return send(res, 200, { ok: true, config: cfg || {} });
+  } catch (err) {
+    return send(res, 500, { ok: false, error: err.message });
+  }
+}
 
-      // admin-style kite actions that require a connected kite instance:
-      // cancel-all, exit-all (POST)
-      if (seg === "cancel-all" || seg === "cancel_all" || seg === "cancelorders" || seg === "cancel-orders") {
-        if (method !== "POST") return nope(res);
-        try {
-          const kc = await safeInstance();
-          const cancelled = await cancelPending(kc);
-          return ok(res, { cancelled });
-        } catch (e) {
-          return send(res, 200, { ok: false, error: "Kite not connected", message: e.message || String(e) });
-        }
-      }
+// -----------------------------
+// GET /api/logs
+// -----------------------------
+if (req.pathname === "/api/logs" && req.method === "GET") {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  const limit = Number(req.query.limit || 100);
 
-      if (seg === "exit-all" || seg === "square-off" || seg === "exit_all" || seg === "square_off") {
-        if (method !== "POST") return nope(res);
-        try {
-          const kc = await safeInstance();
-          const squared = await squareOffAll(kc);
-          return ok(res, { squared });
-        } catch (e) {
-          return send(res, 200, { ok: false, error: "Kite not connected", message: e.message || String(e) });
-        }
-      }
+  try {
+    const today = todayKey();
+    const state = await kvGetState(today);
 
-      // if not matched, return not found to avoid accidental 405s
-      return send(res, 404, { ok: false, error: "Not found" });
-    }
+    return send(res, 200, {
+      ok: true,
+      mtm_log: (state?.mtm_log || []).slice(-limit),
+      reset_logs: (state?.reset_logs || []).slice(-limit),
+      config_logs: (state?.config_logs || []).slice(-limit),
+      enforce_logs: (state?.enforce_logs || []).slice(-limit),
+      connection_logs: (state?.connection_logs || []).slice(-limit),
+    });
+  } catch (err) {
+    return send(res, 500, { ok: false, error: err.message });
+  }
+}
 
-    // === /api/admin/* endpoints (require admin token) ===
-    if (path.startsWith("/api/admin")) {
-      const seg = path.replace(/^\/api\/admin\/?/, "").replace(/\/$/, "");
-      if (!isAdmin(req)) return unauth(res);
+// -----------------------------
+// GET /api/trades
+// -----------------------------
+if (req.pathname === "/api/trades" && req.method === "GET") {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  const limit = Number(req.query.limit || 100);
 
-      // /api/admin/enforce -> cancel pending and square-off, mark tripped
-      if (seg === "enforce" || seg === "enforce-now") {
-        if (method !== "POST" && method !== "GET") return nope(res);
-        try {
-          const kc = await safeInstance();
-          const r = await enforceShutdown(kc, { by: "admin", time: Date.now() });
-          return ok(res, r);
-        } catch (e) {
-          return send(res, 200, { ok: false, error: "Kite not connected", message: e.message || String(e) });
-        }
-      }
+  try {
+    const trades = await kv.get("guardian:tradebook");
+    return send(res, 200, {
+      ok: true,
+      trades: Array.isArray(trades) ? trades.slice(-limit) : []
+    });
+  } catch (err) {
+    return send(res, 500, { ok: false, error: err.message });
+  }
+}
 
-      // /api/admin/cancel -> cancel pending orders
-      if (seg === "cancel" || seg === "cancel_all" || seg === "cancel-all" || seg === "cancelOrders" || seg === "cancelOrdersAll") {
-        if (method !== "POST") return nope(res);
-        try {
-          const kc = await safeInstance();
-          const cancelled = await cancelPending(kc);
-          return ok(res, { cancelled });
-        } catch (e) {
-          return send(res, 200, { ok: false, error: "Kite not connected", message: e.message || String(e) });
-        }
-      }
+// ------------------------------------------------------
+// PROTECTED ENDPOINTS (ADMIN KEY REQUIRED)
+// ------------------------------------------------------
 
-      // /api/admin/kill -> full enforcement (alias of enforce)
-      if (seg === "kill" || seg === "kill-all") {
-        if (method !== "POST" && method !== "GET") return nope(res);
-        try {
-          const kc = await safeInstance();
-          const r = await enforceShutdown(kc, { by: "admin_kill", time: Date.now() });
-          return ok(res, r);
-        } catch (e) {
-          return send(res, 200, { ok: false, error: "Kite not connected", message: e.message || String(e) });
-        }
-      }
+function requireAdmin(req, res) {
+  const key = req.headers["x-admin-key"];
+  if (!key || key !== process.env.ADMIN_SECRET) {
+    send(res, 401, { ok: false, error: "Unauthorized" });
+    return false;
+  }
+  return true;
+}
 
-      // /api/admin/unlock or /api/admin/allow -> clear block_new_orders
-      if (seg === "unlock" || seg === "allow" || seg === "allow_new") {
-        if (method !== "POST") return nope(res);
-        try {
-          const key = `risk:${todayKey()}`;
-          const cur = (await kv.get(key)) || {};
-          const next = { ...cur, block_new_orders: false };
-          await kv.set(key, next);
-          return ok(res, { state: next });
-        } catch (e) {
-          return send(res, 500, { ok: false, error: e.message || String(e) });
-        }
-      }
+// -----------------------------
+// POST /api/sync-kv-state
+// -----------------------------
+if (req.pathname === "/api/sync-kv-state" && req.method === "POST") {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+
+  if (!requireAdmin(req, res)) return;
+
+  try {
+    // Parse JSON body
+    const body = await readBody(req);
+    const incoming = JSON.parse(body || "{}");
+
+    const today = todayKey();
+    const prev = await kvGetState(today);
+
+    const merged = {
+      ...prev,
+      ...incoming,
+      mtm_log: [...(prev?.mtm_log || []), ...(incoming.mtm_log || [])],
+      reset_logs: [...(prev?.reset_logs || []), ...(incoming.reset_logs || [])],
+      config_logs: [...(prev?.config_logs || []), ...(incoming.config_logs || [])],
+      enforce_logs: [...(prev?.enforce_logs || []), ...(incoming.enforce_logs || [])],
+      connection_logs: [...(prev?.connection_logs || []), ...(incoming.connection_logs || [])],
+      synced_at: Date.now()
+    };
+
+    await kvSetState(today, merged);
+
+    return send(res, 200, { ok: true, merged });
+  } catch (err) {
+    return send(res, 500, { ok: false, error: err.message });
+  }
+}
 
   res.statusCode = 404;
   res.setHeader("Content-Type", "application/json");
