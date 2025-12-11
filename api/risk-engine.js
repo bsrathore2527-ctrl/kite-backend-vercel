@@ -358,6 +358,7 @@ if (delta < 0) {
   patch.cooldown_active = true;
   patch.cooldown_until = cooldownUntil;
   patch.block_new_orders = true;
+  patch.cooldown_reason = "loss_close";
 }
 
 else if (delta > 0) {
@@ -380,6 +381,7 @@ else if (delta > 0) {
     patch.cooldown_active = true;
     patch.cooldown_until = cooldownUntil;
     patch.block_new_orders = true;
+    patch.cooldown_reason = "profit_close";
   }
 }
 
