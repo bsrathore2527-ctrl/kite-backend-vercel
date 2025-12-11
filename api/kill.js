@@ -21,6 +21,14 @@ export default async function handler(req, res) {
 
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type","x-admin-key");
+  const ADMIN_KEY = process.env.ADMIN_SECRET;
+if (!req.headers["x-admin-key"] || req.headers["x-admin-key"] !== ADMIN_KEY) {
+  return res.status(401).json({
+    ok: false,
+    detail: "Unauthorized: invalid admin key"
+  });
+}
+
 
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST")
