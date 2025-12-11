@@ -5,13 +5,12 @@ const redis = new Redis({
   token: process.env.UPSTASH_REDIS_REST_TOKEN,
 });
 
-// Allowed CORS origins
 const allowed = [
   "https://boho.trading",
   "https://www.boho.trading",
   "https://bohoapp.com",
   "https://www.bohoapp.com",
-  "http://localhost:3000" // optional for local dev
+  "http://localhost:3000",
 ];
 
 export default async function handler(req, res) {
@@ -27,19 +26,31 @@ export default async function handler(req, res) {
     return res.status(405).json({ detail: "Method not allowed" });
 
   try {
-    // Load latest KV state synced by risk-engine
-    let state = await redis.get("latest_kv_state");
+    // -------------------------------------------------------
+    // 1️⃣ Use pipeline to fetch everything in ONE Redis call
+    // -------------------------------------------------------
+    const pipeline = redis.pipeline();
 
-    // Fallback (if sync-kv-state hasn't been used)
-    if (!state) {
-      const date = new Date().toLocaleDateString("en-CA", {
+    pipeline.get("latest_kv_state");
+    pipeline.get("guardian:tradebook");
+
+    const [state, tradebookRaw] = await pipeline.exec();
+
+    // pipeline returns raw arrays sometimes → fallback
+    const tradebook = Array.isArray(tradebookRaw) ? tradebookRaw : [];
+
+    // Fallback in case latest_kv_state is not present
+    let finalState = state;
+
+    if (!finalState) {
+      const istrDate = new Date().toLocaleDateString("en-CA", {
         timeZone: "Asia/Kolkata",
       });
-      state = await redis.get(`risk:${date}`);
+
+      finalState = await redis.get(`risk:${istrDate}`) || {};
     }
 
-    if (!state) {
-      // Empty response, safe defaults
+    if (!finalState) {
       return res.status(200).json({
         id: "current_status",
         realised: 0,
@@ -55,72 +66,63 @@ export default async function handler(req, res) {
       });
     }
 
-    // ----------------------------
-    // 1️⃣ Compute cooldown remaining
-    // ----------------------------
+    // -------------------------------------------------------
+    // 2️⃣ Compute cooldown remaining
+    // -------------------------------------------------------
     let cooldown_remaining_minutes = 0;
-
-    if (state.cooldown_active && state.cooldown_until) {
+    if (finalState.cooldown_active && finalState.cooldown_until) {
       const now = Date.now();
-      const diffMs = state.cooldown_until - now;
-      cooldown_remaining_minutes = diffMs > 0
-        ? Math.floor(diffMs / 60000)
-        : 0;
+      const diff = finalState.cooldown_until - now;
+      cooldown_remaining_minutes = diff > 0 ? Math.floor(diff / 60000) : 0;
     }
 
-    // ----------------------------
-    // 2️⃣ Count today's trades from guardian:tradebook
-    // ----------------------------
-    const tradebook = (await redis.get("guardian:tradebook")) || [];
-
-    // IST midnight boundaries
-    const nowIST = new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" });
+    // -------------------------------------------------------
+    // 3️⃣ Count trades executed today (IST)
+    // -------------------------------------------------------
+    const nowIST = new Date().toLocaleString("en-US", {
+      timeZone: "Asia/Kolkata",
+    });
     const d = new Date(nowIST);
     d.setHours(0, 0, 0, 0);
     const startIST = d.getTime();
     const endIST = startIST + 24 * 60 * 60 * 1000 - 1;
 
-    const trade_count_today = tradebook.filter(t =>
-      t.ts >= startIST && t.ts <= endIST
-    ).length;
+    const trade_count_today = tradebook.filter((t) => {
+      return t.ts >= startIST && t.ts <= endIST;
+    }).length;
 
-    // ----------------------------
-    // 3️⃣ Violations list
-    // ----------------------------
+    // -------------------------------------------------------
+    // 4️⃣ Prepare violations
+    // -------------------------------------------------------
     const violations = [];
-    if (state.trip_reason) violations.push(state.trip_reason);
+    if (finalState.trip_reason) violations.push(finalState.trip_reason);
 
-    // ----------------------------
-    // 4️⃣ Construct risk-status structure
-    // ----------------------------
-    const result = {
+    // -------------------------------------------------------
+    // 5️⃣ Build final response object
+    // -------------------------------------------------------
+    const response = {
       id: "current_status",
 
-      // PnL
-      realised: state.realised ?? 0,
-      unrealised: state.unrealised ?? 0,
-      total_pnl: state.total_pnl ?? 0,
+      realised: finalState.realised ?? 0,
+      unrealised: finalState.unrealised ?? 0,
+      total_pnl: finalState.total_pnl ?? 0,
 
-      // Loss streak
-      consecutive_losses: state.consecutive_losses ?? 0,
+      consecutive_losses: finalState.consecutive_losses ?? 0,
 
-      // Cooldown
-      in_cooldown: state.cooldown_active ?? false,
+      in_cooldown: finalState.cooldown_active ?? false,
       cooldown_remaining_minutes,
 
-      // Trip / block logic
-      max_loss_hit: state.tripped_day ?? false,
+      max_loss_hit: finalState.tripped_day ?? false,
       violations,
 
-      // Trades today
       trade_count_today,
 
       updated_at: new Date().toISOString(),
     };
 
-    return res.status(200).json(result);
+    return res.status(200).json(response);
   } catch (err) {
-    console.error("risk-status error:", err);
+    console.error("risk-status pipeline error:", err);
     return res.status(500).json({ detail: err.message });
   }
 }
