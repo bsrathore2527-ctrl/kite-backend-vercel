@@ -1,15 +1,11 @@
 {
   "rewrites": [
-    { "source": "/api/kite/(.*)",  "destination": "/api/hub.js" },
-    { "source": "/api/admin/(.*)", "destination": "/api/hub.js" },
-    { "source": "/api/guardian",   "destination": "/api/hub.js" }
+    { "source": "/api/(.*)", "destination": "/api/hub.js" }
   ],
   "crons": [
-    
     {
       "path": "/api/risk-engine",
       "schedule": "*/1 * * * *"
     }
-  
   ]
 }
