@@ -473,10 +473,12 @@ patch.last_net_positions = currentNet;
     }
 
     const trailStep = safeNum(s.trail_step_profit || 0);
-    const currentFloor = Number.isFinite(Number(s.active_loss_floor))
-      ? safeNum(s.active_loss_floor)
-      : (maxLossAbs ? -maxLossAbs : 0);
-
+    let currentFloor;
+if (Number.isFinite(Number(s.active_loss_floor)) && s.active_loss_floor !== 0) {
+  currentFloor = safeNum(s.active_loss_floor);
+} else {
+  currentFloor = -maxLossAbs;    // <<< Correct starting loss floor
+}
     const currentPeak = safeNum(s.peak_profit || 0);
     let nextPeak = currentPeak;
     if (total > currentPeak) nextPeak = total;
