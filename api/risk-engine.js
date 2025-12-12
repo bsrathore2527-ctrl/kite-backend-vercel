@@ -343,35 +343,61 @@ const cooldownOnProfit = !!s.cooldown_on_profit;
 // NEW PROFIT/LOSS CLOSE LOGIC USING DELTA
 //------------------------------------------------------------
 if (delta < 0) {
-  console.log("🔥 LOSS CLOSE detected → cooldown start");
-  lastTradeTime = now;                      // <- update local
-  patch.lastTradeTime = lastTradeTime;      // <- save to state
+  const minCount = minLossToCount;
 
-  // start cooldown for loss
-  cooldownActive = true;
-  cooldownUntil = lastTradeTime + cooldownMin * 60000;
-  blockNew = true;
+  // Check if this is a meaningful loss
+  if (Math.abs(delta) >= minCount) {
+    console.log(`🔥 LOSS CLOSE detected: ${delta} ≤ threshold -${minCount} → COUNTING this loss`);
+    
+    lastTradeTime = now;
+    patch.lastTradeTime = lastTradeTime;
 
-  // update patch state
-  consecutiveLosses++;
-  patch.consecutive_losses = consecutiveLosses;
-  patch.cooldown_active = true;
-  patch.cooldown_until = cooldownUntil;
-  patch.block_new_orders = true;
-  patch.cooldown_reason = "loss_close";
+    // Start cooldown for meaningful loss
+    cooldownActive = true;
+    cooldownUntil = lastTradeTime + cooldownMin * 60000;
+    blockNew = true;
+
+    // Update streak + patch state
+    consecutiveLosses++;
+    patch.consecutive_losses = consecutiveLosses;
+    patch.cooldown_active = true;
+    patch.cooldown_until = cooldownUntil;
+    patch.block_new_orders = true;
+    patch.cooldown_reason = "loss_close";
+
+  } else {
+    // Tiny loss (e.g. -1, -5, -20) → IGNORE
+    console.log(`⚠️ LOSS ${delta} < threshold -${minCount} → IGNORING (likely auto-square or small fluctuation)`);
+
+    // DO NOT modify consecutive losses
+    // DO NOT start cooldown
+    // DO NOT block new orders
+    // DO NOT change cooldown timers
+  }
 }
 
 else if (delta > 0) {
   console.log("💰 PROFIT CLOSE detected");
-  lastTradeTime = now;                      // <- update local
-  patch.lastTradeTime = lastTradeTime;      // <- save to state
+  lastTradeTime = now;
+  patch.lastTradeTime = lastTradeTime;
 
-  // reset consecutive losses
-  consecutiveLosses = 0;
-  patch.consecutive_losses = 0;
+  const minCount = minLossToCount; // reuse as minimum profit threshold
+
+  if (delta >= minCount) {
+    console.log(`Profit ${delta} ≥ threshold ${minCount} → resetting consecutive losses`);
+
+    // Reset consecutive losses only for meaningful profit
+    consecutiveLosses = 0;
+    patch.consecutive_losses = 0;
+
+  } else {
+    console.log(`Profit ${delta} < threshold ${minCount} → NOT resetting consecutive losses`);
+    // Do NOT reset losses
+  }
 
   // cooldown on profit only if enabled
-  if (cooldownOnProfit) {
+  if (cooldownOnProfit && delta >= minCount) {
+    // We only start cooldown for "real profit"
     console.log("cooldown_on_profit = true → cooldown start");
 
     cooldownActive = true;
