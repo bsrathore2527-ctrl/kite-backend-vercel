@@ -1,10 +1,9 @@
 // ==============================
-//  PART 1 — IMPORTS & CORE SETUP
-//  (Matches original hub.js structure)
+// FINAL UNIFIED & CLEANED hub.js
+// With Simple Logs (Option A)
 // ==============================
 
-// ⚠ Your original hub.js uses these paths and structure:
-import { instance as kiteInstance, loginUrl } from "./_lib/kite.js";
+import { instance as kiteInstance } from "./_lib/kite.js";
 import {
   kv,
   todayKey,
@@ -13,8 +12,9 @@ import {
 } from "./_lib/kv.js";
 
 // ==============================
-//  CORS CONFIG — STRICT (NO VERCEL PREVIEW)
+// CORS
 // ==============================
+
 const allowedOrigins = [
   "https://boho.trading",
   "https://www.boho.trading",
@@ -30,15 +30,11 @@ function applyCors(req, res) {
   if (allowedOrigins.includes(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin);
   } else {
-    // default – allow only main domain (strict)
     res.setHeader("Access-Control-Allow-Origin", "https://boho.trading");
   }
 
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS");
-  res.setHeader(
-    "Access-Control-Allow-Headers",
-    "Content-Type, x-admin-key"
-  );
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, x-admin-key");
 
   if (req.method === "OPTIONS") {
     res.statusCode = 200;
@@ -49,14 +45,13 @@ function applyCors(req, res) {
 }
 
 // ==============================
-//  ADMIN SECURITY (x-admin-key)
-//  Replaces old Authorization: Bearer
+// ADMIN AUTH
 // ==============================
+
 const ADMIN_SECRET = process.env.ADMIN_SECRET;
 
 function requireAdmin(req, res) {
   const key = req.headers["x-admin-key"];
-
   if (!ADMIN_SECRET || key !== ADMIN_SECRET) {
     res.statusCode = 401;
     res.end(JSON.stringify({ ok: false, detail: "Unauthorized" }));
@@ -66,8 +61,9 @@ function requireAdmin(req, res) {
 }
 
 // ==============================
-//  JSON BODY PARSER (Original hub.js compatible)
+// JSON PARSER
 // ==============================
+
 async function readJsonBody(req) {
   return new Promise((resolve) => {
     let body = "";
@@ -75,7 +71,7 @@ async function readJsonBody(req) {
     req.on("end", () => {
       try {
         resolve(JSON.parse(body || "{}"));
-      } catch (err) {
+      } catch {
         resolve({});
       }
     });
@@ -83,40 +79,35 @@ async function readJsonBody(req) {
 }
 
 // ==============================
-//  KV HELPERS — matches your old style
+// KV HELPERS
 // ==============================
 
-// Loads today's risk:YYYY-MM-DD snapshot
 async function loadDaily() {
   return (await kvGetState(todayKey())) || {};
 }
 
-// Saves today's risk:YYYY-MM-DD snapshot
 async function saveDaily(obj) {
   return await kvSetState(todayKey(), obj);
 }
 
-// Loads merged risk-engine state (live)
 async function loadLive() {
   return (await kv.get("latest_kv_state")) || {};
 }
 
-// Saves merged live state
 async function saveLive(obj) {
   return await kv.set("latest_kv_state", obj);
 }
 
-// Loads global config (default)
 async function loadGlobalConfig() {
   return (await kv.get("risk:config:global")) || {};
 }
 
-// Saves global config (default)
 async function saveGlobalConfig(obj) {
   return await kv.set("risk:config:global", obj);
 }
+
 // ==============================
-//  PART 2 — PUBLIC GET ENDPOINTS
+// GET: /api/risk-status
 // ==============================
 
 async function handleGetRiskStatus(req, res) {
@@ -124,36 +115,31 @@ async function handleGetRiskStatus(req, res) {
   res.setHeader("Content-Type", "application/json");
   res.end(JSON.stringify({ ok: true, state: live }));
 }
+
+// ==============================
+// GET: /api/logs (simple MTM logs only)
+// ==============================
+
 async function handleGetLogs(req, res) {
   const daily = await loadDaily();
-
-  const limit = Number(
-    new URL(req.url, "http://localhost").searchParams.get("limit") || "50"
-  );
-
+  const limit = Number(new URL(req.url, "http://localhost").searchParams.get("limit") || "50");
   const mtm = daily.mtm_log || [];
 
-  const normalized = mtm.map(m => ({
-    time: m.ts,
-    type: "MTM",
-    value: m.total ?? 0
-  }));
-
-  const trimmed = normalized.slice(-limit);
+  const logs = mtm.map((m) => ({ time: m.ts, type: "MTM", value: m.total ?? 0 }));
 
   res.setHeader("Content-Type", "application/json");
-  res.end(JSON.stringify({ ok: true, logs: trimmed }));
+  res.end(JSON.stringify({ ok: true, logs: logs.slice(-limit) }));
 }
 
+// ==============================
+// GET: /api/risk-config
+// ==============================
 
 async function handleGetRiskConfig(req, res) {
-  // Try today's snapshot first
   const daily = await loadDaily();
-
   let config = {};
 
   if (daily && Object.keys(daily).length > 0) {
-    // Extract config fields from daily snapshot
     config = {
       capital_day_915: daily.capital_day_915,
       max_loss_pct: daily.max_loss_pct,
@@ -170,37 +156,62 @@ async function handleGetRiskConfig(req, res) {
       config_logs: daily.config_logs || [],
     };
   } else {
-    // Load global config (fallback)
-    const global = await loadGlobalConfig();
-    config = global || {};
+    config = await loadGlobalConfig();
   }
 
   res.setHeader("Content-Type", "application/json");
   res.end(JSON.stringify({ ok: true, config }));
 }
 
-
+// ==============================
+// GET: /api/trades
+// ==============================
 
 async function handleGetTrades(req, res) {
-  const tradebook = (await kv.get("guardian:tradebook")) || [];
-
-  const limit = Number(
-    new URL(req.url, "http://localhost").searchParams.get("limit") || "100"
-  );
-
-  const trimmed = tradebook.slice(-limit);
+  const trades = (await kv.get("guardian:tradebook")) || [];
+  const limit = Number(new URL(req.url, "http://localhost").searchParams.get("limit") || "100");
 
   res.setHeader("Content-Type", "application/json");
-  res.end(JSON.stringify({ ok: true, trades: trimmed }));
+  res.end(JSON.stringify({ ok: true, trades: trades.slice(-limit) }));
 }
+
 // ==============================
-//  PART 3 — ADMIN-PROTECTED POST ENDPOINTS
+// PUT: /api/risk-config (GLOBAL CONFIG UPDATE)
 // ==============================
 
-// -------------------------------------
-//  POST /api/risk-config
-//  (Replaces old set-config.js)
-// -------------------------------------
+async function handlePutRiskConfig(req, res) {
+  const key = req.headers["x-admin-key"];
+  if (!key || key !== ADMIN_SECRET) {
+    res.statusCode = 401;
+    return res.end(JSON.stringify({ ok: false, detail: "Unauthorized" }));
+  }
+
+  let body = "";
+  await new Promise((resolve) => {
+    req.on("data", (chunk) => (body += chunk));
+    req.on("end", resolve);
+  });
+
+  let patch = {};
+  try {
+    patch = JSON.parse(body);
+  } catch {
+    res.statusCode = 400;
+    return res.end(JSON.stringify({ ok: false, detail: "Invalid JSON" }));
+  }
+
+  const current = (await kv.get("risk:config:global")) || {};
+  const updated = { ...current, ...patch };
+  await kv.set("risk:config:global", updated);
+
+  res.statusCode = 200;
+  res.end(JSON.stringify({ ok: true, config: updated }));
+}
+
+// ==============================
+// POST: /api/risk-config (DAILY CONFIG UPDATE)
+// ==============================
+
 async function handlePostRiskConfig(req, res) {
   if (!requireAdmin(req, res)) return;
 
@@ -222,46 +233,62 @@ async function handlePostRiskConfig(req, res) {
     allow_new: body.allow_new ?? daily.allow_new,
   };
 
-  // Append config log entry
-  const configLogEntry = {
-    time: Date.now(),
-    patch: patch,
-  };
+  const logEntry = { time: Date.now(), patch };
 
   const updatedDaily = {
     ...daily,
     ...patch,
-    config_logs: [...(daily.config_logs || []), configLogEntry],
+    config_logs: [...(daily.config_logs || []), logEntry],
   };
 
   const updatedLive = {
     ...live,
     ...patch,
-    config_logs: [...(live.config_logs || []), configLogEntry],
+    config_logs: [...(live.config_logs || []), logEntry],
   };
 
   await saveDaily(updatedDaily);
   await saveLive(updatedLive);
-  await saveGlobalConfig(updatedLive); // global defaults updated also
+  await saveGlobalConfig(updatedLive);
 
   res.setHeader("Content-Type", "application/json");
   res.end(JSON.stringify({ ok: true, detail: "config updated" }));
 }
 
+// ==============================
+// POST: /api/reset-day
+// ==============================
 
-// -------------------------------------
-//  POST /api/reset-day
-// -------------------------------------
+async function handlePostResetDay(req,
+
+
+// ==============================
+// Zerodha Helpers (Option 1)
+// ==============================
+
+async function kiteGet(kite, path) {
+  const res = await kite.get(path);
+  if (!res || !res.data) throw new Error("Invalid kite GET response");
+  return res;
+}
+
+async function kitePost(kite, path, body) {
+  const res = await kite.post(path, body);
+  if (!res || !res.data) throw new Error("Invalid kite POST response");
+  return res;
+}
+
+// ==============================
+// POST: /api/reset-day
+// ==============================
+
 async function handlePostResetDay(req, res) {
   if (!requireAdmin(req, res)) return;
 
   const daily = await loadDaily();
   const live = await loadLive();
 
-  const resetEntry = {
-    time: Date.now(),
-    reason: "manual_reset",
-  };
+  const resetEntry = { time: Date.now(), reason: "manual_reset" };
 
   const cleared = {
     ...daily,
@@ -291,11 +318,10 @@ async function handlePostResetDay(req, res) {
   res.end(JSON.stringify({ ok: true, detail: "day reset" }));
 }
 
+// ==============================
+// POST: /api/cancel
+// ==============================
 
-// -------------------------------------
-//  POST /api/cancel
-//  (Cancel all pending orders via Zerodha)
-// -------------------------------------
 async function handlePostCancel(req, res) {
   if (!requireAdmin(req, res)) return;
 
@@ -308,7 +334,7 @@ async function handlePostCancel(req, res) {
     );
 
     for (const o of pending) {
-      await kitePost(kite, `/orders/cancel`, { order_id: o.order_id });
+      await kitePost(kite, "/orders/cancel", { order_id: o.order_id });
     }
 
     res.setHeader("Content-Type", "application/json");
@@ -319,28 +345,25 @@ async function handlePostCancel(req, res) {
   }
 }
 
+// ==============================
+// POST: /api/kill
+// ==============================
 
-// -------------------------------------
-//  POST /api/kill
-//  Cancel all -> square off all positions
-// -------------------------------------
 async function handlePostKill(req, res) {
   if (!requireAdmin(req, res)) return;
 
   try {
     const kite = kiteInstance();
 
-    // 1️⃣ CANCEL ALL PENDING ORDERS
     const orders = await kiteGet(kite, "/orders");
     const pending = orders.data.filter(
       (o) => o.status === "OPEN" || o.status === "TRIGGER PENDING"
     );
 
     for (const o of pending) {
-      await kitePost(kite, `/orders/cancel`, { order_id: o.order_id });
+      await kitePost(kite, "/orders/cancel", { order_id: o.order_id });
     }
 
-    // 2️⃣ SQUARE OFF ALL POSITIONS
     const positions = await kiteGet(kite, "/portfolio/positions");
     const net = positions.data.net || [];
 
@@ -352,7 +375,7 @@ async function handlePostKill(req, res) {
       const side = pos.quantity > 0 ? "SELL" : "BUY";
       const qty = Math.abs(pos.quantity);
 
-      await kitePost(kite, `/orders/place`, {
+      await kitePost(kite, "/orders/place", {
         exchange: pos.exchange,
         tradingsymbol: pos.tradingsymbol,
         transaction_type: side,
@@ -365,32 +388,28 @@ async function handlePostKill(req, res) {
     }
 
     res.setHeader("Content-Type", "application/json");
-    res.end(
-      JSON.stringify({
-        ok: true,
-        cancelled: pending.length,
-        squared,
-      })
-    );
+    res.end(JSON.stringify({
+      ok: true,
+      cancelled: pending.length,
+      squared,
+    }));
   } catch (err) {
     res.statusCode = 500;
     res.end(JSON.stringify({ ok: false, error: err.message }));
   }
 }
 
+// ==============================
+// POST: /api/sync-kv-state
+// ==============================
 
-// -------------------------------------
-//  POST /api/sync-kv-state
-//  (Risk engine pushes incremental updates)
-// -------------------------------------
 async function handlePostSyncKvState(req, res) {
   if (!requireAdmin(req, res)) return;
 
   const incoming = await readJsonBody(req);
   if (typeof incoming !== "object") {
     res.statusCode = 400;
-    res.end(JSON.stringify({ ok: false, detail: "Invalid JSON" }));
-    return;
+    return res.end(JSON.stringify({ ok: false, detail: "Invalid JSON" }));
   }
 
   const prev = await loadLive();
@@ -399,22 +418,12 @@ async function handlePostSyncKvState(req, res) {
   const merged = {
     ...prev,
     ...incoming,
-
     mtm_log: [...(prev.mtm_log || []), ...(incoming.mtm_log || [])],
     config_logs: [...(prev.config_logs || []), ...(incoming.config_logs || [])],
     reset_logs: [...(prev.reset_logs || []), ...(incoming.reset_logs || [])],
     enforce_logs: [...(prev.enforce_logs || []), ...(incoming.enforce_logs || [])],
     connection_logs: [...(prev.connection_logs || []), ...(incoming.connection_logs || [])],
-
-    admin_last_enforce_result:
-      incoming.admin_last_enforce_result ??
-      prev.admin_last_enforce_result ??
-      null,
-
-    last_tradebook_count: Array.isArray(tradebook)
-      ? tradebook.length
-      : 0,
-
+    last_tradebook_count: Array.isArray(tradebook) ? tradebook.length : 0,
     synced_at: Date.now(),
   };
 
@@ -423,218 +432,31 @@ async function handlePostSyncKvState(req, res) {
   res.setHeader("Content-Type", "application/json");
   res.end(JSON.stringify({ ok: true, synced_at: merged.synced_at }));
 }
+
 // ==============================
-//  PART 4 — ROUTER + FINAL EXPORT
-//  (Merge new endpoints with original hub.js behavior)
+// ROUTER
 // ==============================
 
 export default async function handler(req, res) {
-  // Apply CORS (OPTIONS handled here)
   if (applyCors(req, res)) return;
 
   const url = req.url || "";
   const method = req.method;
 
-  // ============================
-  //  NEW GET ENDPOINTS
-  // ============================
+  if (method === "GET" && url.startsWith("/api/risk-status")) return handleGetRiskStatus(req, res);
+  if (method === "GET" && url.startsWith("/api/risk-config")) return handleGetRiskConfig(req, res);
+  if (method === "GET" && url.startsWith("/api/logs")) return handleGetLogs(req, res);
+  if (method === "GET" && url.startsWith("/api/trades")) return handleGetTrades(req, res);
 
-  if (method === "GET" && url.startsWith("/api/risk-status")) {
-    return await handleGetRiskStatus(req, res);
-  }
+  if (method === "PUT" && url === "/api/risk-config") return handlePutRiskConfig(req, res);
 
-  if (method === "GET" && url.startsWith("/api/risk-config")) {
-    return await handleGetRiskConfig(req, res);
-  }
+  if (method === "POST" && url.startsWith("/api/risk-config")) return handlePostRiskConfig(req, res);
+  if (method === "POST" && url.startsWith("/api/reset-day")) return handlePostResetDay(req, res);
+  if (method === "POST" && url.startsWith("/api/cancel")) return handlePostCancel(req, res);
+  if (method === "POST" && url.startsWith("/api/kill")) return handlePostKill(req, res);
+  if (method === "POST" && url.startsWith("/api/sync-kv-state")) return handlePostSyncKvState(req, res);
 
-
-  if (method === "GET" && url.startsWith("/api/trades")) {
-    return await handleGetTrades(req, res);
-  }
-
-  // ============================
-  //  NEW POST ENDPOINTS (admin)
-  // ============================
-
-    // ------------------------------
-// PUT /api/risk-config  (ADMIN)
-// ------------------------------
-if (method === "PUT" && url === "/api/risk-config") {
-
-  // ADMIN AUTH
-  const adminKey = req.headers["x-admin-key"];
-  if (!adminKey || adminKey !== process.env.ADMIN_SECRET) {
-    res.statusCode = 401;
-    return res.end(JSON.stringify({ ok: false, detail: "Unauthorized" }));
-  }
-
-  // Read body
-  let body = "";
-  await new Promise(resolve => {
-    req.on("data", chunk => body += chunk);
-    req.on("end", resolve);
-  });
-
-  let patch = {};
-  try {
-    patch = JSON.parse(body);
-  } catch (err) {
-    res.statusCode = 400;
-    return res.end(JSON.stringify({ ok: false, detail: "Invalid JSON" }));
-  }
-
-  // Read existing global config
-  const current = await kv.get("risk:config:global") || {};
-
-  // Merge with new config
-  const updated = { ...current, ...patch };
-
-  // Save to KV
-  await kv.set("risk:config:global", updated);
-
-  res.statusCode = 200;
-  return res.end(JSON.stringify({
-    ok: true,
-    config: updated
-  }));
+  res.statusCode = 404;
+  res.setHeader("Content-Type", "application/json");
+  res.end(JSON.stringify({ ok: false, detail: "Endpoint not found" }));
 }
-
-  if (method === "POST" && url.startsWith("/api/risk-config")) {
-    return await handlePostRiskConfig(req, res);
-  }
-
-  if (method === "POST" && url.startsWith("/api/reset-day")) {
-    return await handlePostResetDay(req, res);
-  }
-
-  if (method === "POST" && url.startsWith("/api/cancel")) {
-    return await handlePostCancel(req, res);
-  }
-
-  if (method === "POST" && url.startsWith("/api/kill")) {
-    return await handlePostKill(req, res);
-  }
-
-  if (method === "POST" && url.startsWith("/api/sync-kv-state")) {
-    return await handlePostSyncKvState(req, res);
-  }
-  if (method === "GET" && url.startsWith("/api/logs")) {
-  return await handleGetLogs(req, res);
-}
-  // ------------------------------
-// GET /api/risk-status
-// ------------------------------
-if (method === "GET" && url === "/api/risk-status") {
-  const key = todayKey();
-  const state = await kv.get(key);
-
-  if (!state) {
-    res.statusCode = 200;
-    return res.end(JSON.stringify({ ok: true, state: null }));
-  }
-
-  res.statusCode = 200;
-  return res.end(JSON.stringify({
-    ok: true,
-    state
-  }));
-}
-// ------------------------------
-// GET /api/risk-config
-// ------------------------------
-if (method === "GET" && url === "/api/risk-config") {
-  const globalConfig = await kv.get("risk:config:global");
-  const today = await kv.get(todayKey());
-
-  res.statusCode = 200;
-  return res.end(JSON.stringify({
-    ok: true,
-    config: globalConfig || {},
-    today: today || {}
-  }));
-}
-// ------------------------------
-// GET /api/logs?limit=50
-// ------------------------------
-if (method === "GET" && url.startsWith("/api/logs")) {
-  const q = new URLSearchParams(url.split("?")[1] || "");
-  const limit = Number(q.get("limit") || "50");
-
-  const state = await kv.get(todayKey()) || {};
-
-  const logs = [
-    ...(state.mtm_log || []).map(l => ({
-      level: "info",
-      message: `MTM → Realised ${l.realised}, Unrealised ${l.unrealised}, Total ${l.total}`,
-      timestamp: l.ts
-    })),
-
-    ...(state.config_logs || []).map(l => ({
-      level: "info",
-      message: `Config changed → ${JSON.stringify(l.patch)}`,
-      timestamp: l.time
-    })),
-
-    ...(state.reset_logs || []).map(l => ({
-      level: "warning",
-      message: `Day Reset → ${l.reason || "manual"}`,
-      timestamp: l.time
-    })),
-
-    ...(state.enforce_logs || []).map(l => ({
-      level: "error",
-      message: `Enforcement → ${l.reason}`,
-      timestamp: l.time
-    })),
-
-    ...(state.connection_logs || []).map(l => ({
-      level: "info",
-      message: `Connection → ${l.status}`,
-      timestamp: l.time
-    }))
-  ];
-
-  // sort new → old
-  logs.sort((a, b) => b.timestamp - a.timestamp);
-
-  res.statusCode = 200;
-  return res.end(JSON.stringify({
-    ok: true,
-    logs: logs.slice(0, limit)
-  }));
-}
-// ------------------------------
-// GET /api/trades?limit=100
-// ------------------------------
-if (method === "GET" && url.startsWith("/api/trades")) {
-  const q = new URLSearchParams(url.split("?")[1] || "");
-  const limit = Number(q.get("limit") || "100");
-
-  let trades = await kv.get("guardian:tradebook");
-  if (!Array.isArray(trades)) trades = [];
-
-  const formatted = trades.slice(-limit).map(t => ({
-    instrument: t.tradingsymbol,
-    side: t.side,
-    quantity: t.qty,
-    price: t.raw?.average_price || 0,
-    timestamp: t.ts || Date.now()
-  }));
-
-  // newest first
-  formatted.sort((a, b) => b.timestamp - a.timestamp);
-
-  res.statusCode = 200;
-  return res.end(JSON.stringify(formatted));
-}
- 
-
-
-
-
-// If no route matched, return 404
-res.statusCode = 404;
-res.setHeader("Content-Type", "application/json");
-res.end(JSON.stringify({ ok: false, detail: "Endpoint not found" }));
-}
-
