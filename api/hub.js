@@ -183,15 +183,52 @@ async function handlePutRiskConfig(req, res) {
   if (!requireAdmin(req, res)) return;
 
   const body = await readJsonBody(req);
+
+  // 1) Validate request body
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    res.statusCode = 400;
+    return res.end(JSON.stringify({
+      ok: false,
+      detail: "Invalid JSON body. Expected an object."
+    }));
+  }
+
   const daily = await loadDaily();
 
-  const updated = { ...daily, ...body };
+  // 2) Only update known config fields (to avoid corruption)
+  const allowedKeys = [
+    "capital_day_915",
+    "max_loss_pct",
+    "max_loss_abs",
+    "max_profit_pct",
+    "max_profit_abs",
+    "trail_step_profit",
+    "cooldown_min",
+    "min_loss_to_count",
+    "max_consecutive_losses",
+    "cooldown_on_profit",
+    "allow_new",
+    "block_new_orders"
+  ];
+
+  const cleanedPatch = {};
+
+  for (const key of allowedKeys) {
+    if (key in body) cleanedPatch[key] = body[key];
+  }
+
+  // 3) Apply patch safely
+  const updated = { 
+    ...daily, 
+    ...cleanedPatch 
+  };
 
   await saveDaily(updated);
 
   res.setHeader("Content-Type", "application/json");
   res.end(JSON.stringify({ ok: true, config: updated }));
 }
+
 
 // ==============================
 // POST /api/risk-config   (admin)
