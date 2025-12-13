@@ -478,6 +478,113 @@ export default async function handler(req, res) {
   if (method === "GET" && url.startsWith("/api/logs")) {
   return await handleGetLogs(req, res);
 }
+  // ------------------------------
+// GET /api/risk-status
+// ------------------------------
+if (method === "GET" && url === "/api/risk-status") {
+  const key = todayKey();
+  const state = await kv.get(key);
+
+  if (!state) {
+    res.statusCode = 200;
+    return res.end(JSON.stringify({ ok: true, state: null }));
+  }
+
+  res.statusCode = 200;
+  return res.end(JSON.stringify({
+    ok: true,
+    state
+  }));
+}
+// ------------------------------
+// GET /api/risk-config
+// ------------------------------
+if (method === "GET" && url === "/api/risk-config") {
+  const globalConfig = await kv.get("risk:config:global");
+  const today = await kv.get(todayKey());
+
+  res.statusCode = 200;
+  return res.end(JSON.stringify({
+    ok: true,
+    config: globalConfig || {},
+    today: today || {}
+  }));
+}
+// ------------------------------
+// GET /api/logs?limit=50
+// ------------------------------
+if (method === "GET" && url.startsWith("/api/logs")) {
+  const q = new URLSearchParams(url.split("?")[1] || "");
+  const limit = Number(q.get("limit") || "50");
+
+  const state = await kv.get(todayKey()) || {};
+
+  const logs = [
+    ...(state.mtm_log || []).map(l => ({
+      level: "info",
+      message: `MTM → Realised ${l.realised}, Unrealised ${l.unrealised}, Total ${l.total}`,
+      timestamp: l.ts
+    })),
+
+    ...(state.config_logs || []).map(l => ({
+      level: "info",
+      message: `Config changed → ${JSON.stringify(l.patch)}`,
+      timestamp: l.time
+    })),
+
+    ...(state.reset_logs || []).map(l => ({
+      level: "warning",
+      message: `Day Reset → ${l.reason || "manual"}`,
+      timestamp: l.time
+    })),
+
+    ...(state.enforce_logs || []).map(l => ({
+      level: "error",
+      message: `Enforcement → ${l.reason}`,
+      timestamp: l.time
+    })),
+
+    ...(state.connection_logs || []).map(l => ({
+      level: "info",
+      message: `Connection → ${l.status}`,
+      timestamp: l.time
+    }))
+  ];
+
+  // sort new → old
+  logs.sort((a, b) => b.timestamp - a.timestamp);
+
+  res.statusCode = 200;
+  return res.end(JSON.stringify({
+    ok: true,
+    logs: logs.slice(0, limit)
+  }));
+}
+// ------------------------------
+// GET /api/trades?limit=100
+// ------------------------------
+if (method === "GET" && url.startsWith("/api/trades")) {
+  const q = new URLSearchParams(url.split("?")[1] || "");
+  const limit = Number(q.get("limit") || "100");
+
+  let trades = await kv.get("guardian:tradebook");
+  if (!Array.isArray(trades)) trades = [];
+
+  const formatted = trades.slice(-limit).map(t => ({
+    instrument: t.tradingsymbol,
+    side: t.side,
+    quantity: t.qty,
+    price: t.raw?.average_price || 0,
+    timestamp: t.ts || Date.now()
+  }));
+
+  // newest first
+  formatted.sort((a, b) => b.timestamp - a.timestamp);
+
+  res.statusCode = 200;
+  return res.end(JSON.stringify(formatted));
+}
+
 
 
 // If no route matched, return 404
