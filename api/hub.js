@@ -456,6 +456,49 @@ export default async function handler(req, res) {
   //  NEW POST ENDPOINTS (admin)
   // ============================
 
+    // ------------------------------
+// PUT /api/risk-config  (ADMIN)
+// ------------------------------
+if (method === "PUT" && url === "/api/risk-config") {
+
+  // ADMIN AUTH
+  const adminKey = req.headers["x-admin-key"];
+  if (!adminKey || adminKey !== process.env.ADMIN_SECRET) {
+    res.statusCode = 401;
+    return res.end(JSON.stringify({ ok: false, detail: "Unauthorized" }));
+  }
+
+  // Read body
+  let body = "";
+  await new Promise(resolve => {
+    req.on("data", chunk => body += chunk);
+    req.on("end", resolve);
+  });
+
+  let patch = {};
+  try {
+    patch = JSON.parse(body);
+  } catch (err) {
+    res.statusCode = 400;
+    return res.end(JSON.stringify({ ok: false, detail: "Invalid JSON" }));
+  }
+
+  // Read existing global config
+  const current = await kv.get("risk:config:global") || {};
+
+  // Merge with new config
+  const updated = { ...current, ...patch };
+
+  // Save to KV
+  await kv.set("risk:config:global", updated);
+
+  res.statusCode = 200;
+  return res.end(JSON.stringify({
+    ok: true,
+    config: updated
+  }));
+}
+
   if (method === "POST" && url.startsWith("/api/risk-config")) {
     return await handlePostRiskConfig(req, res);
   }
