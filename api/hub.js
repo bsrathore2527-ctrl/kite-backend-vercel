@@ -456,7 +456,7 @@ export default async function handler(req, res) {
   //  NEW POST ENDPOINTS (admin)
   // ============================
 
-  if (method === "POST" && url.startsWith("/api/risk-config")) {
+  if (method === "PUT" && url.startsWith("/api/risk-config")) {
     return await handlePostRiskConfig(req, res);
   }
 
