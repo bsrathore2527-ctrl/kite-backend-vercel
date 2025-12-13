@@ -184,7 +184,7 @@ async function handlePutRiskConfig(req, res) {
 
   const body = await readJsonBody(req);
 
-  // 1) Validate request body
+  // Must be valid JSON object
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     res.statusCode = 400;
     return res.end(JSON.stringify({
@@ -195,7 +195,6 @@ async function handlePutRiskConfig(req, res) {
 
   const daily = await loadDaily();
 
-  // 2) Only update known config fields (to avoid corruption)
   const allowedKeys = [
     "capital_day_915",
     "max_loss_pct",
@@ -212,15 +211,13 @@ async function handlePutRiskConfig(req, res) {
   ];
 
   const cleanedPatch = {};
-
   for (const key of allowedKeys) {
     if (key in body) cleanedPatch[key] = body[key];
   }
 
-  // 3) Apply patch safely
-  const updated = { 
-    ...daily, 
-    ...cleanedPatch 
+  const updated = {
+    ...daily,
+    ...cleanedPatch
   };
 
   await saveDaily(updated);
@@ -228,7 +225,6 @@ async function handlePutRiskConfig(req, res) {
   res.setHeader("Content-Type", "application/json");
   res.end(JSON.stringify({ ok: true, config: updated }));
 }
-
 
 // ==============================
 // POST /api/risk-config   (admin)
@@ -238,15 +234,45 @@ async function handlePostRiskConfig(req, res) {
   if (!requireAdmin(req, res)) return;
 
   const body = await readJsonBody(req);
+
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    res.statusCode = 400;
+    return res.end(JSON.stringify({
+      ok: false,
+      detail: "Invalid JSON body. Expected an object."
+    }));
+  }
+
   const daily = await loadDaily();
 
-  const patch = body;
+  const allowedKeys = [
+    "capital_day_915",
+    "max_loss_pct",
+    "max_loss_abs",
+    "max_profit_pct",
+    "max_profit_abs",
+    "trail_step_profit",
+    "cooldown_min",
+    "min_loss_to_count",
+    "max_consecutive_losses",
+    "cooldown_on_profit",
+    "allow_new",
+    "block_new_orders"
+  ];
 
-  const logEntry = { time: Date.now(), patch };
+  const cleanedPatch = {};
+  for (const key of allowedKeys) {
+    if (key in body) cleanedPatch[key] = body[key];
+  }
+
+  const logEntry = {
+    time: Date.now(),
+    patch: cleanedPatch,
+  };
 
   const updated = {
     ...daily,
-    ...patch,
+    ...cleanedPatch,
     config_logs: [...(daily.config_logs || []), logEntry]
   };
 
