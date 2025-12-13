@@ -9,7 +9,7 @@ export function withCors(handler) {
     res.setHeader("Access-Control-Allow-Credentials", "true");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type, x-admin-key");
 
-    res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+    res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,OPTIONS");
     if (req.method === "OPTIONS") return res.status(200).end();
     return handler(req, res);
   };
