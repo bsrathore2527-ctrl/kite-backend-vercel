@@ -34,7 +34,7 @@ function applyCors(req, res) {
     res.setHeader("Access-Control-Allow-Origin", "https://boho.trading");
   }
 
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS");
   res.setHeader(
     "Access-Control-Allow-Headers",
     "Content-Type, x-admin-key"
