@@ -41,6 +41,16 @@ function fifoBuy(book, qty, price) {
   if (qtyRem > 0) newLots.push({ side: "BUY", qty: qtyRem, avg: price });
   return { realised, book: newLots };
 }
+// Load GLOBAL configuration written by UI
+async function getGlobalConfig() {
+  try {
+    const cfg = await kv.get("risk:config:global");
+    return cfg || {};
+  } catch (e) {
+    console.error("Failed to load global config:", e);
+    return {};
+  }
+}
 
 // ---------------------------------------------------
 // OPTIMIZED REALISED CALC (uses pre-fetched net positions)
@@ -230,7 +240,12 @@ export default async function handler(req, res) {
     return res.status(405).json({ ok: false, error: "Method not allowed" });
 
   try {
-    const s = (await getState()) || {};
+   const daily = (await getState()) || {};
+const globalConfig = await getGlobalConfig();
+
+// Merge: global config overrides daily config keys
+const s = { ...daily, ...globalConfig };
+
     const dayKey = `risk:${todayKey()}`;
 
     let kc;
