@@ -1,12 +1,19 @@
 // ==============================
-// FINAL CLEAN WORKING hub.js
-// ONLY TWO KV KEYS USED:
-// 1) risk:YYYY-MM-DD  (entire state)
-// 2) guardian:tradebook
+// FINAL hub.js with GLOBAL CONFIG
+// ==============================
+// GLOBAL CONFIG stored in:   risk:config:global
+// DAILY STATE stored in:     risk:YYYY-MM-DD
 // ==============================
 
 import { instance as kiteInstance } from "./_lib/kite.js";
-import { kv, todayKey, getState as kvGetState, setState as kvSetState } from "./_lib/kv.js";
+import {
+  kv,
+  todayKey,
+  getState as kvGetState,
+  setState as kvSetState,
+  _rawGet,
+  _rawSet,
+} from "./_lib/kv.js";
 
 // ==============================
 // CORS
@@ -18,7 +25,7 @@ const allowedOrigins = [
   "https://bohoapp.com",
   "https://www.bohoapp.com",
   "https://api.bohoapp.com",
-  "http://localhost:3000"
+  "http://localhost:3000",
 ];
 
 function applyCors(req, res) {
@@ -27,7 +34,10 @@ function applyCors(req, res) {
   if (allowedOrigins.includes(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin);
   } else {
-    res.setHeader("Access-Control-Allow-Origin", "https://www.boho.trading");
+    res.setHeader(
+      "Access-Control-Allow-Origin",
+      "https://www.boho.trading"
+    );
   }
 
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS");
@@ -58,7 +68,7 @@ function requireAdmin(req, res) {
 }
 
 // ==============================
-// JSON parser
+// JSON BODY PARSER
 // ==============================
 
 async function readJsonBody(req) {
@@ -76,9 +86,10 @@ async function readJsonBody(req) {
 }
 
 // ==============================
-// KV HELPERS (ONLY DAILY + TRADEBOOK)
+// KV HELPERS
 // ==============================
 
+// DAILY state
 async function loadDaily() {
   return (await kvGetState(todayKey())) || {};
 }
@@ -87,12 +98,25 @@ async function saveDaily(obj) {
   return await kvSetState(todayKey(), obj);
 }
 
+// TRADEBOOK
 async function loadTradebook() {
   return (await kv.get("guardian:tradebook")) || [];
 }
 
 async function saveTradebook(tb) {
   return await kv.set("guardian:tradebook", tb);
+}
+
+// ==============================
+// GLOBAL CONFIG HELPERS
+// ==============================
+
+async function loadGlobalConfig() {
+  return (await _rawGet("risk:config:global")) || {};
+}
+
+async function saveGlobalConfig(cfg) {
+  return await _rawSet("risk:config:global", cfg);
 }
 
 // ==============================
@@ -114,11 +138,19 @@ async function kitePost(kite, path, body) {
 // ==============================
 // GET /api/risk-status
 // ==============================
+// returns merged GLOBAL config + DAILY state
 
 async function handleGetRiskStatus(req, res) {
   const daily = await loadDaily();
+  const config = await loadGlobalConfig();
+
+  const merged = {
+    ...daily,
+    ...config,
+  };
+
   res.setHeader("Content-Type", "application/json");
-  res.end(JSON.stringify({ ok: true, state: daily }));
+  res.end(JSON.stringify({ ok: true, state: merged }));
 }
 
 // ==============================
@@ -126,38 +158,29 @@ async function handleGetRiskStatus(req, res) {
 // ==============================
 
 async function handleGetRiskConfig(req, res) {
-  const daily = await loadDaily();
-
-  const config = {
-    capital_day_915: daily.capital_day_915,
-    max_loss_pct: daily.max_loss_pct,
-    max_loss_abs: daily.max_loss_abs,
-    max_profit_pct: daily.max_profit_pct,
-    max_profit_abs: daily.max_profit_abs,
-    trail_step_profit: daily.trail_step_profit,
-    cooldown_min: daily.cooldown_min,
-    min_loss_to_count: daily.min_loss_to_count,
-    max_consecutive_losses: daily.max_consecutive_losses,
-    cooldown_on_profit: daily.cooldown_on_profit,
-    allow_new: daily.allow_new,
-    block_new_orders: daily.block_new_orders,
-    config_logs: daily.config_logs || []
-  };
+  const cfg = await loadGlobalConfig();
 
   res.setHeader("Content-Type", "application/json");
-  res.end(JSON.stringify({ ok: true, config }));
+  res.end(JSON.stringify({ ok: true, config: cfg }));
 }
 
 // ==============================
-// GET /api/logs  (simple MTM only)
+// GET /api/logs (simple MTM logs only)
 // ==============================
 
 async function handleGetLogs(req, res) {
   const daily = await loadDaily();
   const mtm = daily.mtm_log || [];
-  const limit = Number(new URL(req.url, "http://localhost").searchParams.get("limit") || 50);
 
-  const logs = mtm.map((m) => ({ time: m.ts, type: "MTM", value: m.total }));
+  const limit = Number(
+    new URL(req.url, "http://localhost").searchParams.get("limit") || 50
+  );
+
+  const logs = mtm.map((m) => ({
+    time: m.ts,
+    type: "MTM",
+    value: m.total,
+  }));
 
   res.setHeader("Content-Type", "application/json");
   res.end(JSON.stringify({ ok: true, logs: logs.slice(-limit) }));
@@ -169,31 +192,28 @@ async function handleGetLogs(req, res) {
 
 async function handleGetTrades(req, res) {
   const tb = await loadTradebook();
-  const limit = Number(new URL(req.url, "http://localhost").searchParams.get("limit") || 100);
+  const limit = Number(
+    new URL(req.url, "http://localhost").searchParams.get("limit") || 100
+  );
 
   res.setHeader("Content-Type", "application/json");
   res.end(JSON.stringify({ ok: true, trades: tb.slice(-limit) }));
 }
 
 // ==============================
-// PUT /api/risk-config   (admin)
+// PUT /api/risk-config  (GLOBAL CONFIG UPDATE)
 // ==============================
 
 async function handlePutRiskConfig(req, res) {
   if (!requireAdmin(req, res)) return;
 
   const body = await readJsonBody(req);
-
-  // Must be valid JSON object
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     res.statusCode = 400;
-    return res.end(JSON.stringify({
-      ok: false,
-      detail: "Invalid JSON body. Expected an object."
-    }));
+    return res.end(
+      JSON.stringify({ ok: false, detail: "Invalid JSON body" })
+    );
   }
-
-  const daily = await loadDaily();
 
   const allowedKeys = [
     "capital_day_915",
@@ -201,85 +221,44 @@ async function handlePutRiskConfig(req, res) {
     "max_loss_abs",
     "max_profit_pct",
     "max_profit_abs",
+    "min_loss_to_count",
     "trail_step_profit",
     "cooldown_min",
-    "min_loss_to_count",
-    "max_consecutive_losses",
     "cooldown_on_profit",
+    "max_consecutive_losses",
     "allow_new",
-    "block_new_orders"
+    "block_new_orders",
+    "max_trades_per_day",
+    "side_lock",
   ];
 
-  const cleanedPatch = {};
+  const current = await loadGlobalConfig();
+  const patch = {};
+
   for (const key of allowedKeys) {
-    if (key in body) cleanedPatch[key] = body[key];
+    if (key in body) patch[key] = body[key];
   }
 
-  const updated = {
-    ...daily,
-    ...cleanedPatch
-  };
-
-  await saveDaily(updated);
+  const finalConfig = { ...current, ...patch };
+  await saveGlobalConfig(finalConfig);
 
   res.setHeader("Content-Type", "application/json");
-  res.end(JSON.stringify({ ok: true, config: updated }));
+  res.end(JSON.stringify({ ok: true, config: finalConfig }));
 }
 
 // ==============================
-// POST /api/risk-config   (admin)
+// POST /api/risk-config  (DISABLED)
 // ==============================
 
 async function handlePostRiskConfig(req, res) {
-  if (!requireAdmin(req, res)) return;
-
-  const body = await readJsonBody(req);
-
-  if (!body || typeof body !== "object" || Array.isArray(body)) {
-    res.statusCode = 400;
-    return res.end(JSON.stringify({
-      ok: false,
-      detail: "Invalid JSON body. Expected an object."
-    }));
-  }
-
-  const daily = await loadDaily();
-
-  const allowedKeys = [
-    "capital_day_915",
-    "max_loss_pct",
-    "max_loss_abs",
-    "max_profit_pct",
-    "max_profit_abs",
-    "trail_step_profit",
-    "cooldown_min",
-    "min_loss_to_count",
-    "max_consecutive_losses",
-    "cooldown_on_profit",
-    "allow_new",
-    "block_new_orders"
-  ];
-
-  const cleanedPatch = {};
-  for (const key of allowedKeys) {
-    if (key in body) cleanedPatch[key] = body[key];
-  }
-
-  const logEntry = {
-    time: Date.now(),
-    patch: cleanedPatch,
-  };
-
-  const updated = {
-    ...daily,
-    ...cleanedPatch,
-    config_logs: [...(daily.config_logs || []), logEntry]
-  };
-
-  await saveDaily(updated);
-
+  res.statusCode = 405;
   res.setHeader("Content-Type", "application/json");
-  res.end(JSON.stringify({ ok: true, detail: "config updated" }));
+  res.end(
+    JSON.stringify({
+      ok: false,
+      detail: "POST /api/risk-config disabled — use PUT",
+    })
+  );
 }
 
 // ==============================
@@ -291,7 +270,10 @@ async function handlePostResetDay(req, res) {
 
   const daily = await loadDaily();
 
-  const resetEntry = { time: Date.now(), reason: "manual_reset" };
+  const resetEntry = {
+    time: Date.now(),
+    reason: "manual_reset",
+  };
 
   const cleared = {
     ...daily,
@@ -306,12 +288,11 @@ async function handlePostResetDay(req, res) {
     cooldown_active: false,
     cooldown_until: 0,
     peak_profit: 0,
-    block_new_orders: false,
     freeze_mode: null,
     allowed_positions: null,
     tripped_day: false,
     trip_reason: null,
-    reset_logs: [...(daily.reset_logs || []), resetEntry]
+    reset_logs: [...(daily.reset_logs || []), resetEntry],
   };
 
   await saveDaily(cleared);
@@ -340,7 +321,12 @@ async function handlePostCancel(req, res) {
     }
 
     res.setHeader("Content-Type", "application/json");
-    res.end(JSON.stringify({ ok: true, cancelled: pending.length }));
+    res.end(
+      JSON.stringify({
+        ok: true,
+        cancelled: pending.length,
+      })
+    );
   } catch (err) {
     res.statusCode = 500;
     res.end(JSON.stringify({ ok: false, error: err.message }));
@@ -357,7 +343,7 @@ async function handlePostKill(req, res) {
   try {
     const kite = kiteInstance();
 
-    // 1) Cancel pending orders
+    // Cancel pending
     const orders = await kiteGet(kite, "/orders");
     const pending = orders.data.filter(
       (o) => o.status === "OPEN" || o.status === "TRIGGER PENDING"
@@ -367,7 +353,7 @@ async function handlePostKill(req, res) {
       await kitePost(kite, "/orders/cancel", { order_id: o.order_id });
     }
 
-    // 2) Square off positions
+    // Square off positions
     const positions = await kiteGet(kite, "/portfolio/positions");
     const net = positions.data.net || [];
 
@@ -392,7 +378,13 @@ async function handlePostKill(req, res) {
     }
 
     res.setHeader("Content-Type", "application/json");
-    res.end(JSON.stringify({ ok: true, cancelled: pending.length, squared }));
+    res.end(
+      JSON.stringify({
+        ok: true,
+        cancelled: pending.length,
+        squared,
+      })
+    );
   } catch (err) {
     res.statusCode = 500;
     res.end(JSON.stringify({ ok: false, error: err.message }));
@@ -412,9 +404,10 @@ async function handlePostSyncKvState(req, res) {
   const merged = {
     ...daily,
     ...incoming,
+
     mtm_log: [...(daily.mtm_log || []), ...(incoming.mtm_log || [])],
+    reset_logs: [...(daily.reset_logs || []), ...(incoming.reset_logs || [])],
     config_logs: [...(daily.config_logs || []), ...(incoming.config_logs || [])],
-    reset_logs: [...(daily.reset_logs || []), ...(incoming.reset_logs || [])]
   };
 
   await saveDaily(merged);
@@ -434,20 +427,34 @@ export default async function handler(req, res) {
   const method = req.method;
 
   // GET
-  if (method === "GET" && url.startsWith("/api/risk-status")) return handleGetRiskStatus(req, res);
-  if (method === "GET" && url.startsWith("/api/risk-config")) return handleGetRiskConfig(req, res);
-  if (method === "GET" && url.startsWith("/api/logs")) return handleGetLogs(req, res);
-  if (method === "GET" && url.startsWith("/api/trades")) return handleGetTrades(req, res);
+  if (method === "GET" && url.startsWith("/api/risk-status"))
+    return handleGetRiskStatus(req, res);
+  if (method === "GET" && url.startsWith("/api/risk-config"))
+    return handleGetRiskConfig(req, res);
+  if (method === "GET" && url.startsWith("/api/logs"))
+    return handleGetLogs(req, res);
+  if (method === "GET" && url.startsWith("/api/trades"))
+    return handleGetTrades(req, res);
 
   // PUT
-  if (method === "PUT" && url === "/api/risk-config") return handlePutRiskConfig(req, res);
+  if (method === "PUT" && url === "/api/risk-config")
+    return handlePutRiskConfig(req, res);
 
   // POST
-  if (method === "POST" && url.startsWith("/api/risk-config")) return handlePostRiskConfig(req, res);
-  if (method === "POST" && url.startsWith("/api/reset-day")) return handlePostResetDay(req, res);
-  if (method === "POST" && url.startsWith("/api/cancel")) return handlePostCancel(req, res);
-  if (method === "POST" && url.startsWith("/api/kill")) return handlePostKill(req, res);
-  if (method === "POST" && url.startsWith("/api/sync-kv-state")) return handlePostSyncKvState(req, res);
+  if (method === "POST" && url.startsWith("/api/risk-config"))
+    return handlePostRiskConfig(req, res);
+
+  if (method === "POST" && url.startsWith("/api/reset-day"))
+    return handlePostResetDay(req, res);
+
+  if (method === "POST" && url.startsWith("/api/cancel"))
+    return handlePostCancel(req, res);
+
+  if (method === "POST" && url.startsWith("/api/kill"))
+    return handlePostKill(req, res);
+
+  if (method === "POST" && url.startsWith("/api/sync-kv-state"))
+    return handlePostSyncKvState(req, res);
 
   // 404
   res.statusCode = 404;
