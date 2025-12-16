@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>BOHO – Admin Login</title>
+  <title>BOHO – Login</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
   <style>
@@ -37,7 +37,17 @@
     .subtitle {
       font-size: 13px;
       color: #6b7280;
-      margin-bottom: 24px;
+      margin-bottom: 22px;
+    }
+
+    input {
+      width: 100%;
+      padding: 12px 14px;
+      font-size: 14px;
+      border-radius: 10px;
+      border: 1px solid #d1d5db;
+      margin-bottom: 14px;
+      text-transform: uppercase;
     }
 
     button {
@@ -58,10 +68,6 @@
       cursor: not-allowed;
     }
 
-    button:active {
-      transform: scale(0.98);
-    }
-
     .toast {
       margin-top: 14px;
       font-size: 13px;
@@ -75,72 +81,103 @@
 
   <div class="card">
     <div class="logo">BOHO</div>
-    <div class="subtitle">Admin · Broker Login</div>
+    <div class="subtitle">Registered User Login</div>
 
-    <button id="loginBtn">
-      Login to Broker
+    <input
+      id="userId"
+      type="text"
+      placeholder="Enter User ID"
+      autocomplete="off"
+    />
+
+    <button id="continueBtn">
+      Continue
     </button>
 
     <div id="toast" class="toast"></div>
   </div>
 
   <script>
-    const BACKEND_LOGIN_URL = "https://api.bohoapp.com/api/login";
+    const CHECK_USER_URL = "https://api.bohoapp.com/api/check-user";
+    const LOGIN_URL = "https://api.bohoapp.com/api/login";
     const ADMIN_KEY_STORAGE = "ADMIN_TOKEN";
 
-    let loginInProgress = false;
-    let lastLoginAttempt = 0;
-
-    const loginBtn = document.getElementById("loginBtn");
+    const userInput = document.getElementById("userId");
+    const btn = document.getElementById("continueBtn");
     const toastEl = document.getElementById("toast");
+
+    let busy = false;
+    let lastAttempt = 0;
 
     function toast(msg) {
       toastEl.textContent = msg;
     }
 
-    async function loginBroker() {
+    async function handleLogin() {
       const now = Date.now();
-
-      // ⛔ Throttle: once every 15 seconds
-      if (loginInProgress || now - lastLoginAttempt < 15000) {
-        toast("Please wait before trying again…");
+      if (busy || now - lastAttempt < 15000) {
+        toast("Please wait…");
         return;
       }
 
-      lastLoginAttempt = now;
-      loginInProgress = true;
-      loginBtn.disabled = true;
+      const zid = userInput.value.trim().toUpperCase();
+      if (!zid) {
+        toast("Please enter User ID");
+        return;
+      }
+
+      busy = true;
+      lastAttempt = now;
+      btn.disabled = true;
+      toast("Checking user…");
 
       try {
-        let adminKey = localStorage.getItem(ADMIN_KEY_STORAGE);
+        /* 1️⃣ Check user in KV */
+        const res = await fetch(CHECK_USER_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ zid })
+        });
 
+        const data = await res.json();
+
+        if (!data || data.status !== "ok") {
+          toast(data?.message || "User not found");
+          busy = false;
+          btn.disabled = false;
+          return;
+        }
+
+        /* 2️⃣ Ask admin key ONLY if missing */
+        let adminKey = localStorage.getItem(ADMIN_KEY_STORAGE);
         if (!adminKey) {
           adminKey = prompt("Enter Admin Key:");
           if (!adminKey) {
             toast("Login cancelled");
-            loginInProgress = false;
-            loginBtn.disabled = false;
+            busy = false;
+            btn.disabled = false;
             return;
           }
           localStorage.setItem(ADMIN_KEY_STORAGE, adminKey);
         }
 
-        toast("Contacting broker…");
+        /* 3️⃣ Initiate broker login */
+        toast("Preparing secure login…");
 
-        const res = await fetch(BACKEND_LOGIN_URL, {
+        const loginRes = await fetch(LOGIN_URL, {
           method: "POST",
           headers: {
             "x-admin-key": adminKey
           }
         });
 
-        const data = await res.json().catch(() => null);
+        const loginData = await loginRes.json().catch(() => null);
 
-        if (data && data.ok && data.url) {
-          toast("Opening Zerodha login…");
-          window.open(data.url, "_blank", "noopener");
+        if (loginData && loginData.ok && loginData.url) {
+          toast("Opening secure login…");
+          window.open(loginData.url, "_blank", "noopener");
         } else {
-          toast("Unable to initiate broker login");
+          toast("Unable to continue login");
         }
 
       } catch (err) {
@@ -148,14 +185,18 @@
         toast("Login failed");
       } finally {
         setTimeout(() => {
-          loginInProgress = false;
-          loginBtn.disabled = false;
+          busy = false;
+          btn.disabled = false;
         }, 3000);
       }
     }
 
-    loginBtn.addEventListener("click", loginBroker);
+    btn.addEventListener("click", handleLogin);
+    userInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") handleLogin();
+    });
   </script>
 
 </body>
 </html>
+
