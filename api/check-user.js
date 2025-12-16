@@ -6,6 +6,7 @@ const redis = new Redis({
 });
 
 export default async function handler(req, res) {
+  // Only allow POST
   if (req.method !== "POST") {
     return res.status(405).json({
       status: "error",
@@ -14,15 +15,22 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { zid } = JSON.parse(req.body || "{}");
+    // ✅ Vercel-safe body handling
+    const body =
+      typeof req.body === "string"
+        ? JSON.parse(req.body)
+        : req.body;
+
+    const { zid } = body || {};
 
     if (!zid) {
       return res.status(400).json({
         status: "error",
-        message: "Missing ID",
+        message: "Missing User ID",
       });
     }
 
+    // Fetch users list from Upstash
     const users = await redis.get("users:list");
 
     if (!Array.isArray(users)) {
@@ -32,6 +40,7 @@ export default async function handler(req, res) {
       });
     }
 
+    // Find user
     const user = users.find((u) => u.id === zid);
 
     if (!user) {
@@ -41,16 +50,22 @@ export default async function handler(req, res) {
       });
     }
 
+    // Check subscription validity
     const now = Date.now();
 
-    if (user.valid_until < now) {
-      const expDate = new Date(user.valid_until).toLocaleString();
+    if (typeof user.valid_until !== "number" || user.valid_until < now) {
+      const expDate =
+        user.valid_until
+          ? new Date(user.valid_until).toLocaleString()
+          : "unknown";
+
       return res.status(403).json({
         status: "error",
         message: `Subscription expired on ${expDate}`,
       });
     }
 
+    // ✅ All good
     return res.status(200).json({
       status: "ok",
       message: "User valid",
@@ -58,9 +73,10 @@ export default async function handler(req, res) {
 
   } catch (err) {
     console.error("check-user error:", err);
+
     return res.status(500).json({
       status: "error",
-      message: "Internal error",
+      message: "Internal server error",
     });
   }
 }
