@@ -502,9 +502,7 @@ export default async function handler(req, res) {
 
   if (method === "POST" && url.startsWith("/api/sync-kv-state"))
     return handlePostSyncKvState(req, res);
-  
-  if (method === "POST" && url.startsWith("/api/admin/trip"))
-  return handlePostTrip(req, res);
+
   
   if (method === "POST" && url === "/api/admin/trip")
   return handlePostAdminTrip(req, res);
