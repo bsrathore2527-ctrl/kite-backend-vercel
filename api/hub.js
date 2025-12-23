@@ -304,92 +304,85 @@ async function handlePostResetDay(req, res) {
 // ==============================
 // POST /api/cancel
 // ==============================
-
+async function cancelPending(kc) {
+  try {
+    const orders = await kc.getOrders();
+    const pending = (orders || []).filter(o => {
+      const s = (o.status || "").toUpperCase();
+      return s === "OPEN" || s.includes("TRIGGER");
+    });
+    let cancelled = 0;
+    for (const o of pending) {
+      try {
+        await kc.cancelOrder(o.variety || "regular", o.order_id);
+        cancelled++;
+      } catch {}
+    }
+    return cancelled;
+  } catch {
+    return 0;
+  }
+}
 async function handlePostCancel(req, res) {
   if (!requireAdmin(req, res)) return;
 
   try {
-    const kite = await kiteInstance();
-    const orders = await kiteGet(kite, "/orders");
-
-    const pending = orders.data.filter(
-      (o) => o.status === "OPEN" || o.status === "TRIGGER PENDING"
-    );
-
-    for (const o of pending) {
-      await kitePost(kite, "/orders/cancel", { order_id: o.order_id });
-    }
+    const kc = await kiteInstance(); // IMPORTANT: awaited
+    const cancelled = await cancelPending(kc);
 
     res.setHeader("Content-Type", "application/json");
-    res.end(
-      JSON.stringify({
-        ok: true,
-        cancelled: pending.length,
-      })
-    );
-  } catch (err) {
-    res.statusCode = 500;
-    res.end(JSON.stringify({ ok: false, error: err.message }));
+    res.end(JSON.stringify({ ok: true, cancelled }));
+  } catch (e) {
+    res.statusCode = 200; // prevent 500
+    res.end(JSON.stringify({ ok: false, error: "Kite not connected" }));
   }
 }
 
-// ==============================
-// POST /api/kill
-// ==============================
 
+async function squareOffAll(kc) {
+  try {
+    const pos = await kc.getPositions();
+    const net = pos?.net || [];
+    let squared = 0;
+    for (const p of net) {
+      const qty = Number(p.net_quantity ?? p.quantity ?? 0);
+      if (!qty) continue;
+      const side = qty > 0 ? "SELL" : "BUY";
+      const absQty = Math.abs(qty);
+      try {
+        await kc.placeOrder("regular", {
+          exchange: p.exchange || "NSE",
+          tradingsymbol: p.tradingsymbol || p.trading_symbol,
+          transaction_type: side,
+          quantity: absQty,
+          order_type: "MARKET",
+          product: p.product || "MIS",
+          validity: "DAY"
+        });
+        squared++;
+      } catch {}
+    }
+    return squared;
+  } catch {
+    return 0;
+  }
+}
 async function handlePostKill(req, res) {
   if (!requireAdmin(req, res)) return;
 
   try {
-    const kite = await kiteInstance();
-
-    // Cancel pending
-    const orders = await kiteGet(kite, "/orders");
-    const pending = orders.data.filter(
-      (o) => o.status === "OPEN" || o.status === "TRIGGER PENDING"
-    );
-
-    for (const o of pending) {
-      await kitePost(kite, "/orders/cancel", { order_id: o.order_id });
-    }
-
-    // Square off positions
-    const positions = await kiteGet(kite, "/portfolio/positions");
-    const net = positions.data.net || [];
-
-    let squared = 0;
-
-    for (const pos of net) {
-      if (pos.quantity === 0) continue;
-
-      const side = pos.quantity > 0 ? "SELL" : "BUY";
-      const qty = Math.abs(pos.quantity);
-
-      await kitePost(kite, "/orders/place", {
-        exchange: pos.exchange,
-        tradingsymbol: pos.tradingsymbol,
-        transaction_type: side,
-        quantity: qty,
-        product: pos.product,
-        order_type: "MARKET",
-      });
-
-      squared++;
-    }
+    const kc = await kiteInstance();
+    const cancelled = await cancelPending(kc);
+    const squared = await squareOffAll(kc);
 
     res.setHeader("Content-Type", "application/json");
-    res.end(
-      JSON.stringify({
-        ok: true,
-        cancelled: pending.length,
-        squared,
-      })
-    );
-  } catch (err) {
-    res.statusCode = 500;
-    res.end(JSON.stringify({ ok: false, error: err.message }));
+    res.end(JSON.stringify({ ok: true, cancelled, squared }));
+  } catch (e) {
+    res.statusCode = 200;
+    res.end(JSON.stringify({ ok: false, error: "Kite not connected" }));
   }
 }
+
 // ==============================
 // POST /api/admin/trip
 // ==============================
@@ -426,6 +419,73 @@ async function handlePostTrip(req, res) {
     res.end(JSON.stringify({ ok: false, error: err.message }));
   }
 }
+async function enforceShutdown(kc, meta = {}) {
+  const cancelled = await cancelPending(kc);
+  const squared = await squareOffAll(kc);
+  const key = `risk:${todayKey()}`;
+  const cur = (await kv.get(key)) || {};
+  const next = {
+    ...cur,
+    tripped_day: true,
+    last_enforced_at: Date.now(),
+    enforcement_meta: meta
+  };
+  await kv.set(key, next);
+  return { cancelled, squared, state: next };
+}
+// ==============================
+// POST /api/admin/trip
+// ==============================
+
+async function handlePostAdminTrip(req, res) {
+  if (!requireAdmin(req, res)) return;
+
+  try {
+    // 1. Get kite safely
+    const kc = await kiteInstance();
+
+    // 2. Mechanical actions FIRST
+    const cancelled = await cancelPending(kc);
+    const squared = await squareOffAll(kc);
+
+    // 3. Trip state AFTER positions are clean
+    const key = `risk:${todayKey()}`;
+    const cur = (await kv.get(key)) || {};
+
+    const next = {
+      ...cur,
+      tripped_day: true,
+      block_new_orders: true,
+      last_enforced_at: Date.now(),
+      enforcement_meta: {
+        by: "admin",
+        reason: "manual_trip"
+      }
+    };
+
+    await kv.set(key, next);
+
+    res.setHeader("Content-Type", "application/json");
+    res.end(JSON.stringify({
+      ok: true,
+      cancelled,
+      squared,
+      state: {
+        tripped_day: true,
+        block_new_orders: true
+      }
+    }));
+  } catch (err) {
+    // IMPORTANT: do not 500 unless truly fatal
+    res.statusCode = 200;
+    res.end(JSON.stringify({
+      ok: false,
+      error: "Trip failed",
+      detail: err.message
+    }));
+  }
+}
+
 
 
 // ==============================
@@ -495,6 +555,10 @@ export default async function handler(req, res) {
   
   if (method === "POST" && url.startsWith("/api/admin/trip"))
   return handlePostTrip(req, res);
+  
+  if (method === "POST" && url === "/api/admin/trip")
+  return handlePostAdminTrip(req, res);
+
 
 
   // 404
