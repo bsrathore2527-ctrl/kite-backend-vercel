@@ -145,8 +145,8 @@ async function handleGetRiskStatus(req, res) {
   const config = await loadGlobalConfig();
 
   const merged = {
-    ...daily,
     ...config,
+    ...daily,
   };
 
   res.setHeader("Content-Type", "application/json");
