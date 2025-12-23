@@ -387,56 +387,6 @@ async function handlePostKill(req, res) {
 // POST /api/admin/trip
 // ==============================
 
-async function handlePostTrip(req, res) {
-  if (!requireAdmin(req, res)) return;
-
-  try {
-    const daily = await loadDaily();
-
-    const next = {
-      ...daily,
-      tripped_day: true,
-      block_new_orders: true,
-      trip_reason: "admin_trip",
-      trip_ts: Date.now(),
-    };
-
-    await saveDaily(next);
-
-    res.setHeader("Content-Type", "application/json");
-    res.end(
-      JSON.stringify({
-        ok: true,
-        detail: "Day tripped",
-        state: {
-          tripped_day: true,
-          block_new_orders: true,
-        },
-      })
-    );
-  } catch (err) {
-    res.statusCode = 500;
-    res.end(JSON.stringify({ ok: false, error: err.message }));
-  }
-}
-async function enforceShutdown(kc, meta = {}) {
-  const cancelled = await cancelPending(kc);
-  const squared = await squareOffAll(kc);
-  const key = `risk:${todayKey()}`;
-  const cur = (await kv.get(key)) || {};
-  const next = {
-    ...cur,
-    tripped_day: true,
-    last_enforced_at: Date.now(),
-    enforcement_meta: meta
-  };
-  await kv.set(key, next);
-  return { cancelled, squared, state: next };
-}
-// ==============================
-// POST /api/admin/trip
-// ==============================
-
 async function handlePostAdminTrip(req, res) {
   if (!requireAdmin(req, res)) return;
 
