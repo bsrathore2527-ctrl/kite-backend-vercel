@@ -264,6 +264,16 @@ async function handlePostRiskConfig(req, res) {
 // ==============================
 // POST /api/reset-day
 // ==============================
+function stripNumericKeys(obj) {
+  const out = {};
+  for (const [k, v] of Object.entries(obj || {})) {
+    if (!/^\d+$/.test(k)) {
+      out[k] = v;
+    }
+  }
+  return out;
+}
+
 
 async function handlePostResetDay(req, res) {
   if (!requireAdmin(req, res)) return;
@@ -275,25 +285,40 @@ async function handlePostResetDay(req, res) {
     reason: "manual_reset",
   };
 
-  const cleared = {
-    ...daily,
-    realised: 0,
-    unrealised: 0,
-    total_pnl: 0,
-    realised_history: [],
-    mtm_log: [],
-    last_net_positions: {},
-    last_trade_time: 0,
-    consecutive_losses: 0,
-    cooldown_active: false,
-    cooldown_until: 0,
-    peak_profit: 0,
-    freeze_mode: null,
-    allowed_positions: null,
-    tripped_day: false,
-    trip_reason: null,
-    reset_logs: [...(daily.reset_logs || []), resetEntry],
-  };
+ const base = stripNumericKeys(daily);
+
+const cleared = {
+  ...base,
+
+  // 🔥 RESET CORE PNL
+  realised: 0,
+  unrealised: 0,
+  total_pnl: 0,
+  realised_history: [],
+  mtm_log: [],
+
+  // 🔥 POSITION / TRADE STATE
+  last_net_positions: {},
+  last_trade_time: 0,
+
+  // 🔥 RISK STATE
+  consecutive_losses: 0,
+  cooldown_active: false,
+  cooldown_until: 0,
+  peak_profit: 0,
+  active_loss_floor: 0,
+
+  // 🔥 DAY FLAGS
+  tripped_day: false,
+  trip_reason: null,
+  freeze_mode: null,
+  allowed_positions: null,
+
+  // 🔥 AUDIT
+  reset_logs: [...(base.reset_logs || []), resetEntry],
+  last_reset_at: Date.now(),
+};
+
 
   await saveDaily(cleared);
 
