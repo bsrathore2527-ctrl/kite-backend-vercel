@@ -309,7 +309,7 @@ async function handlePostCancel(req, res) {
   if (!requireAdmin(req, res)) return;
 
   try {
-    const kite = kiteInstance();
+    const kite = await kiteInstance();
     const orders = await kiteGet(kite, "/orders");
 
     const pending = orders.data.filter(
@@ -341,7 +341,7 @@ async function handlePostKill(req, res) {
   if (!requireAdmin(req, res)) return;
 
   try {
-    const kite = kiteInstance();
+    const kite = await kiteInstance();
 
     // Cancel pending
     const orders = await kiteGet(kite, "/orders");
@@ -390,6 +390,43 @@ async function handlePostKill(req, res) {
     res.end(JSON.stringify({ ok: false, error: err.message }));
   }
 }
+// ==============================
+// POST /api/admin/trip
+// ==============================
+
+async function handlePostTrip(req, res) {
+  if (!requireAdmin(req, res)) return;
+
+  try {
+    const daily = await loadDaily();
+
+    const next = {
+      ...daily,
+      tripped_day: true,
+      block_new_orders: true,
+      trip_reason: "admin_trip",
+      trip_ts: Date.now(),
+    };
+
+    await saveDaily(next);
+
+    res.setHeader("Content-Type", "application/json");
+    res.end(
+      JSON.stringify({
+        ok: true,
+        detail: "Day tripped",
+        state: {
+          tripped_day: true,
+          block_new_orders: true,
+        },
+      })
+    );
+  } catch (err) {
+    res.statusCode = 500;
+    res.end(JSON.stringify({ ok: false, error: err.message }));
+  }
+}
+
 
 // ==============================
 // POST /api/sync-kv-state
@@ -455,6 +492,10 @@ export default async function handler(req, res) {
 
   if (method === "POST" && url.startsWith("/api/sync-kv-state"))
     return handlePostSyncKvState(req, res);
+  
+  if (method === "POST" && url.startsWith("/api/admin/trip"))
+  return handlePostTrip(req, res);
+
 
   // 404
   res.statusCode = 404;
