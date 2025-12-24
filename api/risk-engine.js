@@ -236,8 +236,10 @@ async function squareOffDelta(kc, sym, dQty) {
 // ---------------------------------------------------
 export default async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(204).end();
-  if (req.method !== "GET")
+  if (req.method !== "POST")
     return res.status(405).json({ ok: false, error: "Method not allowed" });
+
+  const { reason } = req.body || {};
 
   try {
    const daily = (await getState()) || {};
