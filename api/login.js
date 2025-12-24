@@ -15,10 +15,13 @@ export default async function handler(req, res) {
       return res.status(500).json({ ok: false, error: "KITE_API_KEY not set" });
     }
 
-    const kc = new KiteConnect({ api_key });
-    const loginUrl = kc.getLoginURL();
-    const TEST_APP_USER_ID = "test_user_001";
-loginUrl += `&state=${encodeURIComponent(TEST_APP_USER_ID)}`;
+const TEST_APP_USER_ID = "test_user_001";
+
+const loginUrl =
+  "https://kite.zerodha.com/connect/login" +
+  "?v=3" +
+  `&api_key=${encodeURIComponent(api_key)}` +
+  `&state=${encodeURIComponent(TEST_APP_USER_ID)}`;
 
     // For GET: redirect the browser to Zerodha's login URL
     if (req.method === "GET") {
