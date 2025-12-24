@@ -17,6 +17,8 @@ export default async function handler(req, res) {
 
     const kc = new KiteConnect({ api_key });
     const loginUrl = kc.getLoginURL();
+    const TEST_APP_USER_ID = "test_user_001";
+loginUrl += `&state=${encodeURIComponent(TEST_APP_USER_ID)}`;
 
     // For GET: redirect the browser to Zerodha's login URL
     if (req.method === "GET") {
