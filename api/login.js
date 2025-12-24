@@ -20,7 +20,12 @@ export default function handler(req, res) {
     `&api_key=${encodeURIComponent(apiKey)}` +
     `&state=${encodeURIComponent(state)}`;
 
-  return res.json({ ok: true, url: loginUrl });
+ return res.json({
+  ok: true,
+  url: loginUrl,
+  debug: "LOGIN_V3_STATE_ENABLED"
+});
+
 }
 
 
