@@ -23,8 +23,7 @@ export async function instance() {
 export function loginUrl() {
   const apiKey = process.env.KITE_API_KEY;
   const kc = new KiteConnect({ api_key: apiKey });
-  // Must match Zerodha console redirect
-  return kc.getLoginURL();
+
 }
 
 export async function exchangeRequestToken(request_token) {
