@@ -296,12 +296,6 @@ const s = { ...daily, ...globalConfig };
     const unrealised = computeUnrealisedFIFOFromBooks(books, positions, ltpAll);
 
     const total = realised + unrealised;
-    // ---------------------------------------------------
-// BASELINE FOR TICKER-WORKER MTM DRIFT
-// ---------------------------------------------------
-patch.ltp_at_last_calc = ltpAll;
-patch.mtm_last_update = Date.now();
-
 
     console.log("🟢 FINAL MTM:", {
       realised,
@@ -334,6 +328,7 @@ patch.mtm_last_update = Date.now();
       unrealised,
       total_pnl: total,
       mtm_last_update: now,
+      ltp_at_last_calc: ltpAll,
       kite_status: "ok",
       kite_error_message: null,
       mtm_log: mtmLog
