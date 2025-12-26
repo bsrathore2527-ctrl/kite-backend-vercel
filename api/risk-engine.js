@@ -235,9 +235,21 @@ async function squareOffDelta(kc, sym, dQty) {
 // MAIN HANDLER (unchanged except freeze-mode product fix later)
 // ---------------------------------------------------
 export default async function handler(req, res) {
-  if (req.method === "OPTIONS") return res.status(204).end();
-  if (req.method !== "POST")
+  if (req.method === "OPTIONS") {
+    return res.status(204).end();
+  }
+
+  let reason;
+
+  if (req.method === "POST") {
+    reason = req.body?.reason || "manual";
+  } else if (req.method === "GET") {
+    // Vercel Cron always uses GET
+    reason = "cron";
+  } else {
     return res.status(405).json({ ok: false, error: "Method not allowed" });
+  }
+
 
   const { reason } = req.body || {};
 
