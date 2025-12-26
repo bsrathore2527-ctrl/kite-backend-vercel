@@ -251,8 +251,6 @@ export default async function handler(req, res) {
   }
 
 
-  const { reason } = req.body || {};
-
   try {
    const daily = (await getState()) || {};
 const globalConfig = await getGlobalConfig();
