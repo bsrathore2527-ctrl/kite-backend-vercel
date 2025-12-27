@@ -201,6 +201,11 @@ async function handleGetTrades(req, res) {
   const trades = (Array.isArray(tb) ? tb : Object.values(tb))
     .map(t => ({
       ts: Number(t.ts ?? t._ts ?? t.raw?._ts),
+      iso_date:
+        t.iso_date ??
+        t.raw?.exchange_timestamp ??
+        (ts ? new Date(ts).toISOString() : null),
+
       tradingsymbol: t.tradingsymbol ?? t.raw?.tradingsymbol,
       side: t.side ?? t.transaction_type ?? t.raw?.transaction_type,
       qty: Number(t.qty ?? t.quantity ?? t.raw?.quantity),
