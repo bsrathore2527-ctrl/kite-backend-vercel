@@ -191,34 +191,50 @@ async function handleGetLogs(req, res) {
 // ==============================
 
 async function handleGetTrades(req, res) {
-  const daily = await loadDaily();
+  const url = new URL(req.url, "http://localhost");
+  const limit = Number(url.searchParams.get("limit") || 100);
 
-  // trades may be stored under numeric keys OR a trades array
-  const raw =
-    Array.isArray(daily.trades)
-      ? daily.trades
-      : Object.values(daily).filter(
-          v => v && typeof v === "object" && v.tradingsymbol && v.ts
-        );
+  // 🔧 TEST MODE: how many days back to include
+  const daysBack = Number(url.searchParams.get("days") || 3); // 👈 default 3 days
 
-  const limit = Number(
-    new URL(req.url, "http://localhost").searchParams.get("limit") || 100
-  );
+  const allTrades = [];
 
-  const trades = raw
-    .map(t => ({
-      ts: Number(t.ts ?? t._ts),
-      tradingsymbol: t.tradingsymbol ?? t.raw?.tradingsymbol,
-      side: t.side ?? t.transaction_type ?? t.raw?.transaction_type,
-      qty: Number(t.qty ?? t.quantity ?? t.raw?.quantity),
-      price: Number(t.price ?? t.average_price ?? t.raw?.average_price),
-    }))
+  for (let i = 0; i <= daysBack; i++) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+
+    const key =
+      "risk:" +
+      d.toISOString().slice(0, 10); // YYYY-MM-DD
+
+    const daily = (await kv.get(key)) || {};
+
+    // support both styles
+    const raw =
+      Array.isArray(daily.trades)
+        ? daily.trades
+        : Object.values(daily).filter(
+            v => v && typeof v === "object" && v.tradingsymbol && v.ts
+          );
+
+    for (const t of raw) {
+      allTrades.push({
+        ts: Number(t.ts ?? t._ts),
+        tradingsymbol: t.tradingsymbol ?? t.raw?.tradingsymbol,
+        side: t.side ?? t.transaction_type ?? t.raw?.transaction_type,
+        qty: Number(t.qty ?? t.quantity ?? t.raw?.quantity),
+        price: Number(t.price ?? t.average_price ?? t.raw?.average_price),
+      });
+    }
+  }
+
+  const result = allTrades
     .filter(t => t.ts && t.tradingsymbol)
     .sort((a, b) => b.ts - a.ts)
     .slice(0, limit);
 
   res.setHeader("Content-Type", "application/json");
-  res.end(JSON.stringify(trades));
+  res.end(JSON.stringify(result));
 }
 
 
