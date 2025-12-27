@@ -191,14 +191,36 @@ async function handleGetLogs(req, res) {
 // ==============================
 
 async function handleGetTrades(req, res) {
-  const tb = await loadTradebook();
+  const daily = await loadDaily();
+
+  // trades may be stored under numeric keys OR a trades array
+  const raw =
+    Array.isArray(daily.trades)
+      ? daily.trades
+      : Object.values(daily).filter(
+          v => v && typeof v === "object" && v.tradingsymbol && v.ts
+        );
+
   const limit = Number(
     new URL(req.url, "http://localhost").searchParams.get("limit") || 100
   );
 
+  const trades = raw
+    .map(t => ({
+      ts: Number(t.ts ?? t._ts),
+      tradingsymbol: t.tradingsymbol ?? t.raw?.tradingsymbol,
+      side: t.side ?? t.transaction_type ?? t.raw?.transaction_type,
+      qty: Number(t.qty ?? t.quantity ?? t.raw?.quantity),
+      price: Number(t.price ?? t.average_price ?? t.raw?.average_price),
+    }))
+    .filter(t => t.ts && t.tradingsymbol)
+    .sort((a, b) => b.ts - a.ts)
+    .slice(0, limit);
+
   res.setHeader("Content-Type", "application/json");
-  res.end(JSON.stringify({ ok: true, trades: tb.slice(-limit) }));
+  res.end(JSON.stringify(trades));
 }
+
 
 // ==============================
 // PUT /api/risk-config  (GLOBAL CONFIG UPDATE)
