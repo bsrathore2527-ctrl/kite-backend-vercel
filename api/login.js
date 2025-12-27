@@ -2,30 +2,33 @@
 // Zerodha Kite OAuth login — opens browser redirect for user.
 
 import { KiteConnect } from "kiteconnect";
-// api/login.js
 
-// api/login.js
-export default function handler(req, res) {
-  const apiKey = process.env.KITE_API_KEY;
-  if (!apiKey) {
-    return res.status(500).json({ ok: false, error: "KITE_API_KEY missing" });
+export default async function handler(req, res) {
+  try {
+    // Allow both GET and POST so UI and other integrations work
+    if (req.method !== "GET" && req.method !== "POST") {
+      return res.status(405).json({ ok: false, error: "Method not allowed" });
+    }
+
+    const api_key = process.env.KITE_API_KEY;
+    if (!api_key) {
+      return res.status(500).json({ ok: false, error: "KITE_API_KEY not set" });
+    }
+
+    const kc = new KiteConnect({ api_key });
+    const loginUrl = kc.getLoginURL();
+
+    // For GET: redirect the browser to Zerodha's login URL
+    if (req.method === "GET") {
+      res.writeHead(302, { Location: loginUrl });
+      res.end();
+      return;
+    }
+
+    // For POST: return the URL as JSON (optional usage)
+    return res.status(200).json({ ok: true, url: loginUrl });
+  } catch (err) {
+    console.error("Zerodha Login Error:", err);
+    res.status(500).json({ ok: false, error: err.message || "Login failed" });
   }
-
-  // TEMP test value
-  const state = "test_user_001";
-
-  const loginUrl =
-    "https://kite.zerodha.com/connect/login" +
-    "?v=3" +
-    `&api_key=${encodeURIComponent(apiKey)}` +
-    `&state=${encodeURIComponent(state)}`;
-
- return res.json({
-  ok: true,
-  url: loginUrl,
-  debug: "LOGIN_V3_STATE_ENABLED"
-});
-
 }
-
-
